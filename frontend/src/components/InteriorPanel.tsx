@@ -6,6 +6,14 @@ interface InteriorPanelProps {
   onTalk: (npcId: number) => void
   onInspect: (npcId: number) => void
   onExit: () => void
+  onFocus: (target: {
+    type: 'building' | 'npc' | 'item'
+    id: number
+    name: string
+    description: string
+    sensory?: string[]
+    knowledge?: string[]
+  } | null) => void
 }
 
 export function InteriorPanel({ state, buildingId, onTalk, onInspect, onExit }: InteriorPanelProps) {
@@ -68,6 +76,19 @@ export function InteriorPanel({ state, buildingId, onTalk, onInspect, onExit }: 
                 <span className="map-actions">
                   <button onClick={() => onTalk(n.id)}>Talk</button>
                   <button onClick={() => onInspect(n.id)}>Inspect</button>
+                  <button
+                    onClick={() => {
+                      onFocus({
+                        type: 'npc',
+                        id: n.id,
+                        name: `${n.name} ${n.surname}`,
+                        description: `${n.occupation}. ${n.name} looks ${n.current_emotion === 1 ? 'pleased' : n.current_emotion === 2 ? 'angry' : n.current_emotion === 3 ? 'fearful' : 'neutral'}.`,
+                        sensory: [`Voice: ${n.gender === 'female' ? 'soft' : 'gruff'}`, `Smells of ${n.occupation === 'farmer' ? 'earth' : n.occupation === 'smith' ? 'iron and soot' : 'old paper'}`],
+                      })
+                    }}
+                  >
+                    Focus
+                  </button>
                 </span>
               </li>
             ))}
@@ -80,7 +101,24 @@ export function InteriorPanel({ state, buildingId, onTalk, onInspect, onExit }: 
           <h4>Kept here</h4>
           <ul className="interior-items">
             {items.map((it) => (
-              <li key={it.id}>· {it.name}</li>
+              <li key={it.id}>
+                · {it.name}
+                <button
+                  className="interior-focus-btn"
+                  onClick={() => {
+                    onFocus({
+                      type: 'item',
+                      id: it.id,
+                      name: it.name,
+                      description: it.properties?.description ?? `${it.category}: ${it.name}`,
+                      sensory: it.properties?.scent ? [`Scent of ${it.properties.scent}`] : undefined,
+                      knowledge: it.properties?.knowledge ? [it.properties.knowledge] : undefined,
+                    })
+                  }}
+                >
+                  Focus
+                </button>
+              </li>
             ))}
           </ul>
         </div>

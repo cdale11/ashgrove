@@ -9,6 +9,7 @@ import { MapPanel } from './components/MapPanel'
 import { PlayerPanel } from './components/PlayerPanel'
 import { DialoguePanel } from './components/DialoguePanel'
 import { InteriorPanel } from './components/InteriorPanel'
+import { LensPanel } from './components/LensPanel'
 import type { DialogueSession } from './components/DialoguePanel'
 import type { ConversationTopic, DialogueLine } from './types'
 import './App.css'
@@ -18,6 +19,14 @@ export default function App() {
   const [selectedNpcId, setSelectedNpcId] = useState<number | null>(null)
   const [notifications, setNotifications] = useState<string[]>([])
   const [dialogue, setDialogue] = useState<DialogueSession | null>(null)
+  const [focusedTarget, setFocusedTarget] = useState<{
+    type: 'building' | 'npc' | 'item'
+    id: number
+    name: string
+    description: string
+    sensory?: string[]
+    knowledge?: string[]
+  } | null>(null)
 
   const pushNotice = (msg: string) => {
     if (!msg) return
@@ -98,6 +107,21 @@ export default function App() {
     const res = await act({ type: 'exit' })
     pushNotice(String(res.message ?? res.error ?? 'Exited'))
   }
+
+  const handleFocus = (
+    target: {
+      type: 'building' | 'npc' | 'item'
+      id: number
+      name: string
+      description: string
+      sensory?: string[]
+      knowledge?: string[]
+    } | null,
+  ) => {
+    setFocusedTarget(target)
+  }
+
+  const closeLens = () => setFocusedTarget(null)
 
   const handleSelectTopic = async (topic: ConversationTopic) => {
     if (!dialogue) return
@@ -189,6 +213,7 @@ export default function App() {
               onTalk={handleTalk}
               onInspect={handleInspect}
               onExit={handleExit}
+              onFocus={handleFocus}
             />
           ) : (
             <MapPanel
@@ -197,6 +222,7 @@ export default function App() {
               onInspect={handleInspect}
               onMove={handleMapMove}
               onEnter={handleEnter}
+              onFocus={handleFocus}
             />
           )}
           {selectedNpc ? (
@@ -233,6 +259,7 @@ export default function App() {
           onClose={() => setDialogue(null)}
         />
       )}
+      {focusedTarget && <LensPanel target={focusedTarget} onClose={closeLens} />}
     </div>
   )
 }

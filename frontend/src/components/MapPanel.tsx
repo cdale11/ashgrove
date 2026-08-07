@@ -7,6 +7,14 @@ interface MapPanelProps {
   onInspect: (npcId: number) => void
   onMove: (x: number, y: number) => void
   onEnter: (buildingId: number) => void
+  onFocus: (target: {
+    type: 'building' | 'npc' | 'item'
+    id: number
+    name: string
+    description: string
+    sensory?: string[]
+    knowledge?: string[]
+  } | null) => void
 }
 
 // Per-season ground palettes (base grass tones before tonal correction).
@@ -70,11 +78,12 @@ function pickGlyph(n: NPC): string {
   return DEFAULT_NPC_GLYPH
 }
 
-export function MapPanel({ state, onTalk, onInspect, onMove, onEnter }: MapPanelProps) {
+export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }: MapPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [selectedBuilding, setSelectedBuilding] = useState<number | null>(null)
+  const [selectedItem, setSelectedItem] = useState<number | null>(null)
 
   const player = state.player
   const playerRegionId = player?.region_id ?? -1
@@ -354,6 +363,32 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter }: MapPanel
     }
     setSelectedBuilding(null)
 
+    // Nearest item (loose goods) – click to focus.
+    let iBest: typeof hereItems[0] | null = null
+    let bestDistItem = 20 / scale
+    for (const it of hereItems) {
+      const p = toCanvas(it.position.x, it.position.y)
+      const d = Math.hypot(p.x - x, p.y - y)
+      if (d < bestDistItem) {
+        bestDistItem = d
+        iBest = it
+      }
+    }
+    if (iBest) {
+      setSelectedItem(iBest.id)
+      setHover(iBest.name)
+      onFocus({
+        type: 'item',
+        id: iBest.id,
+        name: iBest.name,
+        description: iBest.properties?.description ?? `${iBest.category}: ${iBest.name}`,
+        sensory: iBest.properties?.scent ? [`Scent of ${iBest.properties.scent}`] : undefined,
+        knowledge: iBest.properties?.knowledge ? [iBest.properties.knowledge] : undefined,
+      })
+      return
+    }
+    setSelectedItem(null)
+
     // Otherwise: move the player to that spot
     onMove(wx, wy)
     setSelected(null)
@@ -379,6 +414,19 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter }: MapPanel
         <div className="map-actions">
           <button onClick={() => onTalk(selectedNpc.id)}>Talk</button>
           <button onClick={() => onInspect(selectedNpc.id)}>Inspect</button>
+          <button
+            onClick={() => {
+              onFocus({
+                type: 'npc',
+                id: selectedNpc.id,
+                name: `${selectedNpc.name} ${selectedNpc.surname}`,
+                description: `${selectedNpc.occupation}. ${selectedNpc.name} looks ${selectedNpc.current_emotion === 1 ? 'pleased' : selectedNpc.current_emotion === 2 ? 'angry' : selectedNpc.current_emotion === 3 ? 'fearful' : 'neutral'}.`,
+                sensory: [`Voice: ${selectedNpc.gender === 'female' ? 'soft' : 'gruff'}`, `Smells of ${selectedNpc.occupation === 'farmer' ? 'earth' : selectedNpc.occupation === 'smith' ? 'iron and soot' : 'old paper'}`],
+              })
+            }}
+          >
+            Focus
+          </button>
           <button onClick={() => setSelected(null)}>✕</button>
         </div>
       )}
@@ -392,6 +440,22 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter }: MapPanel
             }}
           >
             Enter
+          </button>
+          <button
+            onClick={() => {
+              const b = hereBuildings.find((bb) => bb.id === selectedBuilding)
+              if (b) {
+                onFocus({
+                  type: 'building',
+                  id: b.id,
+                  name: b.name,
+                  description: b.description,
+                  sensory: ['Dust motes in slant light', 'Faint draft from cracks'],
+                })
+              }
+            }}
+          >
+            Focus
           </button>
           <button onClick={() => setSelectedBuilding(null)}>✕</button>
         </div>
