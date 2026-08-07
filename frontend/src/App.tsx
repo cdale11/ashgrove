@@ -5,6 +5,7 @@ import { VillagePanel } from './components/VillagePanel'
 import { NPCDetailPanel } from './components/NPCDetailPanel'
 import { InvestigationPanel } from './components/InvestigationPanel'
 import { WorldPanel } from './components/WorldPanel'
+import { MapPanel } from './components/MapPanel'
 import { PlayerPanel } from './components/PlayerPanel'
 import { DialoguePanel } from './components/DialoguePanel'
 import type { DialogueSession } from './components/DialoguePanel'
@@ -80,6 +81,11 @@ export default function App() {
       const d = res.detail as Record<string, unknown>
       pushNotice(`${d.name}: ${d.occupation} — mood: ${d.emotion}`)
     }
+  }
+
+  const handleMapMove = async (x: number, y: number) => {
+    const res = await act({ type: 'move', target: { x, y, z: 0 } })
+    pushNotice(String(res.message ?? res.error ?? 'Moved'))
   }
 
   const handleSelectTopic = async (topic: ConversationTopic) => {
@@ -165,6 +171,12 @@ export default function App() {
         </aside>
 
         <section className="column center">
+          <MapPanel
+            state={state}
+            onTalk={handleTalk}
+            onInspect={handleInspect}
+            onMove={handleMapMove}
+          />
           {selectedNpc ? (
             <NPCDetailPanel state={state} npc={selectedNpc} />
           ) : (

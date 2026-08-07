@@ -133,6 +133,7 @@ export interface Building {
   name: string
   type: number
   position: { x: number; y: number; z: number; region_id: number }
+  bounds: { min_x: number; min_y: number; max_x: number; max_y: number }
   owner_id: number
   resident_ids: number[]
   worker_ids: number[]
@@ -146,6 +147,7 @@ export interface Region {
   id: number
   name: string
   type: number
+  bounds: { min_x: number; min_y: number; max_x: number; max_y: number }
   building_ids: number[]
   npc_ids: number[]
   connected_region_ids: number[]
@@ -161,6 +163,7 @@ export interface Item {
   weight: number
   value: number
   condition: number
+  position: Vec3 & { region_id: number }
   properties: Record<string, string>
   owner_id: number
   container_id: number
