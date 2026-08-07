@@ -97,9 +97,18 @@ export class GameClient {
     }
   }
 
-  /** Fetch current state via REST (fallback / initial load). */
+  /** Fetch current state via REST (fallback / initial load).
+   * The game server exposes CORS (Access-Control-Allow-Origin: *), and the
+   * Vite dev proxy drops POST bodies, so talk directly to the game server. */
+  private restUrl(path: string): string {
+    const proto = window.location.protocol === 'https:' ? 'https' : 'http'
+    const host = window.location.hostname || 'localhost'
+    const port = Number(import.meta.env.VITE_API_PORT || 8000)
+    return `${proto}://${host}:${port}${path}`
+  }
+
   async fetchState(): Promise<WorldState> {
-    const res = await fetch('/api/world/state')
+    const res = await fetch(this.restUrl('/api/world/state'))
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const state = (await res.json()) as WorldState
     this.lastState = state
@@ -123,7 +132,7 @@ export class GameClient {
   }
 
   async actionViaRest(action: Record<string, unknown>): Promise<ActionResult> {
-    const res = await fetch('/api/action', {
+    const res = await fetch(this.restUrl('/api/action'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(action),
