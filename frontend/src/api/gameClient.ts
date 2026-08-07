@@ -1,0 +1,177 @@
+import { GameMessageType } from '../types'
+import type { GameMessage, WorldState } from '../types'
+
+/**
+ * Client for the Ashgrove C++ game server.
+ * Uses WebSocket for real-time state, REST for discrete actions.
+ */
+export class GameClient {
+  private ws: WebSocket | null = null
+  private listeners = new Set<(state: WorldState) => void>()
+  private errorListeners = new Set<(msg: string) => void>()
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private connected = false
+  private lastState: WorldState | null = null
+
+  connect(): void {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    // Use the current host:port, fall back to localhost:8000
+    const host = window.location.hostname || 'localhost'
+    const port = window.location.port ? window.location.port : '5173'
+    // Vite proxies /ws to the backend; if on 5173 directly connect via proxy path
+    const wsUrl = `${proto}://${host}${port === '5173' ? ':5173' : ':' + port}/ws`
+    this.connected = true
+    this.openSocket(wsUrl)
+  }
+
+  private openSocket(url: string) {
+    this.ws = new WebSocket(url)
+
+    this.ws.onopen = () => {
+      console.log('[game] WebSocket connected')
+      this.reconnectAttempts = 0
+      // Request current state on connect
+      this.requestState()
+    }
+
+    this.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string) as GameMessage
+        this.handleMessage(msg)
+      } catch (e) {
+        console.error('[game] failed to parse message', e)
+      }
+    }
+
+    this.ws.onerror = (err) => {
+      console.error('[game] WebSocket error', err)
+      this.emitError('WebSocket connection error')
+    }
+
+    this.ws.onclose = () => {
+      console.log('[game] WebSocket closed')
+      this.ws = null
+      if (this.connected) {
+        this.scheduleReconnect()
+      }
+    }
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000)
+    this.reconnectAttempts++
+    this.reconnectTimer = setTimeout(() => {
+      this.ws = null
+      // Rebuild URL (host may have changed via HMR)
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const host = window.location.hostname || 'localhost'
+      this.reconnect(`${proto}://${host}:${window.location.port}/ws`)
+    }, delay)
+  }
+
+  private reconnect(url: string) {
+    this.openSocket(url)
+  }
+
+  private handleMessage(msg: GameMessage) {
+    switch (msg.type) {
+      case GameMessageType.WorldState:
+        this.lastState = msg.payload as unknown as WorldState
+        this.notify()
+        break
+      case GameMessageType.TimeSync:
+        this.lastState = msg.payload as unknown as WorldState
+        this.notify()
+        break
+      case GameMessageType.Error:
+        this.emitError(String(msg.payload.error ?? 'Unknown error'))
+        break
+      default:
+        break
+    }
+  }
+
+  /** Fetch current state via REST (fallback / initial load). */
+  async fetchState(): Promise<WorldState> {
+    const res = await fetch('/api/world/state')
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const state = (await res.json()) as WorldState
+    this.lastState = state
+    return state
+  }
+
+  requestState() {
+    this.send({ type: GameMessageType.RequestState, payload: {} })
+  }
+
+  sendAction(action: Record<string, unknown>) {
+    this.send({ type: GameMessageType.PlayerAction, payload: action })
+  }
+
+  saveGame() {
+    this.send({ type: GameMessageType.SaveGame, payload: {} })
+  }
+
+  loadGame() {
+    this.send({ type: GameMessageType.LoadGame, payload: {} })
+  }
+
+  async actionViaRest(action: Record<string, unknown>): Promise<WorldState> {
+    const res = await fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const state = (await res.json()) as WorldState
+    this.lastState = state
+    this.notify()
+    return state
+  }
+
+  private send(msg: GameMessage) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg))
+    } else {
+      console.warn('[game] WebSocket not open')
+    }
+  }
+
+  getState(): WorldState | null {
+    return this.lastState
+  }
+
+  isConnected(): boolean {
+    return !!this.ws && this.ws.readyState === WebSocket.OPEN
+  }
+
+  onState(cb: (state: WorldState) => void): () => void {
+    this.listeners.add(cb)
+    // Immediately notify if we already have state
+    if (this.lastState) cb(this.lastState)
+    return () => this.listeners.delete(cb)
+  }
+
+  onError(cb: (msg: string) => void): () => void {
+    this.errorListeners.add(cb)
+    return () => this.errorListeners.delete(cb)
+  }
+
+  private notify() {
+    if (this.lastState) {
+      this.listeners.forEach((cb) => cb(this.lastState!))
+    }
+  }
+
+  private emitError(msg: string) {
+    this.errorListeners.forEach((cb) => cb(msg))
+  }
+
+  disconnect() {
+    this.connected = false
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    if (this.ws) this.ws.close()
+  }
+}

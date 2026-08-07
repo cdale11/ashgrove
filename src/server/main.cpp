@@ -51,6 +51,9 @@ int main(int argc, char** argv) {
     
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+#ifdef SIGPIPE
+    signal(SIGPIPE, SIG_IGN);
+#endif
     
     spdlog::info("==========================================");
     spdlog::info("        Ashgrove Game Server v0.1.0");
