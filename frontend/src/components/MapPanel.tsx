@@ -9,6 +9,14 @@ interface MapPanelProps {
 }
 
 const REGION_COLORS = ['#2d4a3a', '#1d4a3f', '#27455a', '#2b3a4a']
+// Per-season ground palettes (base grass tones before tonal correction).
+const SEASON_TINTS: Record<string, string> = {
+  Spring: '#3a5c44',
+  Summer: '#4a7048',
+  Autumn: '#7a5c38',
+  Winter: '#c9d4dd',
+  Default: '#3a5244',
+}
 const CATEGORY_ICONS: Record<string, string> = {
   food: '🍞',
   tool: '🔨',
@@ -65,8 +73,20 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
     const wx = (px: number) => cx + px * scale
     const wy = (py: number) => cy + py * scale
 
-    // Background
-    ctx.fillStyle = '#1a2b22'
+    // Time of day determines light level (0 = darkest night, 1 = full day).
+    const hour = state.time_data?.hour ?? 12
+    const daylight = hour >= 7 && hour < 19
+    const dayFactor = daylight ? 1 : hour >= 6 && hour < 21 ? 0.55 : 0.18
+    const seasonTint = SEASON_TINTS[state.time_data?.season ?? 'Default'] ?? SEASON_TINTS.Default
+    const weatherIntensity = state.time_data?.weather_intensity ?? 0
+
+    // Parse season tint into rgb for blending
+    const tintRgb = (hex: string): [number, number, number] =>
+      [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
+    const [tr, tg, tb] = tintRgb(seasonTint)
+
+    // Background (season-grounded)
+    ctx.fillStyle = `rgb(${Math.round(tr * dayFactor)}, ${Math.round(tg * dayFactor)}, ${Math.round(tb * dayFactor)})`
     ctx.fillRect(0, 0, w, h)
 
     // Region bounds box (clamped to view so huge regions don't draw an edge frame)
@@ -76,7 +96,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
       const bx2 = Math.min(w, wx(region.bounds.max_x))
       const by2 = Math.min(h, wy(region.bounds.max_y))
       if (bx < bx2 && by < by2) {
-        ctx.fillStyle = 'rgba(40, 60, 48, 0.7)'
+        ctx.fillStyle = `rgba(${tr}, ${tg}, ${tb}, 0.7)`
         ctx.fillRect(bx, by, bx2 - bx, by2 - by)
         ctx.strokeStyle = 'rgba(120, 150, 120, 0.35)'
         ctx.strokeRect(bx, by, bx2 - bx, by2 - by)
@@ -137,6 +157,28 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
       ctx.lineWidth = 2
       ctx.stroke()
     }
+
+    // --- Atmosphere overlays (drawn last so darkness dims all entities) ---
+    // 1) Night tint: deepens toward sleeve with no daylight.
+    if (dayFactor < 1) {
+      const darkness = 1 - dayFactor
+      ctx.fillStyle = `rgba(10, 14, 34, ${0.55 * darkness})`
+      ctx.fillRect(0, 0, w, h)
+    }
+    // 2) Weather fog / murk.
+    if (weatherIntensity > 0.05) {
+      let murk
+      if (weatherIntensity >= 0.6) murk = '#cfd8da' // heavy fog
+      else murk = seasonTint === SEASON_TINTS.Winter ? '#dfe6ec' : '#8fa08a'
+      ctx.fillStyle = `rgba(${tintRgb(murk)[0]}, ${tintRgb(murk)[1]}, ${tintRgb(murk)[2]}, ${Math.min(0.6, 0.15 + weatherIntensity * 0.5)})`
+      ctx.fillRect(0, 0, w, h)
+    }
+    // 3) Peripheral vignette for dread.
+    const vg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.34, cx, cy, Math.max(w, h) * 0.72)
+    vg.addColorStop(0, 'rgba(0,0,0,0)')
+    vg.addColorStop(1, `rgba(4, 6, 12, ${0.2 + (1 - dayFactor) * 0.5})`)
+    ctx.fillStyle = vg
+    ctx.fillRect(0, 0, w, h)
   })
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
