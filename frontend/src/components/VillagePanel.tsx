@@ -12,11 +12,16 @@ function emotionName(code: number): string {
 }
 
 export function VillagePanel({ state, onSelectNpc, selectedNpcId }: VillagePanelProps) {
-  const npcs = [...state.world.npcs].sort((a, b) => a.tier - b.tier)
+  const playerRegion = state.player?.region_id ?? -1
+  // Only show NPCs physically present in the player's current region; the
+  // server rejects talking to anyone in a different region.
+  const here = state.world.npcs.filter((n) => n.position.region_id === playerRegion)
+  const npcs = [...here].sort((a, b) => a.tier - b.tier)
+  const awayCount = state.world.npcs.length - npcs.length
 
   return (
     <div className="panel village-panel">
-      <h3>Villagers ({npcs.length})</h3>
+      <h3>Villagers here ({npcs.length}{awayCount > 0 ? `, ${awayCount} elsewhere` : ''})</h3>
       <ul className="npc-list">
         {npcs.map((npc: NPC) => (
           <li
