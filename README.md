@@ -14,12 +14,15 @@ that continue without the player.
 └──────────────────┘                        │  │   weather, seasons)    │
                                             │  ├─ World (regions,      │
                                             │  │   buildings, items)    │
-                                            │  ├─ NPCs (3 tiers,       │
-                                            │  │   memory, beliefs)    │
-                                            │  ├─ Investigation        │
-                                            │  │   (knowledge, evidence)│
-                                            │  └─ Networking (REST +   │
-                                            │      WebSocket)          │
+│  ├─ NPCs (types,          │
+│  │   memory, beliefs)     │
+│  ├─ Investigation         │
+│  │   (knowledge, evidence)│
+│  ├─ Player + Dialogue     │
+│  │   (player character,   │
+│  │   knowledge, dialogue) │
+│  └─ Networking (REST +   │
+│      WebSocket)          │
                                             └──────────────────────────┘
 ```
 
@@ -80,8 +83,12 @@ conda activate ashgrove
 |--------------------------|--------|--------------------------------------|
 | `/api/health`            | GET    | Server status                        |
 | `/api/world/state`       | GET    | Full world snapshot (JSON)           |
-| `/api/action`            | POST   | Player action (`save`, `load`, ...)  |
+| `/api/action`            | POST   | Player action, e.g. `{"type":"move","target":{"x":14,"y":10}}` |
 | `/ws`                    | WS     | Real-time state streaming + actions  |
+
+Action verbs: `save`, `load`, `get_state`, `move` (`target: {x, y}`), `talk` (`target: <npc id>`),
+`dialogue_topic` (`target: <npc id>`, `topic: <name>`), `inspect` (`target: <entity id>`),
+`pickup` (`target: <item id>`), `use_item` (`target: <item id>`), `rest`.
 
 ## Status
 
@@ -94,8 +101,8 @@ Vertical slice in progress:
 - [x] Investigation system (knowledge, evidence, contradictions)
 - [x] HTTP + WebSocket server with REST API
 - [x] React/TypeScript client (time, village, NPC detail, investigation panels)
+- [x] Player character + action verbs (move, talk, inspect, pickup, use_item, rest)
+- [x] Dialogue system with NPC responses (topic-based, knowledge-gated)
 - [ ] llama.cpp NPC cognition (simulation-validated LLM proposals)
-- [ ] Player character + action verbs (move, interact, talk, inspect)
-- [ ] Dialogue system with NPC-generated responses
 - [ ] Procedural forest/cave generation
 - [ ] Survival systems (hunger, fatigue, temperature)
