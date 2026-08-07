@@ -109,6 +109,9 @@ public:
     NPCPtr get_npc(EntityID id);
     ResourceDeposit* get_resource_deposit(EntityID id);
     
+    // Iteration accessors
+    const std::unordered_map<EntityID, Region>& regions() const { return regions_; }
+    
     // Queries
     std::vector<EntityID> get_buildings_in_region(EntityID region_id) const;
     std::vector<EntityID> get_npcs_in_region(EntityID region_id) const;

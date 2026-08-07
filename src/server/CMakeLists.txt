@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 add_executable(ashgrove_server
     main.cpp
     game_server.cpp
+    player.cpp
 )
 
 target_include_directories(ashgrove_server PRIVATE

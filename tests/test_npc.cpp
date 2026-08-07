@@ -1,5 +1,6 @@
 #include "test_utils.h"
 #include "npc/npc.h"
+#include "npc/dialogue.h"
 
 using namespace ashgrove;
 
@@ -91,4 +92,42 @@ TEST(npc_schedule_lookup) {
     CHECK_EQ(npc.get_scheduled_activity(10), "work");
     CHECK_EQ(npc.get_scheduled_activity(3), "idle");
     CHECK_EQ(npc.get_scheduled_activity(16), "idle");
+}
+
+TEST(dialogue_topics_gated_by_knowledge) {
+    NPC npc(1, "Mayor", NPCTier::Tier1_Major);
+    DialogueSystem dialogue;
+
+    PlayerKnowledge pk;
+    auto topics_none = dialogue.topics_for(npc, pk);
+    bool has_disappearance = false;
+    for (const auto& t : topics_none) if (t.id == "disappearance" && t.available) has_disappearance = true;
+    CHECK(!has_disappearance);
+
+    pk.knowledge_titles.push_back("The Disappearance");
+    auto topics_with = dialogue.topics_for(npc, pk);
+    bool available_now = false;
+    for (const auto& t : topics_with) if (t.id == "disappearance" && t.available) available_now = true;
+    CHECK(available_now);
+}
+
+TEST(dialogue_respond_unlocks_knowledge) {
+    NPC npc(1, "Mara", NPCTier::Tier1_Major);
+    npc.occupation = "Doctor";
+    DialogueSystem dialogue;
+    PlayerKnowledge pk;
+
+    auto line = dialogue.respond(npc, "disappearance", pk);
+    CHECK(!line.text.empty());
+    bool has_unlock = false;
+    for (const auto& t : line.knowledge_unlocked) if (t == "The Disappearance") has_unlock = true;
+    CHECK(has_unlock);
+}
+
+TEST(dialogue_greeting_mentions_speaker) {
+    NPC npc(7, "Elias", NPCTier::Tier1_Major);
+    DialogueSystem dialogue;
+    auto line = dialogue.greeting(npc);
+    CHECK_EQ(line.speaker_id, 7);
+    CHECK(!line.text.empty());
 }

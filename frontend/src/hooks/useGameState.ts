@@ -49,8 +49,19 @@ export function useGameState() {
     [client],
   )
 
+  const act = useCallback(
+    async (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      try {
+        return await client.actionViaRest(action)
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'Action failed' }
+      }
+    },
+    [client],
+  )
+
   const saveGame = useCallback(() => client.saveGame(), [client])
   const loadGame = useCallback(() => client.loadGame(), [client])
 
-  return { state, connected, error, sendAction, saveGame, loadGame }
+  return { state, connected, error, sendAction, act, saveGame, loadGame }
 }

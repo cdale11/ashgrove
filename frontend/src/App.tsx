@@ -5,16 +5,22 @@ import { VillagePanel } from './components/VillagePanel'
 import { NPCDetailPanel } from './components/NPCDetailPanel'
 import { InvestigationPanel } from './components/InvestigationPanel'
 import { WorldPanel } from './components/WorldPanel'
+import { PlayerPanel } from './components/PlayerPanel'
+import { DialoguePanel } from './components/DialoguePanel'
+import type { DialogueSession } from './components/DialoguePanel'
+import type { ConversationTopic, DialogueLine } from './types'
 import './App.css'
 
 export default function App() {
-  const { state, connected, error, saveGame, loadGame } = useGameState()
+  const { state, connected, error, saveGame, loadGame, act } = useGameState()
   const [selectedNpcId, setSelectedNpcId] = useState<number | null>(null)
   const [notifications, setNotifications] = useState<string[]>([])
+  const [dialogue, setDialogue] = useState<DialogueSession | null>(null)
 
   const pushNotice = (msg: string) => {
+    if (!msg) return
     setNotifications((n) => [msg, ...n].slice(0, 5))
-    setTimeout(() => setNotifications((n) => n.filter((x) => x !== msg)), 4000)
+    setTimeout(() => setNotifications((n) => n.filter((x) => x !== msg)), 5000)
   }
 
   const selectedNpc = state?.world.npcs.find((n) => n.id === selectedNpcId) ?? null
@@ -26,6 +32,54 @@ export default function App() {
   const handleLoad = () => {
     loadGame()
     pushNotice('Load requested')
+  }
+
+  const handleTalk = async (npcId: number) => {
+    const res = await act({ type: 'talk', target: npcId })
+    if (!res.ok) {
+      pushNotice(String(res.error ?? 'Cannot talk to that person'))
+      return
+    }
+    const line = res.line as DialogueLine | undefined
+    const topics = (res.topics ?? []) as ConversationTopic[]
+    setDialogue({
+      npcId,
+      npcName: String(res.speaker_name ?? 'Villager'),
+      entries: [{ speaker: String(res.speaker_name ?? 'Villager'), text: line?.text ?? '' }],
+      topics,
+    })
+  }
+
+  const handleInspect = async (npcId: number) => {
+    setSelectedNpcId(npcId)
+    const res = await act({ type: 'inspect', what: 'npc', target: npcId })
+    if (res.detail) {
+      const d = res.detail as Record<string, unknown>
+      pushNotice(`${d.name}: ${d.occupation} — mood: ${d.emotion}`)
+    }
+  }
+
+  const handleSelectTopic = async (topic: ConversationTopic) => {
+    if (!dialogue) return
+    const res = await act({ type: 'dialogue_topic', target: dialogue.npcId, topic: topic.id })
+    const line = res.line as DialogueLine | undefined
+    const updated: DialogueSession = {
+      ...dialogue,
+      entries: [
+        ...dialogue.entries,
+        { speaker: 'You', text: topic.label },
+        {
+          speaker: dialogue.npcName,
+          text: line?.text ?? String(res.error ?? '…'),
+          unlocked: line?.knowledge_unlocked ?? [],
+        },
+      ],
+      topics: (res.topics as ConversationTopic[] | undefined) ?? dialogue.topics,
+    }
+    setDialogue(updated)
+    if (line?.knowledge_unlocked?.length) {
+      pushNotice(`Gained knowledge: ${line.knowledge_unlocked.join(', ')}`)
+    }
   }
 
   if (!state) {
@@ -64,6 +118,13 @@ export default function App() {
       <main className="layout">
         <aside className="column left">
           <TimePanel state={state} />
+          <PlayerPanel
+            state={state}
+            act={act}
+            onNotice={pushNotice}
+            onTalk={handleTalk}
+            onInspect={handleInspect}
+          />
           <VillagePanel
             state={state}
             selectedNpcId={selectedNpcId}
@@ -76,13 +137,13 @@ export default function App() {
             <NPCDetailPanel state={state} npc={selectedNpc} />
           ) : (
             <div className="panel placeholder">
-              <h3>Select a villager</h3>
+              <h3>The village breathes</h3>
               <p>
-                Click on a villager in the left panel to inspect their personality,
-                beliefs, goals, relationships, and memories.
+                Use the controls in the left panel: walk to a location, talk to
+                someone nearby, or move close to the items left behind by the missing.
               </p>
               <p className="smoke">
-                The village is alive. Choose who to get close to — and who to beware of.
+                The disappearance of the old miller hangs over every conversation.
               </p>
             </div>
           )}
@@ -98,6 +159,14 @@ export default function App() {
         <span>Ashgrove v0.1.0 · C++ simulation server · Web client</span>
         {error && <span className="error-text">{error}</span>}
       </footer>
+
+      {dialogue && (
+        <DialoguePanel
+          session={dialogue}
+          onSelectTopic={handleSelectTopic}
+          onClose={() => setDialogue(null)}
+        />
+      )}
     </div>
   )
 }

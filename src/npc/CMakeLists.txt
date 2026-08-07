@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 add_library(ashgrove_npc STATIC
     npc.cpp
+    dialogue.cpp
 )
 
 target_include_directories(ashgrove_npc PUBLIC

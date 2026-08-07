@@ -207,11 +207,53 @@ export interface Investigation {
   evidence: Evidence[]
 }
 
+export interface PlayerActionRecord {
+  tick: number
+  verb: string
+  summary: string
+  result: string
+}
+
+export interface PlayerState {
+  name: string
+  position: Vec3
+  region_id: number
+  health: number
+  hunger: number
+  fatigue: number
+  reputation: number
+  level: number
+  xp: number
+  inventory: number[]
+  resting: boolean
+  current_action: string
+  action_log: PlayerActionRecord[]
+}
+
+export interface DialogueLineData {
+  speaker_id: number
+  text: string
+  affinity_delta: number
+  trust_delta: number
+  knowledge_unlocked: string[]
+  evidence_gained: string[]
+  rumor_spread: string[]
+}
+
+export interface ConversationTopic {
+  id: string
+  label: string
+  requires_knowledge: string[]
+  requires_affinity: number
+  available: boolean
+}
+
 export interface WorldState {
   time: string
   time_data: TimeData
   world: World
   investigation: Investigation
+  player?: PlayerState
 }
 
 export const EMOTION_NAMES = [

@@ -1,18 +1,44 @@
 #include "server/game_server.h"
+#include "npc/dialogue.h"
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <cmath>
+#include <algorithm>
 
 namespace ashgrove {
+
+static std::string emotion_label(EmotionType e) {
+    switch (e) {
+        case EmotionType::Neutral: return "Neutral";
+        case EmotionType::Happy: return "Happy";
+        case EmotionType::Sad: return "Sad";
+        case EmotionType::Angry: return "Angry";
+        case EmotionType::Fearful: return "Fearful";
+        case EmotionType::Disgusted: return "Disgusted";
+        case EmotionType::Surprised: return "Surprised";
+        case EmotionType::Anxious: return "Anxious";
+        case EmotionType::Content: return "Content";
+        case EmotionType::Suspicious: return "Suspicious";
+    }
+    return "Neutral";
+}
+
+static std::string item_description(const Item& item) {
+    auto it = item.properties.find("content");
+    if (it != item.properties.end()) return it->second;
+    return item.name + " — nothing else of note.";
+}
 
 GameServer::GameServer(const GameConfig& config)
     : config_(config),
       world_(std::make_shared<World>()),
       simulation_(std::make_unique<Simulation>()),
-      investigation_(std::make_unique<InvestigationSystem>()) {
+      investigation_(std::make_unique<InvestigationSystem>()),
+      dialogue_(std::make_unique<DialogueSystem>()) {
     transport_ = std::make_shared<SocketTransport>();
     network_ = std::make_unique<NetworkServer>(transport_);
 }
@@ -32,7 +58,11 @@ bool GameServer::initialize() {
     
     // Create test world
     create_test_world();
-    
+
+    // Place the player at the village square
+    player_.position = {0, 0, 0};
+    player_.region_id = 1; // first region created = Ashgrove Village
+
     network_->start(config_.port);
     spdlog::info("Game server initialized on port {}", config_.port);
     return true;
@@ -368,12 +398,69 @@ nlohmann::json GameServer::get_world_state() const {
     };
     state["world"] = world_->serialize();
     state["investigation"] = investigation_->serialize();
+    state["player"] = player_.serialize();
     return state;
+}
+
+nlohmann::json GameServer::action_error(const std::string& msg) {
+    return {{"ok", false}, {"error", msg}};
+}
+
+EntityID GameServer::find_npc_at(const Position& pos, float radius) const {
+    float best_dist = radius;
+    EntityID best = INVALID_ENTITY_ID;
+    for (EntityID nid : world_->get_npcs_near_position(pos, radius)) {
+        if (auto npc = world_->get_npc(nid)) {
+            if (npc->position.region_id != pos.region_id) continue;
+            float dx = npc->position.x - pos.x;
+            float dy = npc->position.y - pos.y;
+            float dz = npc->position.z - pos.z;
+            float dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+            if (dist < best_dist) { best_dist = dist; best = nid; }
+        }
+    }
+    return best;
+}
+
+EntityID GameServer::find_item_at(const Position& pos, float radius) const {
+    float best_dist = radius;
+    EntityID best = INVALID_ENTITY_ID;
+    for (EntityID iid : world_->get_items_at_position(pos, radius)) {
+        if (auto item = world_->get_item(iid)) {
+            if (item->owner_id != INVALID_ENTITY_ID) continue;
+            if (item->position.region_id != pos.region_id) continue;
+            float dx = item->position.x - pos.x;
+            float dy = item->position.y - pos.y;
+            float dz = item->position.z - pos.z;
+            float dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+            if (dist < best_dist) { best_dist = dist; best = iid; }
+        }
+    }
+    return best;
+}
+
+std::string GameServer::region_name(EntityID region_id) const {
+    if (auto* r = world_->get_region(region_id)) return r->name;
+    return "Unknown";
+}
+
+PlayerKnowledge GameServer::player_knowledge() const {
+    PlayerKnowledge pk;
+    // A knowledge title counts only once the player has actually learned it
+    // (via dialogue unlocks etc.), even if the entry exists in the registry.
+    for (const auto& k : investigation_->get_all_known()) {
+        if (k.discovered_at > 0) {
+            pk.knowledge_titles.push_back(k.title);
+        }
+    }
+    pk.reputation = player_.reputation;
+    return pk;
 }
 
 nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
     std::string type = action.value("type", "");
-    
+    TimeTick tick = simulation_->get_time().ticks;
+
     if (type == "save") {
         bool ok = save_game();
         return {{"ok", ok}, {"message", ok ? "Game saved" : "Save failed"}};
@@ -385,13 +472,234 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
     if (type == "get_state") {
         return get_world_state();
     }
-    if (type == "interact") {
-        // Player interaction with an NPC or object
-        EntityID target = action.value("target", INVALID_ENTITY_ID);
-        return get_world_state();
+    if (type == "move") {
+        auto res = handle_move(action);
+        res["player"] = player_.serialize();
+        if (res["ok"]) {
+            player_.log_action("move", "Moved to " + region_name(player_.region_id), "");
+            player_.action_log.back().tick = tick;
+        }
+        return res;
     }
-    
+    if (type == "talk") {
+        auto res = handle_talk(action);
+        if (res.contains("player")) res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "dialogue_topic") {
+        auto res = handle_dialogue_topic(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "inspect") {
+        auto res = handle_inspect(action);
+        return res;
+    }
+    if (type == "pickup") {
+        auto res = handle_pickup(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "use_item") {
+        auto res = handle_use_item(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "rest") {
+        auto res = handle_rest(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+
     return {{"error", "Unknown action type: " + type}};
+}
+
+nlohmann::json GameServer::handle_move(const nlohmann::json& action) {
+    Position target;
+    if (!action.contains("target")) {
+        return action_error("Move requires a 'target' position");
+    }
+    const auto& t = action["target"];
+    target.x = t.value("x", 0.0f);
+    target.y = t.value("y", 0.0f);
+    target.z = t.value("z", 0.0f);
+    target.region_id = player_.region_id;
+
+    // Region change via explicit region name
+    std::string region = action.value("region", "");
+    if (!region.empty()) {
+        for (const auto& [rid, r] : world_->regions()) {
+            if (r.name == region) { target.region_id = rid; break; }
+        }
+        if (target.region_id == player_.region_id && region != region_name(player_.region_id)) {
+            return action_error("Region not found: " + region);
+        }
+    }
+
+    player_.move_to(target, target.region_id, *world_);
+    return {{"ok", true}, {"message", "Moved to " + region_name(player_.region_id)}};
+}
+
+nlohmann::json GameServer::handle_talk(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    auto npc = world_->get_npc(target);
+    if (!npc) return action_error("No such NPC");
+    if (npc->position.region_id != player_.region_id) {
+        return action_error(npc->name + " is not in " + region_name(player_.region_id));
+    }
+
+    auto pk = player_knowledge();
+    auto greeting = dialogue_->greeting(*npc);
+    auto topics = dialogue_->topics_for(*npc, pk);
+
+    // Mark relationship familiarity
+    if (auto* rel = npc->get_relationship(0)) {
+        rel->familiarity = std::min(1.0f, rel->familiarity + 0.05f);
+        rel->last_interaction = simulation_->get_time().ticks;
+    } else {
+        Relationship new_rel;
+        new_rel.target_id = 0;
+        new_rel.type = "stranger";
+        new_rel.last_interaction = simulation_->get_time().ticks;
+        new_rel.familiarity = 0.05f;
+        npc->relationships.push_back(new_rel);
+    }
+
+    player_.current_action = "talking";
+
+    std::vector<nlohmann::json> topic_json;
+    for (const auto& tp : topics) topic_json.push_back(tp.serialize());
+    return {{"ok", true}, {"speaker", npc->id}, {"speaker_name", npc->name}, {"line", greeting.serialize()}, {"topics", topic_json}};
+}
+
+nlohmann::json GameServer::handle_dialogue_topic(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    std::string topic_id = action.value("topic", "");
+    auto npc = world_->get_npc(target);
+    if (!npc) return action_error("No such NPC");
+    if (npc->position.region_id != player_.region_id) {
+        return action_error(npc->name + " is not here.");
+    }
+
+    auto pk = player_knowledge();
+    auto line = dialogue_->respond(*npc, topic_id, pk);
+
+    // Apply validated simulation effects
+    if (line.affinity_delta != 0.0f || line.trust_delta != 0.0f) {
+        npc->modify_relationship(0, line.affinity_delta, line.trust_delta);
+        player_.reputation = std::clamp(player_.reputation + line.affinity_delta * 5.0f, -100.0f, 100.0f);
+    }
+    for (const auto& title : line.knowledge_unlocked) {
+        for (const auto& k : investigation_->get_all_known()) {
+            if (k.title == title && investigation_->has_knowledge(k.id)) {
+                if (auto* know = investigation_->get_knowledge(k.id)) {
+                    know->completeness = std::min(1.0f, know->completeness + 0.2f);
+                    if (std::find(know->source_npc_ids.begin(), know->source_npc_ids.end(), npc->id) == know->source_npc_ids.end()) {
+                        know->source_npc_ids.push_back(npc->id);
+                    }
+                    know->discovered_at = simulation_->get_time().ticks;
+                }
+            }
+        }
+    }
+
+    player_.log_action("talk", "Asked " + npc->name + " about '" + topic_id + "'", line.text);
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+
+    auto topics = dialogue_->topics_for(*npc, player_knowledge());
+    std::vector<nlohmann::json> topic_json;
+    for (const auto& tp : topics) topic_json.push_back(tp.serialize());
+
+    return {{"ok", true}, {"line", line.serialize()}, {"speaker", npc->id}, {"speaker_name", npc->name}, {"topics", topic_json}};
+}
+
+nlohmann::json GameServer::handle_inspect(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    std::string what = action.value("what", "npc");
+
+    if (what == "item" || action.contains("item_id")) {
+        EntityID iid = action.value("item_id", target);
+        if (auto* item = world_->get_item(iid)) {
+            if (item->position.region_id != player_.region_id && !player_.owns_item(iid)) {
+                return action_error("Item not in this region.");
+            }
+            return {{"ok", true}, {"kind", "item"}, {"name", item->name}, {"category", item->category}, {"description", item_description(*item)}};
+        }
+        return action_error("No such item");
+    }
+
+    if (auto npc = world_->get_npc(target)) {
+        if (npc->position.region_id != player_.region_id) {
+            return action_error(npc->name + " is not in this region.");
+        }
+        nlohmann::json detail;
+        detail["name"] = npc->name + (npc->surname.empty() ? "" : " " + npc->surname);
+        detail["age"] = npc->age;
+        detail["occupation"] = npc->occupation;
+        detail["tier"] = static_cast<int>(npc->tier);
+        detail["emotion"] = emotion_label(npc->current_emotion);
+        detail["activity"] = npc->current_activity;
+        detail["beliefs"] = std::vector<std::string>();
+        for (const auto& b : npc->beliefs) detail["beliefs"].push_back(b.proposition);
+        detail["goals"] = std::vector<std::string>();
+        for (const auto& g : npc->goals) detail["goals"].push_back(g.description);
+        if (auto* rel = npc->get_relationship(0)) {
+            detail["affinity"] = rel->affinity;
+            detail["trust"] = rel->trust;
+            detail["familiarity"] = rel->familiarity;
+        }
+        player_.log_action("inspect", "Studied " + npc->name, npc->occupation + ", emotion: " + emotion_label(npc->current_emotion));
+        return {{"ok", true}, {"kind", "npc"}, {"detail", detail}};
+    }
+
+    return action_error("Nothing to inspect there");
+}
+
+nlohmann::json GameServer::handle_pickup(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    auto* item = world_->get_item(target);
+    if (!item) return action_error("No such item");
+    if (item->owner_id != INVALID_ENTITY_ID) return action_error("That item is already owned.");
+    if (item->position.region_id != player_.region_id) {
+        return action_error("Item is not in this region.");
+    }
+    if (player_.owns_item(target)) return action_error("You already have it.");
+
+    float dx = item->position.x - player_.position.x;
+    float dy = item->position.y - player_.position.y;
+    float dz = item->position.z - player_.position.z;
+    if (std::sqrt(dx*dx + dy*dy + dz*dz) > 5.0f) {
+        return action_error("Too far away to pick up. Move closer.");
+    }
+
+    item->owner_id = 0; // player
+    player_.add_item(target);
+    player_.log_action("pickup", "Picked up " + item->name, item_description(*item));
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "Picked up " + item->name}};
+}
+
+nlohmann::json GameServer::handle_use_item(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    if (!player_.owns_item(target)) return action_error("You don't have that item.");
+    auto* item = world_->get_item(target);
+    if (!item) return action_error("Item no longer exists.");
+
+    if (item->category == "food") {
+        player_.hunger = std::max(0.0f, player_.hunger - 30.0f);
+        player_.remove_item(target);
+        return {{"ok", true}, {"message", "You eat the " + item->name + "."}};
+    }
+    return {{"ok", true}, {"message", "You examine the " + item->name + ". Nothing else comes to mind."}};
+}
+
+nlohmann::json GameServer::handle_rest(const nlohmann::json& action) {
+    player_.resting = true;
+    player_.current_action = "resting";
+    player_.rest_start_tick = simulation_->get_time().ticks;
+    player_.log_action("rest", "Sat down to rest", "Fatigue slowly fades.");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You rest. Time passes..."}};
 }
 
 bool GameServer::save_game(const std::string& filename) {

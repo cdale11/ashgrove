@@ -1,6 +1,8 @@
 import { GameMessageType } from '../types'
 import type { GameMessage, WorldState } from '../types'
 
+type ActionResult = Record<string, unknown>
+
 /**
  * Client for the Ashgrove C++ game server.
  * Uses WebSocket for real-time state, REST for discrete actions.
@@ -120,17 +122,17 @@ export class GameClient {
     this.send({ type: GameMessageType.LoadGame, payload: {} })
   }
 
-  async actionViaRest(action: Record<string, unknown>): Promise<WorldState> {
+  async actionViaRest(action: Record<string, unknown>): Promise<ActionResult> {
     const res = await fetch('/api/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(action),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const state = (await res.json()) as WorldState
-    this.lastState = state
-    this.notify()
-    return state
+    const data = (await res.json()) as Record<string, unknown>
+    // Refresh the full world state so the UI reflects any changes.
+    this.fetchState().catch(() => {})
+    return data
   }
 
   private send(msg: GameMessage) {
