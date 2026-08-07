@@ -17,13 +17,14 @@ export class GameClient {
   private lastState: WorldState | null = null
 
   connect(): void {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    // Backend WebSocket is plain ws (no TLS). Force ws://; wss would fail since
+    // the game server has no certificate.
     const host = window.location.hostname || 'localhost'
     // The backend WebSocket server runs on the game server port (8000 by
     // default) and binds to all interfaces, so connect directly for LAN
     // access. Vite's WebSocket proxy is avoided to keep multi-host working.
     const wsPort = Number(import.meta.env.VITE_WS_PORT || 8000)
-    const wsUrl = `${proto}://${host}:${wsPort}/ws`
+    const wsUrl = `ws://${host}:${wsPort}/ws`
     this.connected = true
     this.openSocket(wsUrl)
   }
@@ -68,10 +69,9 @@ export class GameClient {
     this.reconnectTimer = setTimeout(() => {
       this.ws = null
       // Rebuild URL (host may have changed via HMR)
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const host = window.location.hostname || 'localhost'
       const wsPort = Number(import.meta.env.VITE_WS_PORT || 8000)
-      this.reconnect(`${proto}://${host}:${wsPort}/ws`)
+      this.reconnect(`ws://${host}:${wsPort}/ws`)
     }, delay)
   }
 
@@ -101,10 +101,12 @@ export class GameClient {
    * The game server exposes CORS (Access-Control-Allow-Origin: *), and the
    * Vite dev proxy drops POST bodies, so talk directly to the game server. */
   private restUrl(path: string): string {
-    const proto = window.location.protocol === 'https:' ? 'https' : 'http'
+    // The game server speaks plain HTTP with no TLS. Always use http:// here;
+    // mirroring window.location.protocol breaks over HTTPS-hosted UIs, since the
+    // backend has no certificate.
     const host = window.location.hostname || 'localhost'
     const port = Number(import.meta.env.VITE_API_PORT || 8000)
-    return `${proto}://${host}:${port}${path}`
+    return `http://${host}:${port}${path}`
   }
 
   async fetchState(): Promise<WorldState> {
