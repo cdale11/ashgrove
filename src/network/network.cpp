@@ -312,7 +312,6 @@ HTTPResponse SocketTransport::dispatch_http(const HTTPRequest& req) {
     // browsers allow cross-origin POSTs carrying a JSON body.
     if (req.method == "OPTIONS") {
         return HTTPResponse{204, "application/json", "", {
-            {"Access-Control-Allow-Origin", "*"},
             {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
             {"Access-Control-Allow-Headers", "Content-Type, Accept"},
             {"Access-Control-Allow-Private-Network", "true"},
