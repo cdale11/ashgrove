@@ -8,7 +8,6 @@ interface MapPanelProps {
   onMove: (x: number, y: number) => void
 }
 
-const REGION_COLORS = ['#2d4a3a', '#1d4a3f', '#27455a', '#2b3a4a']
 // Per-season ground palettes (base grass tones before tonal correction).
 const SEASON_TINTS: Record<string, string> = {
   Spring: '#3a5c44',
@@ -25,6 +24,49 @@ const CATEGORY_ICONS: Record<string, string> = {
   clothing: '🧥',
   book: '📜',
   evidence: '🔍',
+}
+// Building type -> sprite + label color (matches world::BuildingType order).
+const BUILDING_SPRITES: Record<string, string> = {
+  0: '🏚️', // mill
+  1: '🏪', // shop / inn
+  2: '⚒️', // forge
+  3: '🏛️', // town hall
+  4: '⛪', // chapel
+}
+// Occupation keyword -> villager glyph.
+const NPC_GLYPHS: Record<string, string> = {
+  trader: '🧑‍🌾',
+  farmer: '🌾',
+  smith: '🛠️',
+  priest: '🕯️',
+  innkeep: '🍻',
+  guard: '🛡️',
+  carpenter: '🪚',
+  teacher: '📖',
+  elder: '🧓',
+}
+const DEFAULT_NPC_GLYPH = '🧑'
+const SPRITES = {
+  player: '🧭',
+  object: '🧩',
+  path: '#9a7b5a',
+}
+
+// Small deterministic PRNG so the terrain looks the same every render.
+function mulberry32(seed: number) {
+  let a = seed >>> 0
+  return function () {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+function pickGlyph(n: NPC): string {
+  const occ = (n.occupation ?? '').toLowerCase()
+  for (const k of Object.keys(NPC_GLYPHS)) if (occ.includes(k)) return NPC_GLYPHS[k]
+  return DEFAULT_NPC_GLYPH
 }
 
 export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
@@ -85,95 +127,181 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
       [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
     const [tr, tg, tb] = tintRgb(seasonTint)
 
-    // Background (season-grounded)
+    // ---- Scene: terrain + entities (everything beneath atmosphere) ----
+    const rng = mulberry32((region?.id ?? 1) * 7919 + 17)
+
+    // Tar vertically-striped light-dark grass patches as the base terrain.
     ctx.fillStyle = `rgb(${Math.round(tr * dayFactor)}, ${Math.round(tg * dayFactor)}, ${Math.round(tb * dayFactor)})`
     ctx.fillRect(0, 0, w, h)
+    ctx.globalAlpha = 0.18
+    for (let i = 0; i < 220; i++) {
+      const gx = rng() * w
+      const gy = rng() * h
+      const gr = 6 + rng() * 26
+      ctx.fillStyle = rng() > 0.5 ? '#0a1a0c' : '#0f2a14'
+      ctx.beginPath()
+      ctx.ellipse(gx, gy, gr, gr * (0.5 + rng()), rng() * Math.PI, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
 
-    // Region bounds box (clamped to view so huge regions don't draw an edge frame)
-    if (region) {
-      const bx = Math.max(0, wx(region.bounds.min_x))
-      const by = Math.max(0, wy(region.bounds.min_y))
-      const bx2 = Math.min(w, wx(region.bounds.max_x))
-      const by2 = Math.min(h, wy(region.bounds.max_y))
-      if (bx < bx2 && by < by2) {
-        ctx.fillStyle = `rgba(${tr}, ${tg}, ${tb}, 0.7)`
-        ctx.fillRect(bx, by, bx2 - bx, by2 - by)
-        ctx.strokeStyle = 'rgba(120, 150, 120, 0.35)'
-        ctx.strokeRect(bx, by, bx2 - bx, by2 - by)
+    // Treeline ringing the region, plus scattered sparse trees.
+    ctx.font = `${Math.max(12, 6 * scale)}px system-ui`
+    ctx.textAlign = 'center'
+    for (let i = 0; i < 90; i++) {
+      const bx = rng() * viewSize - viewSize / 2
+      const by = rng() * viewSize - viewSize / 2
+      const nx = wx(bx)
+      const ny = wy(by)
+      ctx.globalAlpha = 0.9
+      ctx.fillText('🌲', nx, ny)
+    }
+    ctx.globalAlpha = 1
+
+    // Dirt footpaths: a crude network from each building to the central hub.
+    let hub = hereBuildings[0]
+    let hubBest = Infinity
+    for (const b of hereBuildings) {
+      const d = Math.hypot((b.bounds.min_x + b.bounds.max_x) / 2, (b.bounds.min_y + b.bounds.max_y) / 2)
+      if (d < hubBest) {
+        hubBest = d
+        hub = b
       }
     }
+    ctx.strokeStyle = SPRITES.path
+    ctx.lineWidth = Math.max(2, 1.2 * scale)
+    ctx.lineCap = 'round'
+    ctx.globalAlpha = 0.7
+    if (hub) {
+      for (const b of hereBuildings) {
+        if (b.id === hub.id) continue
+        const ax = wx((b.bounds.min_x + b.bounds.max_x) / 2)
+        const ay = wy((b.bounds.min_y + b.bounds.max_y) / 2)
+        const hx = wx((hub.bounds.min_x + hub.bounds.max_x) / 2)
+        const hy = wy((hub.bounds.min_y + hub.bounds.max_y) / 2)
+        ctx.beginPath()
+        ctx.moveTo(ax, ay)
+        ctx.lineTo(hx, hy)
+        ctx.stroke()
+      }
+    }
+    ctx.globalAlpha = 1
 
-    // Buildings
+    // Buildings: roofed box + facade + sprite + name.
     for (const b of hereBuildings) {
-      const bw = Math.max((b.bounds.max_x - b.bounds.min_x) * scale, 8)
-      const bh = Math.max((b.bounds.max_y - b.bounds.min_y) * scale, 8)
+      const bw = Math.max((b.bounds.max_x - b.bounds.min_x) * scale, 22)
+      const bh = Math.max((b.bounds.max_y - b.bounds.min_y) * scale, 22)
       const bx = wx((b.bounds.min_x + b.bounds.max_x) / 2) - bw / 2
       const by = wy((b.bounds.min_y + b.bounds.max_y) / 2) - bh / 2
-      ctx.fillStyle = `rgba(${REGION_COLORS[b.type % REGION_COLORS.length]}, 0.9)`
+      // Soft shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'
+      ctx.fillRect(bx + 3, by + 4, bw, bh)
+      // Facade
+      ctx.fillStyle = `rgb(${Math.round(200 * dayFactor)}, ${Math.round(190 * dayFactor + 8)}, ${Math.round(160 * dayFactor + 6)})`
       ctx.fillRect(bx, by, bw, bh)
-      ctx.strokeStyle = 'rgba(210, 190, 150, 0.6)'
-      ctx.lineWidth = 1
+      ctx.strokeStyle = `rgba(${Math.round(120 + 60 * (1 - dayFactor))}, ${Math.round(90 + 40 * (1 - dayFactor))}, 60, 0.9)`
+      ctx.lineWidth = 2
       ctx.strokeRect(bx, by, bw, bh)
-      if (bw > 40) {
-        ctx.fillStyle = '#d8c9a3'
-        ctx.font = '11px system-ui'
-        ctx.textAlign = 'center'
-        ctx.fillText(b.name, bx + bw / 2, by + bh / 2 + 4)
+      // Roof
+      ctx.fillStyle = `rgb(${Math.round(150 * dayFactor)}, ${Math.round(80 * dayFactor + 6)}, ${Math.round(80 * dayFactor + 10)})`
+      ctx.beginPath()
+      ctx.moveTo(bx - 4, by + 4)
+      ctx.lineTo(bx + bw / 2, by - Math.min(bh * 0.28, 14))
+      ctx.lineTo(bx + bw + 4, by + 4)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+      // Sprite + name
+      ctx.fillStyle = '#fff'
+      ctx.font = '10px system-ui'
+      ctx.textAlign = 'center'
+      ctx.fillText(BUILDING_SPRITES[b.type] ?? '🏠', bx + bw / 2, by - Math.max(8, bh * 0.28))
+      if (bw > 30) {
+        ctx.fillStyle = '#f4ead0'
+        ctx.font = '9px system-ui'
+        ctx.fillText(b.name, bx + bw / 2, by + bh + 11)
       }
     }
 
-    // Items
+    // Items: drop a faint glow halo under the loose goods.
     for (const it of hereItems) {
       const p = toCanvas(it.position.x, it.position.y)
+      ctx.fillStyle = 'rgba(255, 240, 180, 0.18)'
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, 8, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#fff'
       ctx.font = '14px system-ui'
       ctx.textAlign = 'center'
       ctx.fillText(CATEGORY_ICONS[it.category] ?? '·', p.x, p.y + 5)
     }
 
-    // NPCs
+    // NPCs: shadow + glyph + name + selection ring.
     for (const n of hereNpcs) {
       const p = toCanvas(n.position.x, n.position.y)
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2)
-      ctx.fillStyle = n.tier === 0 ? '#e8a33d' : '#a9cbb7'
-      ctx.fill()
-      ctx.strokeStyle = '#1a2b22'
-      ctx.lineWidth = 1
-      ctx.stroke()
+      if (n.tier === 0) {
+        ctx.fillStyle = 'rgba(232, 163, 61, 0.24)'
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 11, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      ctx.fillStyle = '#fff'
+      ctx.font = '13px system-ui'
+      ctx.textAlign = 'center'
+      ctx.fillText(pickGlyph(n), p.x, p.y + 5)
+      if (n.id === selected) {
+        ctx.strokeStyle = '#ffe066'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 11, 0, Math.PI * 2)
+        ctx.stroke()
+      }
       ctx.fillStyle = '#eee'
       ctx.font = '9px system-ui'
-      ctx.textAlign = 'center'
-      ctx.fillText(n.name.split(' ')[0], p.x, p.y - 9)
+      ctx.fillText(n.name.split(' ')[0], p.x, p.y - 12)
     }
 
-    // Player
+    // Player: compass glyph over a lit marker.
     if (player) {
       const p = toCanvas(player.position.x, player.position.y)
+      ctx.fillStyle = 'rgba(91, 141, 255, 0.25)'
       ctx.beginPath()
-      ctx.arc(p.x, p.y, 9, 0, Math.PI * 2)
-      ctx.fillStyle = '#5b8dff'
+      ctx.arc(p.x, p.y, 11, 0, Math.PI * 2)
       ctx.fill()
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 2
-      ctx.stroke()
+      ctx.fillStyle = '#fff'
+      ctx.font = '15px system-ui'
+      ctx.textAlign = 'center'
+      ctx.fillText(SPRITES.player, p.x, p.y + 5)
     }
 
-    // --- Atmosphere overlays (drawn last so darkness dims all entities) ---
-    // 1) Night tint: deepens toward sleeve with no daylight.
+    // --- Atmosphere overlays ---
+    // FOG OF WAR: dim everything beyond a clear radius around the player
+    // (the horror: the known world shrinks as night deepens).
+    if (player) {
+      const pp = toCanvas(player.position.x, player.position.y)
+      const base = Math.min(w, h)
+      const radius = base * (0.42 + 0.3 * dayFactor)
+      const fw = ctx.createRadialGradient(pp.x, pp.y, radius * 0.25, pp.x, pp.y, radius)
+      fw.addColorStop(0, 'rgba(5, 8, 14, 0)')
+      fw.addColorStop(1, 'rgba(5, 8, 14, 0.92)')
+      ctx.fillStyle = fw
+      ctx.fillRect(0, 0, w, h)
+    }
+    // Night tint.
     if (dayFactor < 1) {
       const darkness = 1 - dayFactor
-      ctx.fillStyle = `rgba(10, 14, 34, ${0.55 * darkness})`
+      ctx.fillStyle = `rgba(10, 14, 34, ${0.5 * darkness})`
       ctx.fillRect(0, 0, w, h)
     }
-    // 2) Weather fog / murk.
+    // Weather fog / murk.
     if (weatherIntensity > 0.05) {
       let murk
-      if (weatherIntensity >= 0.6) murk = '#cfd8da' // heavy fog
-      else murk = seasonTint === SEASON_TINTS.Winter ? '#dfe6ec' : '#8fa08a'
-      ctx.fillStyle = `rgba(${tintRgb(murk)[0]}, ${tintRgb(murk)[1]}, ${tintRgb(murk)[2]}, ${Math.min(0.6, 0.15 + weatherIntensity * 0.5)})`
+      if (weatherIntensity >= 0.6) murk = '#cfd8da'
+      else murk = seasonTint === SEASON_TINTS.Winter ? '#dfe6ec' : '#b9c3b2'
+      ctx.fillStyle = `rgba(${tintRgb(murk)[0]}, ${tintRgb(murk)[1]}, ${tintRgb(murk)[2]}, ${Math.min(0.55, 0.1 + weatherIntensity * 0.45)})`
       ctx.fillRect(0, 0, w, h)
     }
-    // 3) Peripheral vignette for dread.
+    // Peripheral vignette for dread.
     const vg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.34, cx, cy, Math.max(w, h) * 0.72)
     vg.addColorStop(0, 'rgba(0,0,0,0)')
     vg.addColorStop(1, `rgba(4, 6, 12, ${0.2 + (1 - dayFactor) * 0.5})`)
