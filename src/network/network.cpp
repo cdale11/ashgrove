@@ -241,12 +241,14 @@ void SocketTransport::handle_connection(int client_socket) {
         HTTPResponse resp = dispatch_http(req);
         
         std::string response = "HTTP/1.1 " + std::to_string(resp.status_code) + " " + 
-            (resp.status_code == 200 ? "OK" : resp.status_code == 404 ? "Not Found" : "Error") + "\r\n" +
+            (resp.status_code == 200 ? "OK" : resp.status_code == 204 ? "No Content" : resp.status_code == 404 ? "Not Found" : "Error") + "\r\n" +
             "Content-Type: " + resp.content_type + "\r\n" +
             "Content-Length: " + std::to_string(resp.body.size()) + "\r\n" +
-            "Access-Control-Allow-Origin: *\r\n" +
-            "Connection: close\r\n\r\n" +
-            resp.body;
+            "Access-Control-Allow-Origin: *\r\n";
+        for (const auto& [k, v] : resp.extra_headers) {
+            response += k + ": " + v + "\r\n";
+        }
+        response += "Connection: close\r\n\r\n" + resp.body;
         
         send(client_socket, response.data(), response.size(), 0);
         break; // Close connection after response (keep-alive not implemented)
@@ -306,6 +308,17 @@ HTTPRequest SocketTransport::parse_http_request(const std::string& header_block)
 }
 
 HTTPResponse SocketTransport::dispatch_http(const HTTPRequest& req) {
+    // CORS preflight: respond 204 with the allowed origin/methods/headers so
+    // browsers allow cross-origin POSTs carrying a JSON body.
+    if (req.method == "OPTIONS") {
+        return HTTPResponse{204, "application/json", "", {
+            {"Access-Control-Allow-Origin", "*"},
+            {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+            {"Access-Control-Allow-Headers", "Content-Type, Accept"},
+            {"Access-Control-Max-Age", "86400"},
+        }};
+    }
+
     std::string key = req.method + " " + req.path;
     
     auto it = http_routes_.find(key);

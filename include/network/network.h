@@ -25,6 +25,7 @@ struct HTTPResponse {
     int status_code = 200;
     std::string content_type = "application/json";
     std::string body;
+    std::map<std::string, std::string> extra_headers;
 };
 
 using HTTPHandler = std::function<HTTPResponse(const HTTPRequest&)>;
