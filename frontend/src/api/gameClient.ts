@@ -114,6 +114,8 @@ export class GameClient {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const state = (await res.json()) as WorldState
     this.lastState = state
+    // Notify subscribers so React re-renders with the fresh world state.
+    this.notify()
     return state
   }
 
