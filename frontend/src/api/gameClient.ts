@@ -16,11 +16,12 @@ export class GameClient {
 
   connect(): void {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    // Use the current host:port, fall back to localhost:8000
     const host = window.location.hostname || 'localhost'
-    const port = window.location.port ? window.location.port : '5173'
-    // Vite proxies /ws to the backend; if on 5173 directly connect via proxy path
-    const wsUrl = `${proto}://${host}${port === '5173' ? ':5173' : ':' + port}/ws`
+    // The backend WebSocket server runs on the game server port (8000 by
+    // default) and binds to all interfaces, so connect directly for LAN
+    // access. Vite's WebSocket proxy is avoided to keep multi-host working.
+    const wsPort = Number(import.meta.env.VITE_WS_PORT || 8000)
+    const wsUrl = `${proto}://${host}:${wsPort}/ws`
     this.connected = true
     this.openSocket(wsUrl)
   }
@@ -67,7 +68,8 @@ export class GameClient {
       // Rebuild URL (host may have changed via HMR)
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const host = window.location.hostname || 'localhost'
-      this.reconnect(`${proto}://${host}:${window.location.port}/ws`)
+      const wsPort = Number(import.meta.env.VITE_WS_PORT || 8000)
+      this.reconnect(`${proto}://${host}:${wsPort}/ws`)
     }, delay)
   }
 
