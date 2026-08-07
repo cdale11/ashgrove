@@ -392,6 +392,7 @@ nlohmann::json Item::serialize() const {
         {"weight", weight},
         {"value", value},
         {"condition", condition},
+        {"position", {{"x", position.x}, {"y", position.y}, {"z", position.z}, {"region_id", position.region_id}}},
         {"properties", properties},
         {"owner_id", owner_id},
         {"container_id", container_id}
@@ -406,6 +407,12 @@ Item Item::deserialize(const nlohmann::json& j) {
     item.weight = j.value("weight", 0.0f);
     item.value = j.value("value", 0.0f);
     item.condition = j.value("condition", 1.0f);
+    if (j.contains("position")) {
+        item.position.x = j["position"].value("x", 0.0f);
+        item.position.y = j["position"].value("y", 0.0f);
+        item.position.z = j["position"].value("z", 0.0f);
+        item.position.region_id = j["position"].value("region_id", INVALID_ENTITY_ID);
+    }
     item.properties = j.value("properties", std::unordered_map<std::string, std::string>{});
     item.owner_id = j.value("owner_id", INVALID_ENTITY_ID);
     item.container_id = j.value("container_id", INVALID_ENTITY_ID);

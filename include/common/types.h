@@ -16,6 +16,7 @@ using TimeTick = uint64_t;
 using Temperature = float; // Celsius
 
 constexpr EntityID INVALID_ENTITY_ID = 0;
+constexpr EntityID PLAYER_OWNER_ID = 0xFFFFFFFFFFFFFFFFull; // items owned by the player (distinct from INVALID = unowned)
 constexpr TimeTick INVALID_TIME = 0;
 
 struct Vec2 {

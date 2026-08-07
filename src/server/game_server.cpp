@@ -672,7 +672,7 @@ nlohmann::json GameServer::handle_pickup(const nlohmann::json& action) {
         return action_error("Too far away to pick up. Move closer.");
     }
 
-    item->owner_id = 0; // player
+    item->owner_id = PLAYER_OWNER_ID; // player
     player_.add_item(target);
     player_.log_action("pickup", "Picked up " + item->name, item_description(*item));
     player_.action_log.back().tick = simulation_->get_time().ticks;
