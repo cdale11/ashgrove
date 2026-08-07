@@ -35,19 +35,42 @@ export default function App() {
   }
 
   const handleTalk = async (npcId: number) => {
+    const npc = state?.world.npcs.find((n) => n.id === npcId)
+    const name = npc ? `${npc.name} ${npc.surname}`.trim() : 'Villager'
+    // Open the panel immediately so the player gets feedback while the LLM
+    // generates a reply (single-core llama.cpp can take tens of seconds).
+    setDialogue({
+      npcId,
+      npcName: name,
+      entries: [{ speaker: name, text: '…' }],
+      topics: [],
+    })
     const res = await act({ type: 'talk', target: npcId })
     if (!res.ok) {
-      pushNotice(String(res.error ?? 'Cannot talk to that person'))
+      setDialogue((d) =>
+        d && d.npcId === npcId
+          ? { ...d, entries: [...d.entries.slice(0, -1), { speaker: name, text: String(res.error ?? 'Cannot talk to that person') }] }
+          : d,
+      )
       return
     }
     const line = res.line as DialogueLine | undefined
     const topics = (res.topics ?? []) as ConversationTopic[]
-    setDialogue({
-      npcId,
-      npcName: String(res.speaker_name ?? 'Villager'),
-      entries: [{ speaker: String(res.speaker_name ?? 'Villager'), text: line?.text ?? '' }],
-      topics,
-    })
+    setDialogue((d) =>
+      d && d.npcId === npcId
+        ? {
+            ...d,
+            npcName: String(res.speaker_name ?? name),
+            entries: [...d.entries.slice(0, -1), { speaker: String(res.speaker_name ?? name), text: line?.text ?? '' }],
+            topics,
+          }
+        : {
+            npcId,
+            npcName: String(res.speaker_name ?? name),
+            entries: [{ speaker: String(res.speaker_name ?? name), text: line?.text ?? '' }],
+            topics,
+          },
+    )
   }
 
   const handleInspect = async (npcId: number) => {
@@ -61,22 +84,31 @@ export default function App() {
 
   const handleSelectTopic = async (topic: ConversationTopic) => {
     if (!dialogue) return
+    // Optimistically append the player's line and a placeholder reply so the
+    // panel responds instantly while the LLM is working.
+    setDialogue((d) =>
+      d
+        ? {
+            ...d,
+            entries: [
+              ...d.entries,
+              { speaker: 'You', text: topic.label },
+              { speaker: d.npcName, text: '…' },
+            ],
+          }
+        : d,
+    )
     const res = await act({ type: 'dialogue_topic', target: dialogue.npcId, topic: topic.id })
     const line = res.line as DialogueLine | undefined
-    const updated: DialogueSession = {
-      ...dialogue,
-      entries: [
-        ...dialogue.entries,
-        { speaker: 'You', text: topic.label },
-        {
-          speaker: dialogue.npcName,
-          text: line?.text ?? String(res.error ?? '…'),
-          unlocked: line?.knowledge_unlocked ?? [],
-        },
-      ],
-      topics: (res.topics as ConversationTopic[] | undefined) ?? dialogue.topics,
-    }
-    setDialogue(updated)
+    setDialogue((d) => {
+      if (!d) return d
+      const latest = { speaker: d.npcName, text: line?.text ?? String(res.error ?? '…'), unlocked: line?.knowledge_unlocked ?? [] }
+      return {
+        ...d,
+        entries: [...d.entries.slice(0, -1), latest],
+        topics: (res.topics as ConversationTopic[] | undefined) ?? d.topics,
+      }
+    })
     if (line?.knowledge_unlocked?.length) {
       pushNotice(`Gained knowledge: ${line.knowledge_unlocked.join(', ')}`)
     }
