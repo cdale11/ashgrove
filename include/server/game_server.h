@@ -65,6 +65,8 @@ private:
     nlohmann::json handle_pickup(const nlohmann::json& action);
     nlohmann::json handle_use_item(const nlohmann::json& action);
     nlohmann::json handle_rest(const nlohmann::json& action);
+    nlohmann::json handle_enter(const nlohmann::json& action);
+    nlohmann::json handle_exit(const nlohmann::json& action);
     nlohmann::json action_error(const std::string& msg);
     nlohmann::json make_state_response();
 

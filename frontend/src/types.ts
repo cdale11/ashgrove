@@ -230,6 +230,7 @@ export interface PlayerState {
   inventory: number[]
   resting: boolean
   current_action: string
+  interior_id: number
   action_log: PlayerActionRecord[]
 }
 

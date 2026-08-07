@@ -673,3 +673,37 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 0.78rem;
 }
 .map-actions button:hover { background: var(--accent); color: #fff; }
+
+/* ---------- Interior Panel ---------- */
+.interior { gap: 10px; }
+.interior-desc {
+  font-size: 0.9rem;
+  color: #cfc9b8;
+  font-style: italic;
+  margin: 0;
+}
+.interior-group { display: flex; flex-direction: column; gap: 6px; }
+.interior-group h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.interior-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.interior-person {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel-2);
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.tab { margin-left: 6px; font-size: 0.75rem; }
+.interior-items { list-style: none; margin: 0; padding: 0; }
+.interior-items li { padding: 2px 0; font-size: 0.85rem; color: #e8dcc0; }
+.interior-exit { background: var(--bg-panel-2) !important; }

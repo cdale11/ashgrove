@@ -20,6 +20,7 @@ nlohmann::json PlayerCharacter::serialize() const {
         {"inventory", inventory},
         {"resting", resting},
         {"current_action", current_action},
+        {"interior_id", interior_id},
         {"action_log", [this]() {
             std::vector<nlohmann::json> log;
             for (const auto& rec : action_log) {
@@ -47,6 +48,7 @@ void PlayerCharacter::deserialize(const nlohmann::json& j) {
     inventory = j.value("inventory", std::vector<EntityID>{});
     resting = j.value("resting", false);
     current_action = j.value("current_action", "idle");
+    interior_id = j.value("interior_id", INVALID_ENTITY_ID);
     action_log.clear();
     for (const auto& rec : j.value("action_log", std::vector<nlohmann::json>{})) {
         PlayerActionRecord r;

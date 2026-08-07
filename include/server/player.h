@@ -44,6 +44,9 @@ public:
     TimeTick rest_start_tick = 0;
     std::string current_action = "idle";
 
+    // Building interior the player is currently inside (INVALID_ENTITY_ID = outside)
+    EntityID interior_id = INVALID_ENTITY_ID;
+
     // Recent log for the UI
     std::vector<PlayerActionRecord> action_log;
 

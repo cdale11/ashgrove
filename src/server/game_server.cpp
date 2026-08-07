@@ -525,6 +525,24 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
         res["player"] = player_.serialize();
         return res;
     }
+    if (type == "enter") {
+        auto res = handle_enter(action);
+        res["player"] = player_.serialize();
+        if (res["ok"]) {
+            player_.log_action("enter", "Entered a building", "");
+            player_.action_log.back().tick = tick;
+        }
+        return res;
+    }
+    if (type == "exit") {
+        auto res = handle_exit(action);
+        res["player"] = player_.serialize();
+        if (res["ok"]) {
+            player_.log_action("exit", "Left the building", "");
+            player_.action_log.back().tick = tick;
+        }
+        return res;
+    }
 
     return {{"error", "Unknown action type: " + type}};
 }
@@ -721,6 +739,49 @@ nlohmann::json GameServer::handle_rest(const nlohmann::json& action) {
     player_.log_action("rest", "Sat down to rest", "Fatigue slowly fades.");
     player_.action_log.back().tick = simulation_->get_time().ticks;
     return {{"ok", true}, {"message", "You rest. Time passes..."}};
+}
+
+nlohmann::json GameServer::handle_enter(const nlohmann::json& action) {
+    if (player_.resting) {
+        return action_error("You are resting; finish resting first.");
+    }
+    if (player_.interior_id != INVALID_ENTITY_ID) {
+        return action_error("You are already inside a building.");
+    }
+    if (!action.contains("target")) {
+        return action_error("Enter requires a 'target' building id");
+    }
+    EntityID target = action["target"].value("id", INVALID_ENTITY_ID);
+    if (target == INVALID_ENTITY_ID) target = action.value("target", INVALID_ENTITY_ID);
+
+    auto* building = world_->get_building(target);
+    if (!building) return action_error("That building does not exist.");
+
+    // Must be in the same region and close to the building's bounds.
+    if (building->position.region_id != player_.region_id) {
+        return action_error("That building is not in this region.");
+    }
+    const bool near_x = player_.position.x >= building->bounds.min_x - 15 &&
+                        player_.position.x <= building->bounds.max_x + 15;
+    const bool near_y = player_.position.y >= building->bounds.min_y - 15 &&
+                        player_.position.y <= building->bounds.max_y + 15;
+    if (!near_x || !near_y) {
+        return action_error("Move closer to the entrance first.");
+    }
+
+    player_.interior_id = target;
+    return {{"ok", true},
+            {"message", "You step inside " + building->name + "."},
+            {"building_id", target}};
+}
+
+nlohmann::json GameServer::handle_exit(const nlohmann::json& action) {
+    (void)action;
+    if (player_.interior_id == INVALID_ENTITY_ID) {
+        return action_error("You are not inside a building.");
+    }
+    player_.interior_id = INVALID_ENTITY_ID;
+    return {{"ok", true}, {"message", "You step back outside."}};
 }
 
 bool GameServer::save_game(const std::string& filename) {

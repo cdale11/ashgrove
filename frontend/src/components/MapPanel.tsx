@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { NPC, WorldState } from '../types'
+import type { Building, NPC, WorldState } from '../types'
 
 interface MapPanelProps {
   state: WorldState
   onTalk: (npcId: number) => void
   onInspect: (npcId: number) => void
   onMove: (x: number, y: number) => void
+  onEnter: (buildingId: number) => void
 }
 
 // Per-season ground palettes (base grass tones before tonal correction).
@@ -69,10 +70,11 @@ function pickGlyph(n: NPC): string {
   return DEFAULT_NPC_GLYPH
 }
 
-export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
+export function MapPanel({ state, onTalk, onInspect, onMove, onEnter }: MapPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
+  const [selectedBuilding, setSelectedBuilding] = useState<number | null>(null)
 
   const player = state.player
   const playerRegionId = player?.region_id ?? -1
@@ -221,6 +223,11 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
         ctx.font = '9px system-ui'
         ctx.fillText(b.name, bx + bw / 2, by + bh + 11)
       }
+      if (b.id === selectedBuilding) {
+        ctx.strokeStyle = '#ffe066'
+        ctx.lineWidth = 3
+        ctx.strokeRect(bx - 3, by - 3, bw + 6, bh + 6)
+      }
     }
 
     // Items: drop a faint glow halo under the loose goods.
@@ -333,17 +340,19 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
       return
     }
 
-    // Nearest building (informational hover, no move into it)
-    let bBest: string | null = null
+    // Nearest building: click to inspect/enter.
+    let bBest: Building | null = null
     for (const b of hereBuildings) {
       if (wx >= b.bounds.min_x && wx <= b.bounds.max_x && wy >= b.bounds.min_y && wy <= b.bounds.max_y) {
-        bBest = b.name
+        bBest = b
       }
     }
     if (bBest) {
-      setHover(bBest)
+      setSelectedBuilding(bBest.id)
+      setHover(bBest.name)
       return
     }
+    setSelectedBuilding(null)
 
     // Otherwise: move the player to that spot
     onMove(wx, wy)
@@ -371,6 +380,20 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
           <button onClick={() => onTalk(selectedNpc.id)}>Talk</button>
           <button onClick={() => onInspect(selectedNpc.id)}>Inspect</button>
           <button onClick={() => setSelected(null)}>✕</button>
+        </div>
+      )}
+      {selectedBuilding !== null && (
+        <div className="map-actions">
+          <button
+            onClick={() => {
+              setSelectedBuilding(null)
+              setHover(null)
+              onEnter(selectedBuilding)
+            }}
+          >
+            Enter
+          </button>
+          <button onClick={() => setSelectedBuilding(null)}>✕</button>
         </div>
       )}
     </div>

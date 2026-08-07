@@ -8,6 +8,7 @@ import { WorldPanel } from './components/WorldPanel'
 import { MapPanel } from './components/MapPanel'
 import { PlayerPanel } from './components/PlayerPanel'
 import { DialoguePanel } from './components/DialoguePanel'
+import { InteriorPanel } from './components/InteriorPanel'
 import type { DialogueSession } from './components/DialoguePanel'
 import type { ConversationTopic, DialogueLine } from './types'
 import './App.css'
@@ -86,6 +87,16 @@ export default function App() {
   const handleMapMove = async (x: number, y: number) => {
     const res = await act({ type: 'move', target: { x, y, z: 0 } })
     pushNotice(String(res.message ?? res.error ?? 'Moved'))
+  }
+
+  const handleEnter = async (buildingId: number) => {
+    const res = await act({ type: 'enter', target: { id: buildingId } })
+    pushNotice(String(res.message ?? res.error ?? 'Entered'))
+  }
+
+  const handleExit = async () => {
+    const res = await act({ type: 'exit' })
+    pushNotice(String(res.message ?? res.error ?? 'Exited'))
   }
 
   const handleSelectTopic = async (topic: ConversationTopic) => {
@@ -171,12 +182,23 @@ export default function App() {
         </aside>
 
         <section className="column center">
-          <MapPanel
-            state={state}
-            onTalk={handleTalk}
-            onInspect={handleInspect}
-            onMove={handleMapMove}
-          />
+          {state.player?.interior_id > 0 ? (
+            <InteriorPanel
+              state={state}
+              buildingId={state.player.interior_id}
+              onTalk={handleTalk}
+              onInspect={handleInspect}
+              onExit={handleExit}
+            />
+          ) : (
+            <MapPanel
+              state={state}
+              onTalk={handleTalk}
+              onInspect={handleInspect}
+              onMove={handleMapMove}
+              onEnter={handleEnter}
+            />
+          )}
           {selectedNpc ? (
             <NPCDetailPanel state={state} npc={selectedNpc} />
           ) : (
