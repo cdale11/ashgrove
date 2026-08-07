@@ -543,6 +543,11 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
         }
         return res;
     }
+    if (type == "advance_time") {
+        auto res = handle_advance_time(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
 
     return {{"error", "Unknown action type: " + type}};
 }
@@ -782,6 +787,32 @@ nlohmann::json GameServer::handle_exit(const nlohmann::json& action) {
     }
     player_.interior_id = INVALID_ENTITY_ID;
     return {{"ok", true}, {"message", "You step back outside."}};
+}
+
+nlohmann::json GameServer::handle_advance_time(const nlohmann::json& action) {
+    double hours = action.value("hours", 1.0);
+    if (hours <= 0 || hours > 168) {
+        return action_error("Hours must be between 0.1 and 168 (one week).");
+    }
+    TimeTick ticks = static_cast<TimeTick>(hours * 3600);
+    simulation_->advance_time(ticks);
+    const auto& time = simulation_->get_time();
+    std::string msg = "Advanced " + std::to_string(hours) + " hour" + (hours != 1.0 ? "s" : "") + ". Now " +
+                      std::to_string(time.hour) + ":" + (time.minute < 10 ? "0" : "") + std::to_string(time.minute) +
+                      ", " + to_string(time.season) + " Day " + std::to_string(time.day_of_year) +
+                      ", Year " + std::to_string(time.year) + ".";
+    return {{"ok", true},
+            {"message", msg},
+            {"time_data", {
+                {"ticks", time.ticks},
+                {"year", time.year},
+                {"day_of_year", time.day_of_year},
+                {"hour", time.hour},
+                {"minute", time.minute},
+                {"season", to_string(time.season)},
+                {"weather", to_string(time.weather)},
+                {"weather_intensity", time.weather_intensity}
+            }}};
 }
 
 bool GameServer::save_game(const std::string& filename) {

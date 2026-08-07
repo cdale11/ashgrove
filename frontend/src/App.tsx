@@ -123,6 +123,15 @@ export default function App() {
 
   const closeLens = () => setFocusedTarget(null)
 
+  const handleAdvanceTime = async (hours: number) => {
+    const res = await act({ type: 'advance_time', hours })
+    if (!res.ok) {
+      pushNotice(String(res.error ?? 'Time skip failed'))
+    } else if (res.message) {
+      pushNotice(String(res.message))
+    }
+  }
+
   const handleSelectTopic = async (topic: ConversationTopic) => {
     if (!dialogue) return
     // Optimistically append the player's line and a placeholder reply so the
@@ -190,7 +199,7 @@ export default function App() {
 
       <main className="layout">
         <aside className="column left">
-          <TimePanel state={state} />
+          <TimePanel state={state} onAdvanceTime={handleAdvanceTime} />
           <PlayerPanel
             state={state}
             act={act}

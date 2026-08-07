@@ -806,3 +806,32 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 0.85rem;
 }
 .lens-back:hover { background: var(--accent); color: #fff; }
+
+/* ---------- Time Panel (with skip controls) ---------- */
+.time-display { display: flex; flex-direction: column; gap: 4px; }
+.clock { font-size: 1.6rem; font-weight: 700; font-family: monospace; color: var(--accent-bright); }
+.date { font-size: 0.8rem; color: var(--text-dim); }
+.condition-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.season { font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 999px; text-transform: capitalize; }
+.season-spring { background: #2d6a3d; color: #a8e6a8; }
+.season-summer { background: #7a5c1a; color: #ffe680; }
+.season-autumn { background: #8b4513; color: #ffc870; }
+.season-winter { background: #3a5a7a; color: #b0d0f0; }
+.weather { font-size: 0.75rem; color: var(--text-dim); }
+.time-skip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.skip-btn {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  color: var(--accent-bright);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.skip-btn:hover:not(:disabled) { background: var(--accent); color: #fff; border-color: var(--accent); }
+.skip-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.skip-btn.dawn { border-color: #7a9a5a; }
+.skip-btn.dawn:hover:not(:disabled) { background: #7a9a5a; color: #fff; }
+.skip-btn.dusk { border-color: #9a7a4a; }
+.skip-btn.dusk:hover:not(:disabled) { background: #9a7a4a; color: #fff; }
