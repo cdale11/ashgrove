@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.25)
+
+# Create a simple test runner executable
+add_executable(ashgrove_tests
+    test_main.cpp
+    test_world.cpp
+    test_npc.cpp
+    test_simulation.cpp
+)
+
+target_include_directories(ashgrove_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(ashgrove_tests PRIVATE
+    ashgrove_common
+    ashgrove_simulation
+    ashgrove_world
+    ashgrove_npc
+    ashgrove_investigation
+    nlohmann_json::nlohmann_json
+    fmt::fmt
+    spdlog::spdlog
+    Threads::Threads
+)
+
+set_target_properties(ashgrove_tests PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME ashgrove_tests COMMAND ashgrove_tests)
