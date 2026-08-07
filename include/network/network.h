@@ -8,6 +8,7 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <unordered_set>
 #include <nlohmann/json.hpp>
 
 namespace ashgrove {
@@ -129,6 +130,7 @@ private:
     int listen_socket_ = -1;
     std::vector<std::thread> client_threads_;
     std::vector<int> client_sockets_;
+    std::unordered_set<int> websocket_sockets_; // only handshaked WS connections get broadcasts
     std::mutex clients_mutex_;
 
     void accept_loop();

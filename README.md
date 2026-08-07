@@ -28,8 +28,8 @@ that continue without the player.
 
 - **Backend**: C++20, owns the world simulation. The simulation is always the
   source of truth.
-- **AI**: llama.cpp with local GGUF models (planned). The simulation validates
-  everything the LLM proposes.
+- **AI**: llama.cpp with local GGUF models. NPCs generate in-character dialogue
+  via llama-server; the simulation validates everything the LLM proposes.
 - **Frontend**: React + TypeScript, a visualization client over WebSocket/REST.
 - **Python**: ML, offline tools, asset processing (not the simulation runtime).
 
@@ -103,6 +103,6 @@ Vertical slice in progress:
 - [x] React/TypeScript client (time, village, NPC detail, investigation panels)
 - [x] Player character + action verbs (move, talk, inspect, pickup, use_item, rest)
 - [x] Dialogue system with NPC responses (topic-based, knowledge-gated)
-- [ ] llama.cpp NPC cognition (simulation-validated LLM proposals)
+- [x] llama.cpp NPC cognition (simulation-validated LLM proposals)
 - [ ] Procedural forest/cave generation
 - [ ] Survival systems (hunger, fatigue, temperature)

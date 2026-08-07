@@ -16,6 +16,7 @@ target_link_libraries(ashgrove_server PRIVATE
     ashgrove_world
     ashgrove_npc
     ashgrove_investigation
+    ashgrove_ai
     ashgrove_network
     nlohmann_json::nlohmann_json
     fmt::fmt

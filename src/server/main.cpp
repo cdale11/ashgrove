@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
     // Simple argument parsing
     int port = config.port;
     std::string model_path;
+    std::string llm_url;
     bool enable_llm = false;
     
     for (int i = 1; i < argc; ++i) {
@@ -35,8 +36,11 @@ int main(int argc, char** argv) {
             enable_llm = true;
         } else if (arg == "--llm") {
             enable_llm = true;
+        } else if (arg == "--llm-url" && i + 1 < argc) {
+            llm_url = argv[++i];
+            enable_llm = true;
         } else if (arg == "--help") {
-            spdlog::info("Usage: ashgrove_server [--port PORT] [--model PATH] [--llm]");
+            spdlog::info("Usage: ashgrove_server [--port PORT] [--model PATH] [--llm] [--llm-url URL]");
             return 0;
         }
     }
@@ -44,9 +48,10 @@ int main(int argc, char** argv) {
     config.port = port;
     config.llm_model_path = model_path;
     config.enable_llm = enable_llm;
+    if (!llm_url.empty()) config.llm_url = llm_url;
     
     if (enable_llm) {
-        spdlog::warn("LLM support requested but not yet implemented. Simulation will run without LLM cognition.");
+        spdlog::info("LLM cognition enabled (llama-server at {})", config.llm_url);
     }
     
     signal(SIGINT, signal_handler);

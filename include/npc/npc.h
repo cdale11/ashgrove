@@ -146,6 +146,7 @@ public:
     // Relationship management
     void modify_relationship(EntityID target, float affinity_delta, float trust_delta);
     Relationship* get_relationship(EntityID target);
+    const Relationship* get_relationship(EntityID target) const;
     
     // Goals
     void add_goal(const Goal& goal);

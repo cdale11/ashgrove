@@ -8,6 +8,7 @@
 #include "investigation/investigation.h"
 #include "network/network.h"
 #include "server/player.h"
+#include "ai/llm_client.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -18,6 +19,7 @@ namespace ashgrove {
 struct GameConfig {
     int port = 8000;
     bool enable_llm = false;
+    std::string llm_url = "http://127.0.0.1:8081"; // llama-server base URL
     std::string llm_model_path;
     std::string save_directory = "saves";
     int tick_rate_ms = 1000;     // Simulation tick interval in ms
@@ -71,12 +73,16 @@ private:
     EntityID find_npc_at(const Position& pos, float radius = 5.0f) const;
     EntityID find_item_at(const Position& pos, float radius = 3.0f) const;
     std::string region_name(EntityID region_id) const;
+    std::string llm_rephrase(const NPC& npc, const std::string& proposed_text,
+                             const std::string& player_line, const std::string& topic) const;
+    std::string llm_system_prompt(const NPC& npc) const;
 
     GameConfig config_;
     std::shared_ptr<World> world_;
     std::unique_ptr<Simulation> simulation_;
     std::unique_ptr<InvestigationSystem> investigation_;
     std::unique_ptr<DialogueSystem> dialogue_;
+    std::unique_ptr<LLMClient> llm_;
     PlayerCharacter player_;
     std::shared_ptr<ITransport> transport_;
     std::unique_ptr<NetworkServer> network_;

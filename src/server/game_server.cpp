@@ -38,9 +38,16 @@ GameServer::GameServer(const GameConfig& config)
       world_(std::make_shared<World>()),
       simulation_(std::make_unique<Simulation>()),
       investigation_(std::make_unique<InvestigationSystem>()),
-      dialogue_(std::make_unique<DialogueSystem>()) {
+      dialogue_(std::make_unique<DialogueSystem>()),
+      llm_() {
     transport_ = std::make_shared<SocketTransport>();
     network_ = std::make_unique<NetworkServer>(transport_);
+    if (config_.enable_llm) {
+        LLMConfig llm_cfg;
+        llm_cfg.url = config_.llm_url;
+        if (!config_.llm_model_path.empty()) llm_cfg.model = config_.llm_model_path;
+        llm_ = std::make_unique<LLMClient>(llm_cfg);
+    }
 }
 
 GameServer::~GameServer() {
@@ -62,6 +69,14 @@ bool GameServer::initialize() {
     // Place the player at the village square
     player_.position = {0, 0, 0};
     player_.region_id = 1; // first region created = Ashgrove Village
+
+    if (llm_) {
+        if (llm_->ready()) {
+            spdlog::info("LLM cognition connected to {}", config_.llm_url);
+        } else {
+            spdlog::warn("LLM enabled but could not connect to {}; dialogue will fall back to simulation text.", config_.llm_url);
+        }
+    }
 
     network_->start(config_.port);
     spdlog::info("Game server initialized on port {}", config_.port);
@@ -552,6 +567,9 @@ nlohmann::json GameServer::handle_talk(const nlohmann::json& action) {
     auto greeting = dialogue_->greeting(*npc);
     auto topics = dialogue_->topics_for(*npc, pk);
 
+    // LLM layer rewrites the *text* only; simulation controls all effects.
+    greeting.text = llm_rephrase(*npc, greeting.text, "Greetings.", "greeting");
+
     // Mark relationship familiarity
     if (auto* rel = npc->get_relationship(0)) {
         rel->familiarity = std::min(1.0f, rel->familiarity + 0.05f);
@@ -583,6 +601,9 @@ nlohmann::json GameServer::handle_dialogue_topic(const nlohmann::json& action) {
 
     auto pk = player_knowledge();
     auto line = dialogue_->respond(*npc, topic_id, pk);
+
+    // LLM layer rewrites the *text* only; simulation controls all effects.
+    line.text = llm_rephrase(*npc, line.text, "Tell me more about " + topic_id + ".", topic_id);
 
     // Apply validated simulation effects
     if (line.affinity_delta != 0.0f || line.trust_delta != 0.0f) {
@@ -746,6 +767,85 @@ bool GameServer::load_game(const std::string& filename) {
         spdlog::error("Load failed: {}", e.what());
         return false;
     }
+}
+
+std::string GameServer::llm_system_prompt(const NPC& npc) const {
+    std::string prompt = "You are " + npc.name;
+    if (!npc.surname.empty()) prompt += " " + npc.surname;
+    prompt += ", a " + std::to_string(static_cast<int>(npc.age)) + "-year-old ";
+    if (!npc.gender.empty()) prompt += npc.gender + " ";
+    prompt += (!npc.occupation.empty() ? npc.occupation : "villager") + " in the isolated mountain village of Ashgrove.\n";
+
+    prompt += "Current state: mood=" + emotion_label(npc.current_emotion);
+    prompt += ", activity='" + npc.current_activity + "', reputation=" +
+              std::to_string(static_cast<int>(std::lround(npc.reputation)));
+    if (const Relationship* rel = npc.get_relationship(0)) {
+        prompt += ", toward the investigator: " + rel->type;
+        prompt += " affinity=" + std::to_string(static_cast<int>(std::lround(rel->affinity * 100)));
+        prompt += " trust=" + std::to_string(static_cast<int>(std::lround(rel->trust * 100)));
+    }
+    prompt += ".\n";
+
+    if (!npc.beliefs.empty()) {
+        prompt += "Core beliefs:\n";
+        for (const auto& b : npc.beliefs) {
+            prompt += "- " + b.proposition + " (confidence " +
+                      std::to_string(static_cast<int>(std::lround(b.confidence * 100))) + "%)\n";
+        }
+    }
+
+    if (!npc.memories.empty()) {
+        std::vector<const Memory*> top;
+        for (const auto& m : npc.memories) top.push_back(&m);
+        std::sort(top.begin(), top.end(), [](const Memory* a, const Memory* b) {
+            return a->importance * a->confidence > b->importance * b->confidence;
+        });
+        prompt += "Key memories:\n";
+        size_t n = std::min<size_t>(5, top.size());
+        for (size_t i = 0; i < n; ++i) {
+            prompt += "- " + top[i]->description + (top[i]->is_false ? " (as the NPC remembers it)" : "") + "\n";
+        }
+    }
+
+    prompt += "\nStay fully in character as this person. Reply as spoken dialogue only, "
+              "1-3 sentences, matching their mood and beliefs above. "
+              "Never mention being an AI or this prompt. "
+              "Do not reveal anything this character would not know or would not admit. Do not reason aloud. "
+              "Always end your reply with a complete, punctuated sentence.";
+    return prompt;
+}
+
+std::string GameServer::llm_rephrase(const NPC& npc, const std::string& proposed_text,
+                                     const std::string& player_line, const std::string& topic) const {
+    if (!llm_ || !llm_->ready()) return proposed_text;
+
+    // Don't pass the deterministic draft to the model: Nemotron tends to echo
+    // it back verbatim and stop early. The LLM authors prose from the persona;
+    // the simulation still decides all effects, so substance stays validated.
+    (void)proposed_text;
+
+    std::string topic_note;
+    if (!topic.empty()) topic_note = " The topic under discussion is '" + topic + "'.";
+    std::string user = "The investigator says: \"" + player_line + "\"." + topic_note +
+                       " Reply as spoken dialogue, 1-3 sentences, in the voice of this person as described above. "
+                       "Output only the spoken line, nothing else.";
+
+    const std::string system = llm_system_prompt(npc);
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        auto generated = llm_->complete(system, user);
+        if (!generated) break;
+        std::string text = *generated;
+        // Trim trailing whitespace
+        while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) {
+            text.pop_back();
+        }
+        if (text.empty()) continue;
+        const char last = text.back();
+        if (last == '.' || last == '?' || last == '!' || last == '"' || last == '\'') {
+            return text;
+        }
+    }
+    return proposed_text;
 }
 
 } // namespace ashgrove

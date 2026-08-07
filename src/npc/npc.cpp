@@ -304,6 +304,13 @@ Relationship* NPC::get_relationship(EntityID target) {
     return nullptr;
 }
 
+const Relationship* NPC::get_relationship(EntityID target) const {
+    for (const auto& r : relationships) {
+        if (r.target_id == target) return &r;
+    }
+    return nullptr;
+}
+
 void NPC::add_goal(const Goal& goal) {
     goals.push_back(goal);
 }

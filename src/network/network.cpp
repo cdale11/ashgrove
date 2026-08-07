@@ -145,7 +145,7 @@ void SocketTransport::register_websocket_handler(WebSocketHandler handler) {
 
 void SocketTransport::broadcast(const std::string& message) {
     std::lock_guard<std::mutex> lock(clients_mutex_);
-    for (int sock : client_sockets_) {
+    for (int sock : websocket_sockets_) {
         send_websocket_frame(sock, message);
     }
 }
@@ -209,6 +209,10 @@ void SocketTransport::handle_connection(int client_socket) {
             header_block.find("upgrade: websocket") != std::string::npos) {
             if (perform_websocket_handshake(client_socket, header_block)) {
                 spdlog::debug("WebSocket handshake completed");
+                {
+                    std::lock_guard<std::mutex> lock(clients_mutex_);
+                    websocket_sockets_.insert(client_socket);
+                }
                 websocket_loop(client_socket, header_block);
             } else {
                 spdlog::warn("WebSocket handshake failed");
@@ -251,6 +255,7 @@ void SocketTransport::handle_connection(int client_socket) {
     {
         std::lock_guard<std::mutex> lock(clients_mutex_);
         client_sockets_.erase(std::remove(client_sockets_.begin(), client_sockets_.end(), client_socket), client_sockets_.end());
+        websocket_sockets_.erase(client_socket);
     }
     closesocket(client_socket);
 }

@@ -34,6 +34,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development)
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 
 # vcpkg or system packages for: nlohmann_json, libuv, openssl, sqlite3, fmt, spdlog
 # For now, use FetchContent for header-only libs
@@ -74,6 +75,7 @@ add_subdirectory(src/npc)
 add_subdirectory(src/world)
 add_subdirectory(src/network)
 add_subdirectory(src/investigation)
+add_subdirectory(src/ai)
 add_subdirectory(src/server)
 
 # Tests
