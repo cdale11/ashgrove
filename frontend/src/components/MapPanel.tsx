@@ -275,36 +275,34 @@ export function MapPanel({ state, onTalk, onInspect, onMove }: MapPanelProps) {
     }
 
     // --- Atmosphere overlays ---
-    // FOG OF WAR: dim everything beyond a clear radius around the player
-    // (the horror: the known world shrinks as night deepens).
+    // FOG OF WAR: dim beyond a clear radius around the player. Kept mild so the
+    // village stays readable; renders as a blue-dark falloff, not flat grey.
     if (player) {
       const pp = toCanvas(player.position.x, player.position.y)
       const base = Math.min(w, h)
-      const radius = base * (0.42 + 0.3 * dayFactor)
-      const fw = ctx.createRadialGradient(pp.x, pp.y, radius * 0.25, pp.x, pp.y, radius)
-      fw.addColorStop(0, 'rgba(5, 8, 14, 0)')
-      fw.addColorStop(1, 'rgba(5, 8, 14, 0.92)')
+      const radius = base * (0.46 + 0.28 * dayFactor)
+      const fw = ctx.createRadialGradient(pp.x, pp.y, radius * 0.4, pp.x, pp.y, radius)
+      fw.addColorStop(0, 'rgba(0,0,0,0)')
+      fw.addColorStop(1, 'rgba(2, 4, 10, 0.55)')
       ctx.fillStyle = fw
       ctx.fillRect(0, 0, w, h)
     }
-    // Night tint.
+    // Night tint: a cool, deep blue so night reads as night, not grey-out.
     if (dayFactor < 1) {
       const darkness = 1 - dayFactor
-      ctx.fillStyle = `rgba(10, 14, 34, ${0.5 * darkness})`
+      ctx.fillStyle = `rgba(8, 12, 40, ${0.38 * darkness})`
       ctx.fillRect(0, 0, w, h)
     }
-    // Weather fog / murk.
-    if (weatherIntensity > 0.05) {
-      let murk
-      if (weatherIntensity >= 0.6) murk = '#cfd8da'
-      else murk = seasonTint === SEASON_TINTS.Winter ? '#dfe6ec' : '#b9c3b2'
-      ctx.fillStyle = `rgba(${tintRgb(murk)[0]}, ${tintRgb(murk)[1]}, ${tintRgb(murk)[2]}, ${Math.min(0.55, 0.1 + weatherIntensity * 0.45)})`
+    // Weather fog / murk: skip during deep night (fog over dark = washed grey).
+    if (weatherIntensity > 0.05 && dayFactor > 0.3) {
+      const murk = seasonTint === SEASON_TINTS.Winter ? '#dce4ec' : '#aebbb0'
+      ctx.fillStyle = `rgba(${tintRgb(murk)[0]}, ${tintRgb(murk)[1]}, ${tintRgb(murk)[2]}, ${0.12 + weatherIntensity * 0.25})`
       ctx.fillRect(0, 0, w, h)
     }
     // Peripheral vignette for dread.
-    const vg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.34, cx, cy, Math.max(w, h) * 0.72)
+    const vg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.4, cx, cy, Math.max(w, h) * 0.72)
     vg.addColorStop(0, 'rgba(0,0,0,0)')
-    vg.addColorStop(1, `rgba(4, 6, 12, ${0.2 + (1 - dayFactor) * 0.5})`)
+    vg.addColorStop(1, `rgba(2, 3, 8, ${0.22 + (1 - dayFactor) * 0.3})`)
     ctx.fillStyle = vg
     ctx.fillRect(0, 0, w, h)
   })
