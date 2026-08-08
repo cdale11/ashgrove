@@ -146,6 +146,12 @@ std::vector<Evidence> InvestigationSystem::get_evidence_by_tag(const std::string
     return result;
 }
 
+std::vector<Evidence*> InvestigationSystem::all_evidence() {
+    std::vector<Evidence*> result;
+    for (auto& [id, e] : evidence_) result.push_back(&e);
+    return result;
+}
+
 std::vector<std::pair<EntityID, EntityID>> InvestigationSystem::find_contradictions() const {
     std::vector<std::pair<EntityID, EntityID>> result;
     std::vector<Evidence> all = get_all_evidence();

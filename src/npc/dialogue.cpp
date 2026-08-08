@@ -8,6 +8,10 @@ bool PlayerKnowledge::knows(const std::string& title) const {
     return std::find(knowledge_titles.begin(), knowledge_titles.end(), title) != knowledge_titles.end();
 }
 
+bool PlayerKnowledge::knows_evidence(const std::string& title) const {
+    return std::find(evidence_titles.begin(), evidence_titles.end(), title) != evidence_titles.end();
+}
+
 nlohmann::json DialogueLine::serialize() const {
     return nlohmann::json{
         {"speaker_id", speaker_id},
@@ -52,6 +56,14 @@ std::vector<ConversationTopic> DialogueSystem::topics_for(const NPC& npc, const 
             if (t.id == "disappearance") t.available = true;
         }
     }
+    // Evidence unlocks the deeper ask: what happened that night?
+    if (player.knows_evidence("Old Miller's Journal") || player.knows_evidence("Rusted Key")) {
+        topics.push_back({"miller_night", "What really happened the night the miller vanished?", {"The Disappearance"}, 0.1f, true});
+    }
+    // With both pieces of evidence in hand, the elders will finally speak plainly.
+    if (player.knows_evidence("Old Miller's Journal") && player.knows_evidence("Rusted Key")) {
+        topics.push_back({"miller_conclusion", "I have the journal and the key. Tell me the truth.", {"The Disappearance"}, 0.2f, true});
+    }
     if (player.knows("The Great Fire")) {
         for (auto& t : topics) {
             if (t.id == "history") t.available = true;
@@ -80,6 +92,8 @@ DialogueLine DialogueSystem::respond(const NPC& npc, const std::string& topic_id
     if (topic_id == "relationships") return respond_about_relationships(npc);
     if (topic_id == "beliefs") return respond_about_beliefs(npc);
     if (topic_id == "disappearance") return respond_about_disappearance(npc);
+    if (topic_id == "miller_night") return respond_about_miller_night(npc);
+    if (topic_id == "miller_conclusion") return respond_about_miller_conclusion(npc);
     if (topic_id == "history") return respond_about_history(npc);
     if (topic_id == "memories") return respond_about_memories(npc);
     return generic_response(npc, topic_id);
@@ -160,6 +174,53 @@ DialogueLine DialogueSystem::respond_about_disappearance(const NPC& npc) const {
         line.affinity_delta = 0.1f;
     } else {
         line.text = npc.name + " shakes their head. \"We really don't discuss the miller. Ask the elders.\"";
+    }
+    return line;
+}
+
+DialogueLine DialogueSystem::respond_about_miller_night(const NPC& npc) const {
+    DialogueLine line;
+    line.speaker_id = npc.id;
+    if (npc.occupation == "Mayor") {
+        line.text = "\"...He was seen at the river that night. By me. He went in at the ford and never came back up. He'd found the journal page too — about looking at the water. Folks wanted a story, so we gave them a story.\"";
+        line.affinity_delta = -0.05f;
+        line.trust_delta = 0.15f;
+        line.knowledge_unlocked = {"The Disappearance"};
+    } else if (npc.occupation == "Pastor") {
+        line.text = "\"The river at night does not take kindly to being looked at. The miller learned that; so did the ones who went looking for him. I do not ask what follows the light on the water.\"";
+        line.trust_delta = 0.1f;
+        line.knowledge_unlocked = {"The Disappearance"};
+    } else if (npc.occupation == "Doctor") {
+        line.text = "\"His body was never found, but the key to the mill house was. It was dry — river-salted, but dry. Someone carried it back. I never could square that with a drowning.\"";
+        line.trust_delta = 0.1f;
+        line.knowledge_unlocked = {"The Disappearance"};
+    } else if (npc.occupation == "Innkeeper") {
+        line.text = "\"The night he vanished, he was in my bar until moonrise, calm as a pond. Next morning the whole village went quiet and stayed quiet. Nothing about a missing man should ever go quiet, and ours did.\"";
+        line.affinity_delta = 0.1f;
+        line.knowledge_unlocked = {"The Disappearance"};
+    } else {
+        line.text = npc.name + " shakes their head. \"The river took him, is all I know. Ask the elders — they know the rest.\"";
+    }
+    return line;
+}
+
+DialogueLine DialogueSystem::respond_about_miller_conclusion(const NPC& npc) const {
+    DialogueLine line;
+    line.speaker_id = npc.id;
+    if (npc.occupation == "Mayor") {
+        line.text = "\"Very well. The truth: the miller wasn't the first, and he wasn't the last. Every decade, the river wants one of us at the ford — and we've always paid. The key kept the mill latched so the empty room couldn't be seen from the square. You hold the evidence of what I've stood guard over for ten years. What will you do with it?\"";
+        line.affinity_delta = -0.1f;
+        line.trust_delta = 0.2f;
+        line.knowledge_unlocked = {"The Disappearance"};
+    } else if (npc.occupation == "Pastor") {
+        line.text = "\"You've walked the full circle, then — the ink and the iron both. The village feeds the river a sacrifice once a decade and calls it progress. Whatever you decide, say a blessing over the water first.\"";
+        line.knowledge_unlocked = {"The Disappearance"};
+        line.trust_delta = 0.1f;
+    } else {
+        line.text = npc.name + " looks at you with something like relief. \"If you can prove what happened to the miller, you'll do what none of us dared: make the village say his name out loud. We'll back you.\"";
+        line.affinity_delta = 0.15f;
+        line.trust_delta = 0.1f;
+        line.knowledge_unlocked = {"The Disappearance"};
     }
     return line;
 }

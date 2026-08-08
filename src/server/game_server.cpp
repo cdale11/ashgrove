@@ -472,7 +472,29 @@ void GameServer::create_test_world() {
     the_disappearance.description = "The old miller vanished without a trace ten years ago. The case was never solved. Villagers avoid the topic.";
     the_disappearance.completeness = 0.3f;
     investigation_->add_knowledge(the_disappearance);
-    
+
+    // Authored mystery chain — The Disappearance of the old miller.
+    // Key steps: (1) pick up the miller's journal, (2) read the rusted key,
+    // (3) talk to the elders until the picture is complete, (4) open the mill
+    // house. Completeness of "The Disappearance" tracks investigation progress.
+    Evidence miller_journal;
+    miller_journal.id = 1;
+    miller_journal.name = "Old Miller's Journal";
+    miller_journal.description = "The miller's last entry reads: 'They told me not to look at the river at night. I looked.' His handwriting trails off mid-word.";
+    miller_journal.tags = {"miller_disappearance", "miller_journal"};
+    miller_journal.reliability = 0.9f;      // In the man's own hand
+    miller_journal.related_location_id = 9; // The Old Mill House
+    miller_journal.acquired_from = "The Old Mill House";
+    investigation_->add_evidence(miller_journal);
+
+    Evidence mill_key;
+    mill_key.id = 2;
+    mill_key.name = "Rusted Key";
+    mill_key.description = "A heavy iron key, tarnished by river water. It fits the wards of the old mill house — and it was never on the miller's ring the night he vanished.";
+    mill_key.tags = {"miller_disappearance", "rust_like_river"};
+    mill_key.reliability = 0.7f;
+    investigation_->add_evidence(mill_key);
+
     spdlog::info("Test world created with {} NPCs, {} buildings, {} regions", 
         world_->serialize()["npcs"].size(), world_->serialize()["buildings"].size(), world_->serialize()["regions"].size());
 
@@ -847,6 +869,12 @@ PlayerKnowledge GameServer::player_knowledge() const {
             pk.knowledge_titles.push_back(k.title);
         }
     }
+    // Evidence counts once it has been collected (acquired_at set).
+    for (const auto& e : investigation_->get_all_evidence()) {
+        if (e.acquired_at > 0) {
+            pk.evidence_titles.push_back(e.name);
+        }
+    }
     pk.reputation = player_.reputation;
     return pk;
 }
@@ -1154,6 +1182,45 @@ nlohmann::json GameServer::handle_pickup(const nlohmann::json& action) {
 
     item->owner_id = PLAYER_OWNER_ID; // player
     player_.add_item(target);
+
+    // Evidence items progress the authored mystery chain.
+    // The world item's "evidence_tag" ties it to an Evidence record; owning
+    // the journal and key (their exact names) pushes the case forward.
+    bool evidence_linked = false;
+    for (auto* ev : investigation_->all_evidence()) {
+        if (!ev || ev->id == 0) continue;
+        if (ev->name == item->name) {
+            if (ev->acquired_at == 0) {
+                // Fresh find: tag the moment.
+                ev->acquired_at = simulation_->get_time().ticks;
+                auto* k = investigation_->get_knowledge(2); // The Disappearance
+                if (k) {
+                    k->completeness = std::min(1.0f, k->completeness + 0.2f);
+                    if (std::find(k->source_item_ids.begin(), k->source_item_ids.end(), item->id) == k->source_item_ids.end()) {
+                        k->source_item_ids.push_back(item->id);
+                    }
+                }
+                spdlog::info("Player collected evidence: {}", ev->name);
+            }
+            evidence_linked = true;
+            break;
+        }
+    }
+    if (!evidence_linked) {
+        auto tag = item->properties.find("evidence_tag");
+        if (tag != item->properties.end()) {
+            Evidence ev;
+            ev.id = 900 + item->id;
+            ev.name = item->name;
+            ev.tags = {tag->second};
+            ev.reliability = 0.6f;
+            ev.acquired_from = "Found in " + region_name(player_.region_id);
+            ev.acquired_at = simulation_->get_time().ticks;
+            investigation_->add_evidence(ev);
+            spdlog::info("New evidence tagged: {}", item->name);
+        }
+    }
+
     player_.log_action("pickup", "Picked up " + item->name, item_description(*item));
     player_.action_log.back().tick = simulation_->get_time().ticks;
     return {{"ok", true}, {"message", "Picked up " + item->name}};

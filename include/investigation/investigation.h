@@ -91,6 +91,8 @@ public:
     Evidence* get_evidence(EntityID id);
     std::vector<Evidence> get_all_evidence() const;
     std::vector<Evidence> get_evidence_by_tag(const std::string& tag) const;
+    // Non-const access for mutation by the server (marking discoveries).
+    std::vector<Evidence*> all_evidence();
     
     // Deduction - find contradictions between evidence
     std::vector<std::pair<EntityID, EntityID>> find_contradictions() const;

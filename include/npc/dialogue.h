@@ -36,9 +36,11 @@ struct ConversationTopic {
 // Minimal snapshot of what the player knows, used to gate dialogue.
 struct PlayerKnowledge {
     std::vector<std::string> knowledge_titles;
+    std::vector<std::string> evidence_titles;
     float reputation = 0.0f;
 
     bool knows(const std::string& title) const;
+    bool knows_evidence(const std::string& title) const;
 };
 
 // Generates NPC responses based purely on simulation state.
@@ -67,6 +69,8 @@ private:
     DialogueLine respond_about_relationships(const NPC& npc) const;
     DialogueLine respond_about_occupation(const NPC& npc) const;
     DialogueLine respond_about_disappearance(const NPC& npc) const;
+    DialogueLine respond_about_miller_night(const NPC& npc) const;
+    DialogueLine respond_about_miller_conclusion(const NPC& npc) const;
     DialogueLine respond_about_history(const NPC& npc) const;
 };
 
