@@ -390,6 +390,18 @@ void GameServer::create_test_world() {
     faded_photo.properties = {{"depicts", "A group of villagers standing before a burnt building"}, {"evidence_tag", "miller_disappearance"}};
     world_->create_item(faded_photo);
     
+    // Inside the Old Mill House — reachable only with the rusted key.
+    Item mill_ledger;
+    mill_ledger.name = "The Mill Ledger";
+    mill_ledger.category = "book";
+    mill_ledger.weight = 1.2f;
+    mill_ledger.value = 120.0f;
+    mill_ledger.position = {40, 20, 0, village_id};
+    mill_ledger.properties = {{"content", "Ten years of accounts, ending mid-page. In the margin, pressed hard: 'River toll paid in grain — no. In man.' A list of names follows, each struck out with a single line. The last name is untouched: Elias Thorne."},
+                              {"evidence_tag", "miller_disappearance"},
+                              {"knowledge", "The Disappearance"}};
+    world_->create_item(mill_ledger);
+    
     // Life systems: a crop plot near the mill, two fishing spots on the river, a job at the inn
     CropPlot plot;
     plot.position = {38, 16, 0, village_id};   // near the Old Mill House
@@ -1217,6 +1229,14 @@ nlohmann::json GameServer::handle_pickup(const nlohmann::json& action) {
             ev.acquired_from = "Found in " + region_name(player_.region_id);
             ev.acquired_at = simulation_->get_time().ticks;
             investigation_->add_evidence(ev);
+            // Tagged finds still advance the mystery they belong to.
+            auto* k = investigation_->get_knowledge(2); // The Disappearance
+            if (k && tag->second == "miller_disappearance") {
+                k->completeness = std::min(1.0f, k->completeness + 0.2f);
+                if (std::find(k->source_item_ids.begin(), k->source_item_ids.end(), item->id) == k->source_item_ids.end()) {
+                    k->source_item_ids.push_back(item->id);
+                }
+            }
             spdlog::info("New evidence tagged: {}", item->name);
         }
     }
@@ -1291,6 +1311,20 @@ nlohmann::json GameServer::handle_enter(const nlohmann::json& action) {
                         player_.position.y <= building->bounds.max_y + 15;
     if (!near_x || !near_y) {
         return action_error("Move closer to the entrance first.");
+    }
+
+    // The Old Mill House is sealed. The miller took his key with him — but a
+    // rusted duplicate hidden in the village square fits the bolt.
+    const bool is_mill = building->name.find("Old Mill House") != std::string::npos;
+    if (is_mill) {
+        bool has_key = false;
+        for (EntityID iid : player_.inventory) {
+            const Item* it = world_->get_item(iid);
+            if (it && it->name == "Rusted Key") { has_key = true; break; }
+        }
+        if (!has_key) {
+            return action_error("The door is barred from the inside by a heavy iron bolt, caked in rust. Something rusted might open it...");
+        }
     }
 
     player_.interior_id = target;
