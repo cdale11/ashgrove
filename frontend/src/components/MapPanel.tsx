@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Building, CropPlot, FishingSpot, Item, JobPosting, NPC, WorldState } from '../types'
+import type { Building, CropPlot, FishingSpot, Item, JobPosting, NPC, ResourceDeposit, WorldState } from '../types'
 
 interface MapPanelProps {
   state: WorldState
@@ -13,6 +13,7 @@ interface MapPanelProps {
   onHarvest: (plotId: number) => void
   onFish: (spotId: number) => void
   onWork: (jobId: number) => void
+  onGather: (depositId: number) => void
   onFocus: (target: {
     type: 'building' | 'npc' | 'item'
     id: number
@@ -39,6 +40,12 @@ const CATEGORY_ICONS: Record<string, string> = {
   clothing: '🧥',
   book: '📜',
   evidence: '🔍',
+}
+const DEPOSIT_GLYPHS: Record<string, string> = {
+  wood: '🌲',
+  stone: '🪨',
+  iron: '⛰️',
+  herbs: '🌿',
 }
 // Building type -> sprite (matches world::BuildingType order).
 const BUILDING_SPRITES: Record<string, string> = {
@@ -222,6 +229,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
   const [selectedItem, setSelectedItem] = useState<number | null>(null)
   const [selectedPlot, setSelectedPlot] = useState<number | null>(null)
   const [selectedSpot, setSelectedSpot] = useState<number | null>(null)
+  const [selectedDeposit, setSelectedDeposit] = useState<number | null>(null)
   const [selectedJob, setSelectedJob] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
 
@@ -235,6 +243,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
   )
   const herePlots: CropPlot[] = (state.world.crop_plots ?? []).filter((p) => p.position.region_id === playerRegionId)
   const hereSpots: FishingSpot[] = (state.world.fishing_spots ?? []).filter((s) => s.position.region_id === playerRegionId)
+  const hereDeps: ResourceDeposit[] = (state.world.resource_deposits ?? []).filter((d) => d.position.region_id === playerRegionId)
   const hereJobs: JobPosting[] = (state.world.job_postings ?? []).filter((j) => j.region_id === playerRegionId && j.is_active)
 
   // Zoom: 1 = default view. The camera sits in world units; pan with drag.
@@ -942,6 +951,46 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
       }
     }
 
+    // ----- Resource deposits: glade with a badge and remaining amount. -----
+    for (const dep of hereDeps) {
+      const p = proj(dep.position.x, dep.position.y)
+      if (!dep.depleted && dep.amount > 0) {
+        octx.fillStyle = 'rgba(0, 0, 0, 0.2)'
+        octx.beginPath()
+        octx.ellipse(p.x + 1, p.y + 4, 11, 5, 0, 0, Math.PI * 2)
+        octx.fill()
+      }
+      const resColor = dep.resource_name === 'wood' ? '#5a8a4a'
+        : dep.resource_name === 'stone' ? '#8a8a8a'
+        : dep.resource_name === 'iron' ? '#9a7b6a'
+        : '#5a9a6a'
+      octx.fillStyle = 'rgba(255, 240, 180, 0.14)'
+      octx.beginPath()
+      octx.arc(p.x, p.y, 13, 0, Math.PI * 2)
+      octx.fill()
+      octx.strokeStyle = dep.depleted || dep.amount <= 0 ? 'rgba(160,160,160,0.4)' : resColor
+      octx.lineWidth = 1.5
+      octx.beginPath()
+      octx.arc(p.x, p.y, 13, 0, Math.PI * 2)
+      octx.stroke()
+      octx.fillStyle = dep.depleted || dep.amount <= 0 ? 'rgba(140,140,140,0.5)' : '#fff'
+      octx.font = '13px system-ui'
+      octx.textAlign = 'center'
+      octx.fillText(DEPOSIT_GLYPHS[dep.resource_name] ?? '⛏️', p.x, p.y + 5)
+      if (!dep.depleted && dep.amount > 0) {
+        octx.fillStyle = 'rgba(255, 255, 230, 0.85)'
+        octx.font = '9px system-ui'
+        octx.fillText(String(Math.round(dep.amount)), p.x + 12, p.y + 2)
+      }
+      if (dep.id === selectedDeposit) {
+        octx.strokeStyle = '#ffe066'
+        octx.lineWidth = 2
+        octx.beginPath()
+        octx.arc(p.x, p.y, 17, 0, Math.PI * 2)
+        octx.stroke()
+      }
+    }
+
     // ----- Loose items: soft shadow + emblem on a worn disc. -----
     for (const it of hereItems) {
       const p = proj(it.position.x, it.position.y)
@@ -1146,7 +1195,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selected, selectedBuilding, selectedItem, selectedPlot, selectedSpot, selectedJob, zoom, cam])
+  }, [state, selected, selectedBuilding, selectedItem, selectedPlot, selectedSpot, selectedDeposit, selectedJob, zoom, cam])
 
   const hoverTarget = (wxw: number, wyw: number): { x: number; y: number; color: string; label: string } | null => {
     const c = canvasRef.current
@@ -1171,6 +1220,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
     for (const it of hereItems) consider(it.position.x, it.position.y, 18 / s, '#ffd97a', it.name)
     for (const pl of herePlots) consider(pl.position.x, pl.position.y, 14 / s, '#ffe066', `Crop plot (stage ${pl.stage}) — water ${Math.round(pl.water_level * 100)}%`)
     for (const sp of hereSpots) consider(sp.position.x, sp.position.y, 22 / s, '#7fd4ff', sp.name)
+    for (const dep of hereDeps) consider(dep.position.x, dep.position.y, 26 / s, '#ffe066', `${dep.resource_name} (${Math.round(dep.amount)}/${Math.round(dep.max_amount)})`)
     for (const j of hereJobs) consider(j.work_position.x, j.work_position.y, 18 / s, '#ffd97a', j.title)
     return best
   }
@@ -1326,6 +1376,23 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
       return
     }
     setSelectedSpot(null)
+
+    // Resource deposit click
+    let depBest: (typeof hereDeps)[0] | null = null
+    let bestDistDep = 22 / s
+    for (const dep of hereDeps) {
+      const d = Math.hypot(dep.position.x - wxw, dep.position.y - wyw)
+      if (d < bestDistDep) {
+        bestDistDep = d
+        depBest = dep
+      }
+    }
+    if (depBest) {
+      setSelectedDeposit(depBest.id)
+      setHover(`${depBest.resource_name} (${Math.round(depBest.amount)}/${Math.round(depBest.max_amount)})`)
+      return
+    }
+    setSelectedDeposit(null)
 
     // Job marker click
     let jBest: (typeof hereJobs)[0] | null = null
@@ -1504,6 +1571,21 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, 
           <div className="map-actions">
             <button onClick={() => { onFish(s.id); setHover('Fishing...') }}>Fish here</button>
             <button onClick={() => setSelectedSpot(null)}>✕</button>
+          </div>
+        )
+      })()}
+      {selectedDeposit !== null && (() => {
+        const dep = hereDeps.find((dd) => dd.id === selectedDeposit)
+        if (!dep) return null
+        return (
+          <div className="map-actions">
+            <button
+              disabled={dep.depleted || dep.amount <= 0}
+              onClick={() => { onGather(dep.id); setHover(`Gathering ${dep.resource_name}...`) }}
+            >
+              Gather {dep.resource_name}
+            </button>
+            <button onClick={() => setSelectedDeposit(null)}>✕</button>
           </div>
         )
       })()}

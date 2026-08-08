@@ -1,4 +1,4 @@
-import type { WorldState, CropPlot, FishingSpot, JobPosting } from '../types'
+import type { WorldState, CropPlot, FishingSpot, JobPosting, ResourceDeposit, CraftRecipe } from '../types'
 
 interface LifestylePanelProps {
   state: WorldState
@@ -7,6 +7,9 @@ interface LifestylePanelProps {
   onHarvest: (plotId: number) => void
   onFish: (spotId: number) => void
   onWork: (jobId: number) => void
+  onGather: (depositId: number) => void
+  onExpandFarm: () => void
+  onCraft: (recipeKey: string) => void
 }
 
 const CROP_NAMES: Record<number, string> = {
@@ -55,13 +58,25 @@ const SKILL_NAMES: Record<number, string> = {
   9: 'herbalism',
 }
 
-export function LifestylePanel({ state, onPlant, onWater, onHarvest, onFish, onWork }: LifestylePanelProps) {
+export function LifestylePanel({ state, onPlant, onWater, onHarvest, onFish, onWork, onGather, onExpandFarm, onCraft }: LifestylePanelProps) {
   const player = state.player
   const playerRegion = player?.region_id ?? state.world.regions[0]?.id ?? 0
 
   const plots = state.world.crop_plots.filter((p) => p.position.region_id === playerRegion)
   const spots = state.world.fishing_spots.filter((s) => s.position.region_id === playerRegion)
   const jobs = state.world.job_postings.filter((j) => j.region_id === playerRegion && j.is_active)
+  const deposits = state.world.resource_deposits.filter((d) => d.position.region_id === playerRegion)
+  const recipes = state.recipes ?? []
+
+  const hasIngredients = (r: CraftRecipe) => {
+    if (!player) return false
+    return r.costs.every((c) => {
+      const owned = player.inventory.filter((id) =>
+        state.world.items.find((it) => it.id === id && it.name === c.name),
+      ).length
+      return owned >= c.count
+    })
+  }
 
   const skillLabel = (jobType: number): [string, number] => {
     const name = SKILL_NAMES[jobType]
@@ -140,7 +155,53 @@ export function LifestylePanel({ state, onPlant, onWater, onHarvest, onFish, onW
         </div>
       )}
 
-      {plots.length === 0 && spots.length === 0 && jobs.length === 0 && (
+      {deposits.length > 0 && (
+        <div className="life-section">
+          <h4>Resources ({deposits.length})</h4>
+          {deposits.map((d: ResourceDeposit) => (
+            <div key={d.id} className="life-entry">
+              <span className="life-name">{d.resource_name}</span>
+              <span className="life-meta">
+                {Math.round(d.amount)}/{Math.round(d.max_amount)}{d.depleted ? ' · depleted' : ''}
+              </span>
+              <div className="life-actions">
+                <button className="gather" disabled={d.depleted || d.amount <= 0} onClick={() => onGather(d.id)}>
+                  Gather
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {plots.length > 0 && (
+        <div className="life-section">
+          <h4>Farm</h4>
+          <div className="life-actions">
+            <button className="expand" onClick={() => onExpandFarm()}>Clear new plot</button>
+          </div>
+        </div>
+      )}
+
+      {recipes.length > 0 && (
+        <div className="life-section">
+          <h4>Craft ({recipes.length})</h4>
+          {recipes.map((r: CraftRecipe) => (
+            <div key={r.key} className="life-entry">
+              <span className="life-name">{r.name}</span>
+              <span className="life-meta">
+                {r.costs.map((c) => `${c.count}× ${c.name}`).join(', ')} · {r.value}💰
+                {r.skill_req > 0 && ` · ${r.skill} ${r.skill_req}`}
+              </span>
+              <div className="life-actions">
+                <button className="craft" disabled={!hasOwn(r)} onClick={() => onCraft(r.key)}>Craft</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {plots.length === 0 && spots.length === 0 && jobs.length === 0 && deposits.length === 0 && (
         <p className="empty-state">No farms, waters, or work in this region yet.</p>
       )}
     </div>

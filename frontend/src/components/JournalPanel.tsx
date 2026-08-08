@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import type { WorldState } from '../types'
+import type { WorldState, QuestState } from '../types'
 
 interface JournalPanelProps {
   state: WorldState
+  onAcceptQuest?: (questId: number) => void
+  onClaimQuest?: (questId: number) => void
   onClose: () => void
 }
 
@@ -26,10 +28,12 @@ const CATEGORY_COLORS: Record<number, string> = {
   6: '#6b558b',
 }
 
-export function JournalPanel({ state, onClose }: JournalPanelProps) {
-  const [tab, setTab] = useState<'knowledge' | 'evidence' | 'log'>('knowledge')
+export function JournalPanel({ state, onAcceptQuest, onClaimQuest, onClose }: JournalPanelProps) {
+  const [tab, setTab] = useState<'knowledge' | 'evidence' | 'quests' | 'log'>('knowledge')
   const investigation = state.investigation
   const player = state.player
+
+  const quests = state.quests ?? []
 
   const sortedKnowledge = [...(investigation?.knowledge ?? [])].sort((a, b) => 
     (b.discovered_at ?? 0) - (a.discovered_at ?? 0)
@@ -61,6 +65,12 @@ export function JournalPanel({ state, onClose }: JournalPanelProps) {
           onClick={() => setTab('evidence')}
         >
           Evidence ({investigation?.evidence?.length ?? 0})
+        </button>
+        <button 
+          className={tab === 'quests' ? 'active' : ''} 
+          onClick={() => setTab('quests')}
+        >
+          Quests ({quests.length})
         </button>
         <button 
           className={tab === 'log' ? 'active' : ''} 
@@ -132,6 +142,49 @@ export function JournalPanel({ state, onClose }: JournalPanelProps) {
                   )}
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {tab === 'quests' && (
+          <div className="quest-list">
+            {quests.length === 0 ? (
+              <p className="empty-state">No errands on the board yet. Check back with the villagers.</p>
+            ) : (
+              quests.map((q: QuestState) => {
+                const frac = q.required > 0 ? Math.min(1, q.progress / q.required) : 0
+                const statusLabel =
+                  q.status === 'completed' ? 'Done'
+                  : q.status === 'redeemable' ? 'Ready to claim'
+                  : q.status === 'active' ? 'In progress'
+                  : 'On the board'
+                return (
+                  <div key={q.id} className="quest-entry">
+                    <div className="quest-header">
+                      <span className="quest-title">{q.title}</span>
+                      <span className="quest-status">{statusLabel}</span>
+                    </div>
+                    <p className="quest-description">{q.description}</p>
+                    <div className="quest-progress">
+                      <div className="completeness-bar">
+                        <div className="completeness-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
+                      </div>
+                      <span className="completeness-text">{q.progress}/{q.required}</span>
+                    </div>
+                    <p className="quest-reward">
+                      Reward: {q.reward_coins}💰 · {Math.round(q.reward_xp)} ✨{q.reward_item ? ` · ${q.reward_item}` : ''}
+                    </p>
+                    {(q.status === 'available' || q.status === 'active') && onAcceptQuest && (
+                      <button disabled={q.status === 'active'} onClick={() => onAcceptQuest(q.id)}>
+                        {q.status === 'active' ? 'Accepted' : 'Accept'}
+                      </button>
+                    )}
+                    {q.status === 'redeemable' && onClaimQuest && (
+                      <button className="claim" onClick={() => onClaimQuest(q.id)}>Claim reward</button>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
         )}

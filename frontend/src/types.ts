@@ -241,12 +241,56 @@ export interface JobPosting {
   expires_at: number
 }
 
+export interface ResourceDeposit {
+  id: number
+  resource_name: string
+  position: Vec3 & { region_id: number }
+  amount: number
+  max_amount: number
+  regeneration_rate: number
+  depleted: boolean
+}
+
+export interface CraftCost {
+  name: string
+  count: number
+}
+
+export interface CraftRecipe {
+  key: string
+  name: string
+  category: string
+  value: number
+  costs: CraftCost[]
+  skill_req: number
+  skill: string
+  description: string
+}
+
+export interface QuestState {
+  id: number
+  title: string
+  description: string
+  giver: string
+  kind: number
+  kind_hint: string
+  target: string
+  required: number
+  progress: number
+  reward_coins: number
+  reward_xp: number
+  reward_item: string
+  status: string
+  is_daily: boolean
+  posted_day: number
+}
+
 export interface World {
   next_entity_id: number
   buildings: Building[]
   regions: Region[]
   items: Item[]
-  resource_deposits: unknown[]
+  resource_deposits: ResourceDeposit[]
   npcs: NPC[]
   crop_plots: CropPlot[]
   fishing_spots: FishingSpot[]
@@ -320,6 +364,8 @@ export interface WorldState {
   investigation: Investigation
   player?: PlayerState
   shop_catalog?: ShopCatalogItem[]
+  quests?: QuestState[]
+  recipes?: CraftRecipe[]
 }
 
 export const EMOTION_NAMES = [

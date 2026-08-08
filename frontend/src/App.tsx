@@ -170,6 +170,31 @@ export default function App() {
     pushNotice(String(res.message ?? res.error ?? 'Work attempted'))
   }
 
+  const handleAcceptQuest = async (questId: number) => {
+    const res = await act({ type: 'accept_quest', quest: questId })
+    pushNotice(String(res.message ?? res.error ?? 'Quest accepted'))
+  }
+
+  const handleClaimQuest = async (questId: number) => {
+    const res = await act({ type: 'claim_quest', quest: questId })
+    pushNotice(String(res.message ?? res.error ?? 'Quest claimed'))
+  }
+
+  const handleGather = async (depositId: number) => {
+    const res = await act({ type: 'gather', target: depositId })
+    pushNotice(String(res.message ?? res.error ?? 'Gathering attempted'))
+  }
+
+  const handleExpandFarm = async () => {
+    const res = await act({ type: 'expand_farm' })
+    pushNotice(String(res.message ?? res.error ?? 'Expansion attempted'))
+  }
+
+  const handleCraft = async (recipeKey: string) => {
+    const res = await act({ type: 'craft', recipe: recipeKey })
+    pushNotice(String(res.message ?? res.error ?? 'Crafting attempted'))
+  }
+
   const handleFocus = (
     target: {
       type: 'building' | 'npc' | 'item'
@@ -308,6 +333,7 @@ export default function App() {
               onHarvest={handleHarvest}
               onFish={handleFish}
               onWork={handleWork}
+              onGather={handleGather}
               onFocus={handleFocus}
             />
           )}
@@ -330,7 +356,12 @@ export default function App() {
         <aside className="column right">
           {showJournal && (
             <Accordion title="📔 Journal" onClose={() => setShowJournal(false)}>
-              <JournalPanel state={state} onClose={() => setShowJournal(false)} />
+              <JournalPanel
+                state={state}
+                onAcceptQuest={handleAcceptQuest}
+                onClaimQuest={handleClaimQuest}
+                onClose={() => setShowJournal(false)}
+              />
             </Accordion>
           )}
           {showInventory && (
@@ -347,6 +378,9 @@ export default function App() {
                 onHarvest={handleHarvest}
                 onFish={handleFish}
                 onWork={handleWork}
+                onGather={handleGather}
+                onExpandFarm={handleExpandFarm}
+                onCraft={handleCraft}
               />
             </Accordion>
           )}
