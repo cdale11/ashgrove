@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "world/world.h"
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
@@ -35,6 +36,10 @@ public:
     float reputation = 0.0f;        // Village-wide standing -100..100
     uint32_t level = 1;
     uint32_t xp = 0;
+
+    // Skills & money
+    PlayerSkills skills;
+    float money = 0.0f;
 
     // Inventory
     std::vector<EntityID> inventory;

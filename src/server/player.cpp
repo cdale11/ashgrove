@@ -17,6 +17,8 @@ nlohmann::json PlayerCharacter::serialize() const {
         {"reputation", reputation},
         {"level", level},
         {"xp", xp},
+        {"skills", skills.serialize()},
+        {"money", money},
         {"inventory", inventory},
         {"resting", resting},
         {"current_action", current_action},
@@ -45,6 +47,10 @@ void PlayerCharacter::deserialize(const nlohmann::json& j) {
     reputation = j.value("reputation", 0.0f);
     level = j.value("level", 1);
     xp = j.value("xp", 0);
+    if (j.contains("skills")) {
+        skills = PlayerSkills::deserialize(j["skills"]);
+    }
+    money = j.value("money", 0.0f);
     inventory = j.value("inventory", std::vector<EntityID>{});
     resting = j.value("resting", false);
     current_action = j.value("current_action", "idle");

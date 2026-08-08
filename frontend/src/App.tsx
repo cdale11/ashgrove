@@ -10,6 +10,9 @@ import { PlayerPanel } from './components/PlayerPanel'
 import { DialoguePanel } from './components/DialoguePanel'
 import { InteriorPanel } from './components/InteriorPanel'
 import { LensPanel } from './components/LensPanel'
+import { JournalPanel } from './components/JournalPanel'
+import { InventoryPanel } from './components/InventoryPanel'
+import { LifestylePanel } from './components/LifestylePanel'
 import type { DialogueSession } from './components/DialoguePanel'
 import type { ConversationTopic, DialogueLine } from './types'
 import './App.css'
@@ -27,6 +30,9 @@ export default function App() {
     sensory?: string[]
     knowledge?: string[]
   } | null>(null)
+  const [showJournal, setShowJournal] = useState(false)
+  const [showInventory, setShowInventory] = useState(false)
+  const [showLifestyle, setShowLifestyle] = useState(false)
 
   const pushNotice = (msg: string) => {
     if (!msg) return
@@ -108,6 +114,61 @@ export default function App() {
     pushNotice(String(res.message ?? res.error ?? 'Exited'))
   }
 
+  const handlePickup = async (itemId: number) => {
+    const res = await act({ type: 'pickup', target: itemId })
+    pushNotice(String(res.message ?? res.error ?? 'Pickup attempted'))
+  }
+
+  const handleUseItem = async (itemId: number) => {
+    const res = await act({ type: 'use_item', target: itemId })
+    pushNotice(String(res.message ?? res.error ?? 'Use attempted'))
+  }
+
+  const handleDropItem = async (itemId: number) => {
+    const res = await act({ type: 'drop_item', target: itemId })
+    pushNotice(String(res.message ?? res.error ?? 'Drop attempted'))
+  }
+
+  const handleGiveItem = async (itemId: number, npcId: number) => {
+    const res = await act({ type: 'give', item: itemId, target: npcId })
+    pushNotice(String(res.message ?? res.error ?? 'Give attempted'))
+  }
+
+  const handleBuy = async (goods: string) => {
+    const res = await act({ type: 'buy', goods })
+    pushNotice(String(res.message ?? res.error ?? 'Buy attempted'))
+  }
+
+  const handleSell = async (itemId: number) => {
+    const res = await act({ type: 'sell', item: itemId })
+    pushNotice(String(res.message ?? res.error ?? 'Sell attempted'))
+  }
+
+  const handlePlant = async (plotId: number, crop: string) => {
+    const res = await act({ type: 'plant', target: plotId, crop })
+    pushNotice(String(res.message ?? res.error ?? 'Plant attempted'))
+  }
+
+  const handleWater = async (plotId: number) => {
+    const res = await act({ type: 'water', target: plotId })
+    pushNotice(String(res.message ?? res.error ?? 'Water attempted'))
+  }
+
+  const handleHarvest = async (plotId: number) => {
+    const res = await act({ type: 'harvest', target: plotId })
+    pushNotice(String(res.message ?? res.error ?? 'Harvest attempted'))
+  }
+
+  const handleFish = async (spotId: number) => {
+    const res = await act({ type: 'fish', target: spotId })
+    pushNotice(String(res.message ?? res.error ?? 'Fishing attempted'))
+  }
+
+  const handleWork = async (jobId: number) => {
+    const res = await act({ type: 'work', target: jobId })
+    pushNotice(String(res.message ?? res.error ?? 'Work attempted'))
+  }
+
   const handleFocus = (
     target: {
       type: 'building' | 'npc' | 'item'
@@ -186,6 +247,15 @@ export default function App() {
           </span>
         </div>
         <div className="actions">
+          <button onClick={() => setShowJournal(!showJournal)} disabled={!connected}>
+            📔 Journal
+          </button>
+          <button onClick={() => setShowInventory(!showInventory)} disabled={!connected}>
+            🎒 Inventory
+          </button>
+          <button onClick={() => setShowLifestyle(!showLifestyle)} disabled={!connected}>
+            🌾 Daily Life
+          </button>
           <button onClick={handleSave} disabled={!connected}>Save</button>
           <button onClick={handleLoad} disabled={!connected}>Load</button>
         </div>
@@ -215,7 +285,7 @@ export default function App() {
         </aside>
 
         <section className="column center">
-          {state.player?.interior_id > 0 ? (
+          {state.player && state.player.interior_id > 0 ? (
             <InteriorPanel
               state={state}
               buildingId={state.player.interior_id}
@@ -231,6 +301,12 @@ export default function App() {
               onInspect={handleInspect}
               onMove={handleMapMove}
               onEnter={handleEnter}
+              onPickup={handlePickup}
+              onPlant={handlePlant}
+              onWater={handleWater}
+              onHarvest={handleHarvest}
+              onFish={handleFish}
+              onWork={handleWork}
               onFocus={handleFocus}
             />
           )}
@@ -251,6 +327,18 @@ export default function App() {
         </section>
 
         <aside className="column right">
+          {showJournal && <JournalPanel state={state} onClose={() => setShowJournal(false)} />}
+          {showInventory && <InventoryPanel state={state} onUseItem={handleUseItem} onDropItem={handleDropItem} onGiveItem={handleGiveItem} onBuy={handleBuy} onSell={handleSell} onClose={() => setShowInventory(false)} />}
+          {showLifestyle && (
+            <LifestylePanel
+              state={state}
+              onPlant={handlePlant}
+              onWater={handleWater}
+              onHarvest={handleHarvest}
+              onFish={handleFish}
+              onWork={handleWork}
+            />
+          )}
           <InvestigationPanel state={state} />
           <WorldPanel state={state} />
         </aside>

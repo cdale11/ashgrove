@@ -7,6 +7,12 @@ interface MapPanelProps {
   onInspect: (npcId: number) => void
   onMove: (x: number, y: number) => void
   onEnter: (buildingId: number) => void
+  onPickup: (itemId: number) => void
+  onPlant: (plotId: number, crop: string) => void
+  onWater: (plotId: number) => void
+  onHarvest: (plotId: number) => void
+  onFish: (spotId: number) => void
+  onWork: (jobId: number) => void
   onFocus: (target: {
     type: 'building' | 'npc' | 'item'
     id: number
@@ -60,8 +66,26 @@ const SPRITES = {
   object: '🧩',
   path: '#9a7b5a',
 }
+// Crop stage -> glyph + plot tint (matches world::CropStage order).
+const CROP_STAGE_GLYPHS: Record<number, string> = {
+  0: '⬚', // empty
+  1: '🌱', // planted
+  2: '🌿', // sprouting
+  3: '🌿', // growing
+  4: '🌻', // flowering
+  5: '🌾', // ready
+  6: '🥀', // withered
+}
+const CROP_STAGE_TINTS: Record<number, string> = {
+  0: '#4a3b23',
+  1: '#5d7a3a',
+  2: '#6d8f42',
+  3: '#7f9d4c',
+  4: '#8a9d55',
+  5: '#c9a93f',
+  6: '#5a4a38',
+}
 
-// Small deterministic PRNG so the terrain looks the same every render.
 function mulberry32(seed: number) {
   let a = seed >>> 0
   return function () {
@@ -78,12 +102,15 @@ function pickGlyph(n: NPC): string {
   return DEFAULT_NPC_GLYPH
 }
 
-export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }: MapPanelProps) {
+export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onPickup, onPlant, onWater, onHarvest, onFish, onWork, onFocus }: MapPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [selectedBuilding, setSelectedBuilding] = useState<number | null>(null)
   const [selectedItem, setSelectedItem] = useState<number | null>(null)
+  const [selectedPlot, setSelectedPlot] = useState<number | null>(null)
+  const [selectedSpot, setSelectedSpot] = useState<number | null>(null)
+  const [selectedJob, setSelectedJob] = useState<number | null>(null)
 
   const player = state.player
   const playerRegionId = player?.region_id ?? -1
@@ -93,6 +120,9 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
   const hereItems = state.world.items.filter(
     (i) => i.position.region_id === playerRegionId && i.owner_id === 0,
   )
+  const herePlots = (state.world.crop_plots ?? []).filter((p) => p.region_id === playerRegionId)
+  const hereSpots = (state.world.fishing_spots ?? []).filter((s) => s.region_id === playerRegionId)
+  const hereJobs = (state.world.job_postings ?? []).filter((j) => j.region_id === playerRegionId && j.is_active)
 
   // World viewport in world units (square, centered on the region center).
   // The village content clusters near the origin; a modest window keeps the
@@ -252,6 +282,80 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
       ctx.fillText(CATEGORY_ICONS[it.category] ?? '·', p.x, p.y + 5)
     }
 
+    // Crop plots: dark tilled soil square + stage glyph + moisture hint.
+    for (const pl of herePlots) {
+      const p = toCanvas(pl.position.x, pl.position.y)
+      const size = Math.max(8, 3.2 * scale)
+      ctx.fillStyle = CROP_STAGE_TINTS[pl.stage] ?? '#4a3b23'
+      ctx.fillRect(p.x - size, p.y - size, size * 2, size * 2)
+      ctx.strokeStyle = 'rgba(120, 90, 50, 0.7)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(p.x - size, p.y - size, size * 2, size * 2)
+      if (pl.stage > 0) {
+        ctx.fillStyle = '#fff'
+        ctx.font = '11px system-ui'
+        ctx.textAlign = 'center'
+        ctx.fillText(CROP_STAGE_GLYPHS[pl.stage] ?? '🌱', p.x, p.y + 4)
+      }
+      if (pl.stage > 0 && pl.water_level < 0.25 && pl.stage !== 6) {
+        ctx.fillStyle = 'rgba(120, 200, 255, 0.5)'
+        ctx.fillText('!', p.x + size, p.y - size)
+      }
+      if (pl.id === selectedPlot) {
+        ctx.strokeStyle = '#ffe066'
+        ctx.lineWidth = 2
+        ctx.strokeRect(p.x - size - 2, p.y - size - 2, size * 2 + 4, size * 2 + 4)
+      }
+    }
+
+    // Fishing spots: dark water pool + ripple rings + glyph.
+    for (const s of hereSpots) {
+      const p = toCanvas(s.position.x, s.position.y)
+      const r = Math.max(10, 4 * scale)
+      ctx.fillStyle = 'rgba(24, 70, 110, 0.35)'
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(140, 190, 230, 0.4)'
+      ctx.lineWidth = 1
+      for (let ri = 1; ri <= 2; ri++) {
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, r * (0.35 + ri * 0.25), 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      ctx.fillStyle = '#bfe3ff'
+      ctx.font = '12px system-ui'
+      ctx.textAlign = 'center'
+      ctx.fillText('🐟', p.x, p.y + 4)
+      if (s.id === selectedSpot) {
+        ctx.strokeStyle = '#ffe066'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, r + 2, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    }
+
+    // Job sites: small board marker with a coin glyph.
+    for (const j of hereJobs) {
+      const p = toCanvas(j.work_position.x, j.work_position.y)
+      ctx.fillStyle = 'rgba(243, 156, 18, 0.2)'
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, 10, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#ffd97a'
+      ctx.font = '12px system-ui'
+      ctx.textAlign = 'center'
+      ctx.fillText('💼', p.x, p.y + 4)
+      if (j.id === selectedJob) {
+        ctx.strokeStyle = '#ffe066'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 12, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    }
+
     // NPCs: shadow + glyph + name + selection ring.
     for (const n of hereNpcs) {
       const p = toCanvas(n.position.x, n.position.y)
@@ -293,10 +397,13 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
     // --- Atmosphere overlays ---
     // FOG OF WAR: dim beyond a clear radius around the player. Kept mild so the
     // village stays readable; renders as a blue-dark falloff, not flat grey.
+    // Insecurity shrinks the known world — the dread closes in.
     if (player) {
       const pp = toCanvas(player.position.x, player.position.y)
       const base = Math.min(w, h)
-      const radius = base * (0.46 + 0.28 * dayFactor)
+      const insecurity = state.time_data?.insecurity ?? 0
+      const insecurityShrink = 0.05 + (insecurity / 100) * 0.25 // up to 30% smaller at max
+      const radius = base * (0.46 + 0.28 * dayFactor - insecurityShrink)
       const fw = ctx.createRadialGradient(pp.x, pp.y, radius * 0.4, pp.x, pp.y, radius)
       fw.addColorStop(0, 'rgba(0,0,0,0)')
       fw.addColorStop(1, 'rgba(2, 4, 10, 0.55)')
@@ -389,6 +496,60 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
     }
     setSelectedItem(null)
 
+    // Crop plot click
+    let pBest: (typeof herePlots)[0] | null = null
+    let bestDistPlot = 25 / scale
+    for (const pl of herePlots) {
+      const d = Math.hypot(pl.position.x - wx, pl.position.y - wy)
+      if (d < bestDistPlot) {
+        bestDistPlot = d
+        pBest = pl
+      }
+    }
+    if (pBest) {
+      setSelectedPlot(pBest.id)
+      setSelectedSpot(null)
+      setSelectedJob(null)
+      setHover(`Crop plot (stage ${pBest.stage}) — water ${Math.round(pBest.water_level * 100)}%`)
+      return
+    }
+    setSelectedPlot(null)
+
+    // Fishing spot click
+    let sBest: (typeof hereSpots)[0] | null = null
+    let bestDistSpot = 30 / scale
+    for (const s of hereSpots) {
+      const d = Math.hypot(s.position.x - wx, s.position.y - wy)
+      if (d < bestDistSpot) {
+        bestDistSpot = d
+        sBest = s
+      }
+    }
+    if (sBest) {
+      setSelectedSpot(sBest.id)
+      setSelectedJob(null)
+      setHover(sBest.name)
+      return
+    }
+    setSelectedSpot(null)
+
+    // Job marker click
+    let jBest: (typeof hereJobs)[0] | null = null
+    let bestDistJob = 25 / scale
+    for (const j of hereJobs) {
+      const d = Math.hypot(j.work_position.x - wx, j.work_position.y - wy)
+      if (d < bestDistJob) {
+        bestDistJob = d
+        jBest = j
+      }
+    }
+    if (jBest) {
+      setSelectedJob(jBest.id)
+      setHover(jBest.title)
+      return
+    }
+    setSelectedJob(null)
+
     // Otherwise: move the player to that spot
     onMove(wx, wy)
     setSelected(null)
@@ -396,6 +557,7 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
   }
 
   const selectedNpc = hereNpcs.find((n) => n.id === selected) ?? null
+  const selectedItemObj = hereItems.find((i) => i.id === selectedItem) ?? null
 
   return (
     <div className="panel map-panel">
@@ -460,6 +622,78 @@ export function MapPanel({ state, onTalk, onInspect, onMove, onEnter, onFocus }:
           <button onClick={() => setSelectedBuilding(null)}>✕</button>
         </div>
       )}
+      {selectedItemObj && (
+        <div className="map-actions">
+          <button
+            onClick={() => {
+              onPickup(selectedItemObj.id)
+              setSelectedItem(null)
+              setHover(null)
+            }}
+          >
+            Pick up
+          </button>
+          <button
+            onClick={() => {
+              onFocus({
+                type: 'item',
+                id: selectedItemObj.id,
+                name: selectedItemObj.name,
+                description: selectedItemObj.properties?.description ?? `${selectedItemObj.category}: ${selectedItemObj.name}`,
+                sensory: selectedItemObj.properties?.scent ? [`Scent of ${selectedItemObj.properties.scent}`] : undefined,
+                knowledge: selectedItemObj.properties?.knowledge ? [selectedItemObj.properties.knowledge] : undefined,
+              })
+            }}
+          >
+            Focus
+          </button>
+          <button onClick={() => setSelectedItem(null)}>✕</button>
+        </div>
+      )}
+      {selectedPlot !== null && (() => {
+        const pl = herePlots.find((p) => p.id === selectedPlot)
+        if (!pl) return null
+        const ready = pl.stage === 5
+        const planted = pl.stage > 0 && pl.stage < 6
+        return (
+          <div className="map-actions">
+            {pl.stage === 0 && (
+              <>
+                <button onClick={() => { onPlant(pl.id, 'wheat'); setHover('Planting wheat...') }}>Plant wheat</button>
+                <button onClick={() => { onPlant(pl.id, 'carrots'); setHover('Planting carrots...') }}>Plant carrots</button>
+                <button onClick={() => { onPlant(pl.id, 'potatoes'); setHover('Planting potatoes...') }}>Plant potatoes</button>
+              </>
+            )}
+            {planted && pl.water_level < 1 && (
+              <button onClick={() => { onWater(pl.id); setHover('Watering...') }}>Water</button>
+            )}
+            {ready && (
+              <button className="map-act-harvest" onClick={() => { onHarvest(pl.id); setSelectedPlot(null); setHover(null) }}>Harvest</button>
+            )}
+            <button onClick={() => setSelectedPlot(null)}>✕</button>
+          </div>
+        )
+      })()}
+      {selectedSpot !== null && (() => {
+        const s = hereSpots.find((sp) => sp.id === selectedSpot)
+        if (!s) return null
+        return (
+          <div className="map-actions">
+            <button onClick={() => { onFish(s.id); setHover('Fishing...') }}>Fish here</button>
+            <button onClick={() => setSelectedSpot(null)}>✕</button>
+          </div>
+        )
+      })()}
+      {selectedJob !== null && (() => {
+        const j = hereJobs.find((jj) => jj.id === selectedJob)
+        if (!j) return null
+        return (
+          <div className="map-actions">
+            <button onClick={() => { onWork(j.id); setHover('Working a shift...') }}>Work shift</button>
+            <button onClick={() => setSelectedJob(null)}>✕</button>
+          </div>
+        )
+      })()}
     </div>
   )
 }

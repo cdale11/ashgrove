@@ -19,7 +19,7 @@ export function PlayerPanel({ state, act, onNotice, onTalk, onInspect }: PlayerP
     state.world.regions.find((r) => r.id === id)?.name ?? `Region ${id}`
   const currentRegion = regionName(player.region_id)
 
-  const destinations = [
+  const destinations: Array<{ key: string; label: string; x: number; y: number; z: number; region?: string }> = [
     ...state.world.buildings
       .filter((b) => b.position.region_id === player.region_id)
       .map((b) => ({

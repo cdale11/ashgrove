@@ -1,4 +1,4 @@
-import type { NPC, WorldState } from '../types'
+import type { WorldState } from '../types'
 
 interface InteriorPanelProps {
   state: WorldState
@@ -16,7 +16,7 @@ interface InteriorPanelProps {
   } | null) => void
 }
 
-export function InteriorPanel({ state, buildingId, onTalk, onInspect, onExit }: InteriorPanelProps) {
+export function InteriorPanel({ state, buildingId, onTalk, onInspect, onExit, onFocus }: InteriorPanelProps) {
   const building = state.world.buildings.find((b) => b.id === buildingId)
 
   if (!building) {

@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <random>
+#include <cstdlib>
 
 namespace ashgrove {
 
@@ -58,6 +59,7 @@ void Simulation::advance_time(TimeTick ticks) {
     update_time();
     update_season();
     update_weather();
+    update_insecurity();
 
     emit(SimulationEvent{SimulationEvent::Type::TimeAdvanced, time_.ticks});
 
@@ -124,13 +126,125 @@ void Simulation::update_weather() {
     }
 }
 
+void Simulation::update_insecurity() {
+    // Base drift: slowly rises over time (the long dread)
+    const float base_drift = 0.02f;
+    
+    // Night penalty: insecurity rises faster in darkness
+    float night_factor = 1.0f;
+    if (time_.hour >= 21 || time_.hour < 6) night_factor = 3.5f;      // deep night
+    else if (time_.hour >= 19 || time_.hour < 7) night_factor = 1.8f; // twilight
+    
+    // Seasonal pressure: winter is hardest, spring easiest
+    float season_factor = 1.0f;
+    switch (time_.season) {
+        case Season::Spring: season_factor = 0.7f; break;
+        case Season::Summer: season_factor = 0.9f; break;
+        case Season::Autumn: season_factor = 1.2f; break;
+        case Season::Winter: season_factor = 1.8f; break;
+    }
+    
+    // Weather amplification
+    float weather_factor = 1.0f + time_.weather_intensity * 0.8f;
+    if (time_.weather == WeatherType::Storm) weather_factor += 0.5f;
+    if (time_.weather == WeatherType::Fog) weather_factor += 0.3f;
+    
+    // World state pressure (if we have world access)
+    float world_pressure = 1.0f;
+    if (world_) {
+        // More dangerous regions increase pressure
+        if (!world_->regions().empty()) {
+            float avg_danger = 0.0f;
+            for (const auto& [id, r] : world_->regions()) {
+                avg_danger += r.danger_level;
+            }
+            avg_danger /= world_->regions().size();
+            world_pressure += avg_danger * 0.5f;
+        }
+    }
+    
+    // Combine factors
+    float delta = base_drift * night_factor * season_factor * weather_factor * world_pressure;
+    
+    // Small recovery during safe daytime in spring/summer
+    bool safe_window = (time_.hour >= 8 && time_.hour <= 18) && 
+                       (time_.season == Season::Spring || time_.season == Season::Summer) &&
+                       time_.weather == WeatherType::Clear;
+    if (safe_window) delta -= 0.015f;
+    
+    // Apply with clamping
+    insecurity_ = std::clamp(insecurity_ + delta, 0.0f, 100.0f);
+    
+    // Occasional spikes (simulate "something happened")
+    static std::mt19937 rng(std::random_device{}());
+    static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    if (dist(rng) < 0.003f) { // 0.3% chance per tick
+        insecurity_ = std::min(100.0f, insecurity_ + dist(rng) * 3.0f + 1.0f);
+    }
+}
+
 void Simulation::process_npc_ai() {
-    // NPC AI processing happens here
-    // For now, just a placeholder
+    if (!world_) return;
+    
+    // Insecurity accelerates relationship decay (the village frays at the edges)
+    float decay_mult = 1.0f + (insecurity_ / 100.0f) * 2.0f; // up to 3x at max
+    
+    for (auto& [nid, npc] : world_->npcs()) {
+        if (!npc) continue;
+        // Decay player relationships faster under dread
+        auto it = npc->relationships.begin();
+        while (it != npc->relationships.end()) {
+            if (it->target_id == 0) { // Player is entity 0
+                it->affinity = std::max(-100.0f, it->affinity - 0.05f * decay_mult);
+                it->trust = std::max(-100.0f, it->trust - 0.03f * decay_mult);
+                // Occasionally add a "suspicion" belief at high insecurity
+                if (insecurity_ > 70 && std::rand() / float(RAND_MAX) < 0.001f) {
+                    npc->beliefs.push_back({ 
+                        "The Investigator is not what they seem.", 
+                        0.7f + (insecurity_ / 100.0f) * 0.3f,
+                        time_.ticks 
+                    });
+                }
+            }
+            ++it;
+        }
+    }
 }
 
 void Simulation::process_world_events() {
-    // World events: building decay, crop growth, etc.
+    if (!world_) return;
+    static std::mt19937 rng(std::random_device{}());
+    static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    
+    // Item displacement: things move when you're not looking
+    if (insecurity_ > 30 && dist(rng) < 0.02f * (insecurity_ / 100.0f)) {
+        for (auto& [iid, item] : world_->items()) {
+            if (item.owner_id == 0 && dist(rng) < 0.1f) { // Only unowned items
+                // Nudge position slightly
+                item.position.x += (dist(rng) - 0.5f) * 4.0f;
+                item.position.y += (dist(rng) - 0.5f) * 4.0f;
+                item.position.x = std::clamp(item.position.x, -500.0f, 500.0f);
+                item.position.y = std::clamp(item.position.y, -500.0f, 500.0f);
+            }
+        }
+    }
+    
+    // Seasonal anomalies at high insecurity: unseasonal weather spikes
+    if (insecurity_ > 60 && dist(rng) < 0.005f * (insecurity_ / 100.0f)) {
+        // Force a weather anomaly next update
+        time_.weather_intensity = std::min(1.0f, time_.weather_intensity + 0.3f);
+        if (time_.weather == WeatherType::Clear && dist(rng) < 0.4f) {
+            time_.weather = dist(rng) < 0.5f ? WeatherType::Fog : WeatherType::Cloudy;
+        }
+    }
+    
+    // Building condition decays faster under dread
+    for (auto& [bid, bld] : world_->buildings()) {
+        if (insecurity_ > 40) {
+            float extra_decay = (insecurity_ / 100.0f) * 0.002f;
+            bld.condition = std::max(0.0f, bld.condition - extra_decay);
+        }
+    }
 }
 
 void Simulation::subscribe(EventCallback cb) {
@@ -158,7 +272,8 @@ nlohmann::json Simulation::serialize() const {
         {"weather", static_cast<int>(time_.weather)},
         {"weather_intensity", time_.weather_intensity},
         {"time_scale", time_scale_},
-        {"paused", paused_}
+        {"paused", paused_},
+        {"insecurity", insecurity_}
     };
 }
 
@@ -173,6 +288,7 @@ void Simulation::deserialize(const nlohmann::json& j) {
     time_.weather_intensity = j.value("weather_intensity", 0.0f);
     time_scale_ = j.value("time_scale", 1.0f);
     paused_ = j.value("paused", false);
+    insecurity_ = j.value("insecurity", 0.0f);
 }
 
 } // namespace ashgrove

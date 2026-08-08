@@ -32,6 +32,7 @@ export interface TimeData {
   season: string
   weather: string
   weather_intensity: number
+  insecurity: number
 }
 
 export interface Vec3 {
@@ -195,6 +196,53 @@ export interface Evidence {
   is_contradictory: boolean
 }
 
+export interface CropPlot {
+  id: number
+  position: Vec3 & { region_id: number }
+  region_id: number
+  crop: number
+  stage: number
+  progress: number
+  quality: number
+  water_level: number
+  fertilizer: number
+  planted_at: number
+  last_tended: number
+  owner_id: number
+}
+
+export interface FishingSpot {
+  id: number
+  name: string
+  position: Vec3 & { region_id: number }
+  region_id: number
+  fish_density: number
+  water_quality: number
+  fish_types: number[]
+  difficulty: number
+  is_active: boolean
+  last_fished: number
+  cooldown: number
+}
+
+export interface JobPosting {
+  id: number
+  type: number
+  title: string
+  employer_id: number
+  region_id: number
+  work_position: Vec3
+  wage_per_hour: number
+  hours_per_shift: number
+  max_workers: number
+  worker_ids: number[]
+  requirements: string
+  reputation_req: number
+  is_active: boolean
+  posted_at: number
+  expires_at: number
+}
+
 export interface World {
   next_entity_id: number
   buildings: Building[]
@@ -202,6 +250,9 @@ export interface World {
   items: Item[]
   resource_deposits: unknown[]
   npcs: NPC[]
+  crop_plots: CropPlot[]
+  fishing_spots: FishingSpot[]
+  job_postings: JobPosting[]
 }
 
 export interface Investigation {
@@ -227,6 +278,8 @@ export interface PlayerState {
   reputation: number
   level: number
   xp: number
+  skills: Record<string, number>
+  money: number
   inventory: number[]
   resting: boolean
   current_action: string
@@ -244,6 +297,8 @@ export interface DialogueLineData {
   rumor_spread: string[]
 }
 
+export type DialogueLine = DialogueLineData
+
 export interface ConversationTopic {
   id: string
   label: string
@@ -252,12 +307,21 @@ export interface ConversationTopic {
   available: boolean
 }
 
+export interface ShopCatalogItem {
+  key: string
+  name: string
+  category: string
+  price: number
+  weight: number
+}
+
 export interface WorldState {
   time: string
   time_data: TimeData
   world: World
   investigation: Investigation
   player?: PlayerState
+  shop_catalog?: ShopCatalogItem[]
 }
 
 export const EMOTION_NAMES = [

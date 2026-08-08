@@ -57,6 +57,10 @@ public:
     void set_time_scale(float scale) { time_scale_ = scale; }
     float get_time_scale() const { return time_scale_; }
     
+    // Hidden dread metric (0-100). Not shown directly to player; leaks via effects.
+    float get_insecurity() const { return insecurity_; }
+    void add_insecurity(float amount) { insecurity_ = std::clamp(insecurity_ + amount, 0.0f, 100.0f); }
+    
     // Pause/resume
     void pause() { paused_ = true; }
     void resume() { paused_ = false; }
@@ -74,6 +78,7 @@ private:
     void update_time();
     void update_season();
     void update_weather();
+    void update_insecurity();
     
     World* world_ = nullptr;
     GameTime time_;
@@ -81,6 +86,11 @@ private:
     bool paused_ = false;
     std::vector<EventCallback> subscribers_;
     uint64_t event_counter_ = 0;
+    
+    // Hidden dread metric (0-100). Rises at night, in winter, during storms,
+    // when player trespasses, when relationships fray. Leaks into fog-of-war,
+    // NPC behavior, item displacement, seasonal anomalies.
+    float insecurity_ = 0.0f;
 };
 
 } // namespace ashgrove

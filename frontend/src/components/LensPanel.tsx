@@ -14,8 +14,6 @@ interface LensPanelProps {
   onClose: () => void
 }
 
-const SENSORY_KEYS = ['scent', 'sound', 'touch', 'temperature', 'air'] as const
-
 export function LensPanel({ target, onClose }: LensPanelProps) {
   const [visible, setVisible] = useState(false)
 

@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
     if (!llm_url.empty()) config.llm_url = llm_url;
     
     if (enable_llm) {
-        spdlog::info("LLM cognition enabled (llama-server at {})", config.llm_url);
+        spdlog::info("LLM cognition enabled (llama-server at {})", config.llm_url.c_str());
     }
     
     signal(SIGINT, signal_handler);

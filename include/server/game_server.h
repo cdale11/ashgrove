@@ -42,7 +42,7 @@ public:
     
     // Save/Load
     bool save_game(const std::string& filename = "autosave");
-    bool load_game(const std::string& filename = "game_save");
+    bool load_game(const std::string& filename = "autosave");
     
     // State access for frontend
     nlohmann::json get_world_state() const;
@@ -56,6 +56,8 @@ public:
 private:
     void simulation_step();
     void tick();
+    void tick_life_systems(TimeTick elapsed_ticks);
+    void tick_npc_schedules();
 
     // Action handlers
     nlohmann::json handle_move(const nlohmann::json& action);
@@ -64,10 +66,19 @@ private:
     nlohmann::json handle_inspect(const nlohmann::json& action);
     nlohmann::json handle_pickup(const nlohmann::json& action);
     nlohmann::json handle_use_item(const nlohmann::json& action);
+    nlohmann::json handle_drop_item(const nlohmann::json& action);
     nlohmann::json handle_rest(const nlohmann::json& action);
     nlohmann::json handle_enter(const nlohmann::json& action);
     nlohmann::json handle_exit(const nlohmann::json& action);
     nlohmann::json handle_advance_time(const nlohmann::json& action);
+    nlohmann::json handle_plant(const nlohmann::json& action);
+    nlohmann::json handle_water(const nlohmann::json& action);
+    nlohmann::json handle_harvest(const nlohmann::json& action);
+    nlohmann::json handle_fish(const nlohmann::json& action);
+    nlohmann::json handle_work(const nlohmann::json& action);
+    nlohmann::json handle_give(const nlohmann::json& action);
+    nlohmann::json handle_buy(const nlohmann::json& action);
+    nlohmann::json handle_sell(const nlohmann::json& action);
     nlohmann::json action_error(const std::string& msg);
     nlohmann::json make_state_response();
 
@@ -76,9 +87,10 @@ private:
     EntityID find_npc_at(const Position& pos, float radius = 5.0f) const;
     EntityID find_item_at(const Position& pos, float radius = 3.0f) const;
     std::string region_name(EntityID region_id) const;
+    void build_npc_schedules();
     std::string llm_rephrase(const NPC& npc, const std::string& proposed_text,
                              const std::string& player_line, const std::string& topic) const;
-    std::string llm_system_prompt(const NPC& npc) const;
+    std::string llm_system_prompt(const NPC& npc, float insecurity) const;
 
     GameConfig config_;
     std::shared_ptr<World> world_;
@@ -95,6 +107,8 @@ private:
     uint64_t last_tick_ = 0;
     // NPC relationship with the player (NPC id -> Relationship with player id 0)
     std::unordered_map<EntityID, Relationship> player_relations_;
+    // NPC home anchors (fallback when a schedule has no valid location)
+    std::unordered_map<EntityID, Position> npc_home_;;
 };
 
 } // namespace ashgrove

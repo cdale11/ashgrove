@@ -9,7 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
 
-# Compiler warnings
+# Compiler warnings + optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
         -Wall -Wextra -Wpedantic
@@ -19,6 +19,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         add_compile_options(-O0 -g -fsanitize=address,undefined)
         add_link_options(-fsanitize=address,undefined)
+    else()
+        # Tuned for the dev box: 4-core Haswell (AVX2/FMA/BMI2).
+        # -march=native emits code that will not run on older CPUs — keep the
+        # build on this machine (or change to -march=haswell for portability).
+        add_compile_options(
+            -O3
+            -march=native
+            -funroll-loops
+            -fomit-frame-pointer
+            -ffunction-sections
+            -fdata-sections
+            -flto
+            -pipe
+        )
+        add_link_options(-flto -Wl,--gc-sections)
     endif()
 endif()
 

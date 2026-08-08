@@ -33,6 +33,52 @@ static std::string item_description(const Item& item) {
     return item.name + " — nothing else of note.";
 }
 
+// Shop inventory sold by the village shopkeeper (Ingrid). Keys are the goods identifiers.
+struct ShopEntry {
+    std::string key;        // client-facing goods id, e.g. "wheat_seeds"
+    std::string name;       // item name when created
+    std::string category;   // "seed", "food", ...
+    float price;            // coins to buy
+    float weight;           // kg
+    std::string crop;       // if seed: crop the seed plants
+    std::string description;
+};
+
+static const std::vector<ShopEntry> SHOP_CATALOG = {
+    {"wheat_seeds", "wheat seeds", "seed", 2.0f, 0.05f, "wheat", "A pouch of wheat kernels for planting."},
+    {"carrot_seeds", "carrot seeds", "seed", 2.0f, 0.05f, "carrots", "A pouch of carrot seeds for planting."},
+    {"potato_seeds", "potato seeds", "seed", 3.0f, 0.1f, "potatoes", "A sack of seed potatoes."},
+    {"cabbage_seeds", "cabbage seeds", "seed", 3.0f, 0.05f, "cabbage", "A pouch of cabbage seeds for planting."},
+    {"herb_seeds", "herb seeds", "seed", 2.5f, 0.05f, "herbs", "A pouch of herb seeds for planting."},
+    {"turnip_seeds", "turnip seeds", "seed", 1.5f, 0.05f, "turnips", "A pouch of hardy turnip seeds."},
+    {"bread", "bread loaf", "food", 4.0f, 0.3f, "", "A dense bread loaf. Restores hunger when eaten."},
+    {"ale", "ale flagon", "food", 5.0f, 0.6f, "", "A flagon of village ale. Eases the mind after a hard day."},
+};
+
+// Find the nearest shopkeeper NPC the player can trade with (same region, within range).
+// Returns INVALID_ENTITY_ID and sets `reason` when out of range.
+static EntityID find_trader(World& world, const PlayerCharacter& player, std::string& reason) {
+    EntityID best_npc = INVALID_ENTITY_ID;
+    float best_dist = 15.0f;
+    for (EntityID nid : world.get_npcs_near_position(player.position, 1000.0f)) {
+        auto npc = world.get_npc(nid);
+        if (!npc || npc->occupation != "Shopkeeper") continue;
+        if (npc->position.region_id != player.region_id) continue;
+        const float dx = player.position.x - npc->position.x;
+        const float dy = player.position.y - npc->position.y;
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_npc = nid;
+        }
+    }
+    if (best_npc == INVALID_ENTITY_ID) {
+        reason = "No trader is close enough. Look for Ingrid's shop in the village.";
+        return INVALID_ENTITY_ID;
+    }
+    return best_npc;
+}
+
 GameServer::GameServer(const GameConfig& config)
     : config_(config),
       world_(std::make_shared<World>()),
@@ -70,11 +116,30 @@ bool GameServer::initialize() {
     player_.position = {0, 0, 0};
     player_.region_id = 1; // first region created = Ashgrove Village
 
+    // Starting kit: a little coin for Ingrid's shop and a few free seeds to start farming.
+    player_.money = 15.0f;
+    const std::vector<std::string> starter_goods = {"wheat_seeds", "wheat_seeds", "carrot_seeds"};
+    for (const auto& goods : starter_goods) {
+        const auto it = std::find_if(SHOP_CATALOG.begin(), SHOP_CATALOG.end(),
+                                     [&](const ShopEntry& e) { return e.key == goods; });
+        if (it == SHOP_CATALOG.end()) continue;
+        Item seed;
+        seed.name = it->name;
+        seed.category = it->category;
+        seed.weight = it->weight;
+        seed.value = it->price;
+        seed.position = player_.position;
+        seed.owner_id = 0;
+        seed.properties["crop"] = it->crop;
+        seed.properties["description"] = it->description;
+        player_.add_item(world_->create_item(seed));
+    }
+
     if (llm_) {
         if (llm_->ready()) {
-            spdlog::info("LLM cognition connected to {}", config_.llm_url);
+            spdlog::info("LLM cognition connected to {}", config_.llm_url.c_str());
         } else {
-            spdlog::warn("LLM enabled but could not connect to {}; dialogue will fall back to simulation text.", config_.llm_url);
+            spdlog::warn("LLM enabled but could not connect to {}; dialogue will fall back to simulation text.", config_.llm_url.c_str());
         }
     }
 
@@ -130,7 +195,7 @@ void GameServer::create_test_world() {
     tavern.condition = 0.9f;
     tavern.value = 5000.0f;
     tavern.description = "The village tavern, where rumors are traded alongside ale.";
-    world_->create_building(tavern);
+    EntityID tavern_id = world_->create_building(tavern);
     
     Building general_store;
     general_store.name = "Ashgrove General Store";
@@ -324,6 +389,72 @@ void GameServer::create_test_world() {
     faded_photo.properties = {{"depicts", "A group of villagers standing before a burnt building"}, {"evidence_tag", "miller_disappearance"}};
     world_->create_item(faded_photo);
     
+    // Life systems: a crop plot near the mill, two fishing spots on the river, a job at the inn
+    CropPlot plot;
+    plot.position = {38, 16, 0, village_id};   // near the Old Mill House
+    plot.region_id = village_id;
+    plot.crop = CropType::Carrots;
+    plot.stage = CropStage::Sprouting;
+    plot.progress = 0.3f;
+    plot.water_level = 0.8f;
+    plot.planted_at = 0;
+    plot.last_tended = 0;
+    plot.owner_id = 0;
+    world_->create_crop_plot(plot);
+
+    // Thorne Farm: a proper field of empty plots for the player to farm.
+    const struct { float x, y; } field_plots[] = {
+        {30, 0}, {30, 4}, {34, 0}, {34, 4}, {30, -4}, {34, -4},
+    };
+    for (const auto& fp : field_plots) {
+        CropPlot fp_plot;
+        fp_plot.position = {fp.x, fp.y, 0, village_id};
+        fp_plot.region_id = village_id;
+        fp_plot.crop = CropType::None;
+        fp_plot.stage = CropStage::Empty;
+        fp_plot.water_level = 0.5f;
+        fp_plot.owner_id = INVALID_ENTITY_ID;
+        world_->create_crop_plot(fp_plot);
+    }
+    
+    FishingSpot bend;
+    bend.name = "The Old Bend";
+    bend.position = {0, 60, 0, river_id};
+    bend.region_id = river_id;
+    bend.fish_density = 1.2f;
+    bend.water_quality = 0.9f;
+    bend.fish_types = {FishType::Trout, FishType::Perch, FishType::Pike};
+    bend.difficulty = 0.8f;
+    bend.cooldown = 2.0f;
+    world_->create_fishing_spot(bend);
+    
+    FishingSpot reeds;
+    reeds.name = "The Reeds";
+    reeds.position = {30, 80, 0, river_id};
+    reeds.region_id = river_id;
+    reeds.fish_density = 1.5f;
+    reeds.water_quality = 0.7f;
+    reeds.fish_types = {FishType::Carp, FishType::Catfish, FishType::Eel};
+    reeds.difficulty = 1.2f;
+    reeds.cooldown = 3.0f;
+    world_->create_fishing_spot(reeds);
+    
+    JobPosting farmhand;
+    farmhand.type = JobType::Farmhand;
+    farmhand.title = "Farmhand at Thorne Farm";
+    farmhand.employer_id = tavern_id;
+    farmhand.region_id = village_id;
+    farmhand.work_position = {30, 0, 0};
+    farmhand.wage_per_hour = 2.0f;
+    farmhand.hours_per_shift = 6.0f;
+    farmhand.max_workers = 2;
+    farmhand.requirements = "Basic farming knowledge";
+    farmhand.reputation_req = 0.0f;
+    farmhand.is_active = true;
+    farmhand.posted_at = 0;
+    farmhand.expires_at = 0;
+    world_->create_job_posting(farmhand);
+    
     // Seed knowledge
     Knowledge village_history;
     village_history.id = 1;
@@ -343,6 +474,79 @@ void GameServer::create_test_world() {
     
     spdlog::info("Test world created with {} NPCs, {} buildings, {} regions", 
         world_->serialize()["npcs"].size(), world_->serialize()["buildings"].size(), world_->serialize()["regions"].size());
+
+    // Assign each NPC a home anchor and a daily routine.
+    build_npc_schedules();
+}
+
+static void add_schedule_entry(NPC& npc, uint8_t start_hour, uint8_t duration_hours,
+                               const std::string& activity, EntityID location_id) {
+    DailyScheduleEntry e;
+    e.start_hour = start_hour;
+    e.duration_hours = duration_hours;
+    e.activity = activity;
+    e.location_id = location_id;
+    npc.schedule.push_back(e);
+}
+
+void GameServer::build_npc_schedules() {
+    // Home anchor: where the NPC lives (fallback when a schedule has no location).
+    npc_home_.clear();
+    for (auto& [nid, npc] : world_->npcs()) {
+        npc_home_[nid] = npc->position;
+    }
+
+    // Known places around the village.
+    EntityID tavern_id = INVALID_ENTITY_ID;
+    EntityID store_id = INVALID_ENTITY_ID;
+    EntityID church_id = INVALID_ENTITY_ID;
+    EntityID club_id = INVALID_ENTITY_ID;
+    EntityID city_hall_id = INVALID_ENTITY_ID;
+    for (auto& [bid, b] : world_->buildings()) {
+        if (b.name.find("Sleeping Fox") != std::string::npos) tavern_id = bid;
+        else if (b.name.find("General Store") != std::string::npos) store_id = bid;
+        else if (b.name.find("St. Willow") != std::string::npos) church_id = bid;
+        else if (b.name.find("Hartman") != std::string::npos) club_id = bid;
+        else if (b.name.find("Town Hall") != std::string::npos) city_hall_id = bid;
+    }
+
+    for (auto& [nid, npc] : world_->npcs()) {
+        const std::string& occ = npc->occupation;
+        if (occ == "Mayor") {
+            add_schedule_entry(*npc, 8, 8, "work", city_hall_id);      // 08-16 at the town hall
+            add_schedule_entry(*npc, 16, 4, "socialize", tavern_id);   // 16-20 at the tavern
+            add_schedule_entry(*npc, 20, 11, "sleep", INVALID_ENTITY_ID); // home
+        } else if (occ == "Pastor") {
+            add_schedule_entry(*npc, 5, 4, "pray", church_id);         // 05-09 at the chapel
+            add_schedule_entry(*npc, 9, 6, "work", church_id);         // 09-15 chapel duties
+            add_schedule_entry(*npc, 15, 3, "idle", INVALID_ENTITY_ID);// afternoon at home
+            add_schedule_entry(*npc, 18, 2, "socialize", tavern_id);   // 18-20 town gossip
+            add_schedule_entry(*npc, 20, 9, "sleep", INVALID_ENTITY_ID);
+        } else if (occ == "Doctor") {
+            add_schedule_entry(*npc, 8, 8, "work", city_hall_id);      // 08-16 clinic at the hall
+            add_schedule_entry(*npc, 16, 2, "patrol", INVALID_ENTITY_ID); // house calls
+            add_schedule_entry(*npc, 18, 2, "socialize", tavern_id);
+            add_schedule_entry(*npc, 20, 12, "sleep", INVALID_ENTITY_ID);
+        } else if (occ == "Innkeeper") {
+            add_schedule_entry(*npc, 7, 3, "work", tavern_id);         // 07-10 morning prep
+            add_schedule_entry(*npc, 10, 10, "work", tavern_id);       // 10-20 behind the bar
+            add_schedule_entry(*npc, 20, 11, "sleep", INVALID_ENTITY_ID);
+        } else if (occ == "Shopkeeper") {
+            add_schedule_entry(*npc, 8, 10, "work", store_id);         // 08-18 at the store
+            add_schedule_entry(*npc, 18, 2, "socialize", tavern_id);   // 18-20 evening round
+            add_schedule_entry(*npc, 20, 12, "sleep", INVALID_ENTITY_ID);
+        } else if (occ == "Blacksmith") {
+            add_schedule_entry(*npc, 7, 9, "work", club_id);           // 07-16 at the forge
+            add_schedule_entry(*npc, 16, 2, "idle", club_id);
+            add_schedule_entry(*npc, 18, 2, "socialize", tavern_id);   // 18-20 ale at the inn
+            add_schedule_entry(*npc, 20, 11, "sleep", INVALID_ENTITY_ID);
+        } else {
+            // Generic villagers: farm/labor all day, some go to the tavern in the evening.
+            add_schedule_entry(*npc, 6, 11, "work", INVALID_ENTITY_ID);    // 06-17 the fields
+            add_schedule_entry(*npc, 17, 3, "socialize", tavern_id);       // 17-20 inn
+            add_schedule_entry(*npc, 20, 10, "sleep", INVALID_ENTITY_ID);
+        }
+    }
 }
 
 void GameServer::run() {
@@ -383,6 +587,7 @@ void GameServer::stop() {
 void GameServer::tick() {
     // Advance simulation
     simulation_->advance_time(config_.world_time_scale);
+    tick_life_systems(config_.world_time_scale);
     
     // Periodic NPC AI updates
     TimeTick interval = static_cast<TimeTick>(config_.npc_ai_interval_ticks);
@@ -398,6 +603,92 @@ void GameServer::tick() {
     }
 }
 
+void GameServer::tick_life_systems(TimeTick elapsed_ticks) {
+    const float days = static_cast<float>(elapsed_ticks) / 86400.0f;
+    if (days <= 0.0f) return;
+
+    // Resting: fatigue fades, hunger creeps up
+    if (player_.resting) {
+        player_.fatigue = std::max(0.0f, player_.fatigue - days * 30.0f);
+        player_.hunger = std::min(100.0f, player_.hunger + days * 5.0f);
+        if (player_.fatigue <= 0.0f) {
+            player_.resting = false;
+            player_.current_action = "idle";
+            player_.log_action("rest_done", "Finished resting", "Rested, energy restored");
+            player_.action_log.back().tick = simulation_->get_time().ticks;
+        }
+    } else {
+        // Activity-based hunger
+        player_.hunger = std::min(100.0f, player_.hunger + days * 2.5f);
+        if (player_.hunger >= 100.0f) {
+            player_.health = std::max(0.0f, player_.health - days * 4.0f);
+        } else if (player_.health < 100.0f) {
+            player_.health = std::min(100.0f, player_.health + days * 5.0f);
+        }
+    }
+    // A bit of passive fatigue recovery even outside rest (only when idling)
+    if (!player_.resting && player_.current_action == "idle") {
+        player_.fatigue = std::max(0.0f, player_.fatigue - days * 8.0f);
+    }
+
+    // Crop growth stages (days to maturity per crop)
+    constexpr float DAYS_TO_GROW[8] = {
+        0.0f,  // None
+        4.5f,  // Wheat
+        3.0f,  // Carrots
+        3.5f,  // Potatoes
+        4.0f,  // Cabbage
+        2.5f,  // Herbs
+        3.5f,  // Flax
+        3.0f,  // Turnips
+    };
+
+    const auto& gtime = simulation_->get_time();
+
+    for (auto& [plot_id, plot] : world_->crop_plots()) {
+        if (plot.stage == CropStage::Empty || plot.stage == CropStage::Withered) continue;
+        if (plot.crop == CropType::None) continue;
+        float grow_days = DAYS_TO_GROW[static_cast<int>(plot.crop)];
+        if (grow_days <= 0.0f) continue;
+
+        // Rain fills the soil: rain/~0.8 (or storm) per day, no need to water those days.
+        float rain_fill = 0.0f;
+        if (gtime.weather == WeatherType::Rain || gtime.weather == WeatherType::Storm) {
+            rain_fill = (gtime.weather == WeatherType::Storm ? 0.9f : 0.6f) * gtime.weather_intensity;
+        }
+        plot.water_level = std::min(1.0f, plot.water_level + rain_fill * days);
+
+        // Process day-by-day so watering, decay and growth interleave correctly.
+        int full_days = static_cast<int>(days);
+        float partial = days - full_days;
+        for (int day = 0; day <= full_days; ++day) {
+            float step = (day == full_days) ? partial : 1.0f;
+            if (step <= 0.0f) continue;
+            if (plot.stage == CropStage::Withered) break;
+
+            plot.water_level = std::max(0.0f, plot.water_level - step * 0.35f);
+
+            if (plot.water_level <= 0.0f) {
+                plot.progress = std::max(0.0f, plot.progress - step * 0.06f);
+                if (plot.progress <= 0.0f) {
+                    plot.stage = CropStage::Withered;
+                    break;
+                }
+                continue;
+            }
+
+            float growth_mult = 1.0f + plot.fertilizer * 1.5f + plot.water_level * 0.5f;
+            plot.progress = std::min(1.0f, plot.progress + (step * growth_mult) / grow_days);
+
+            if (plot.progress < 0.2f) plot.stage = CropStage::Planted;
+            else if (plot.progress < 0.4f) plot.stage = CropStage::Sprouting;
+            else if (plot.progress < 0.6f) plot.stage = CropStage::Growing;
+            else if (plot.progress < 0.85f) plot.stage = CropStage::Flowering;
+            else plot.stage = CropStage::Ready;
+        }
+    }
+}
+
 nlohmann::json GameServer::get_world_state() const {
     nlohmann::json state;
     state["time"] = simulation_->get_time().to_string();
@@ -409,11 +700,21 @@ nlohmann::json GameServer::get_world_state() const {
         {"minute", simulation_->get_time().minute},
         {"season", to_string(simulation_->get_time().season)},
         {"weather", to_string(simulation_->get_time().weather)},
-        {"weather_intensity", simulation_->get_time().weather_intensity}
+        {"weather_intensity", simulation_->get_time().weather_intensity},
+        {"insecurity", simulation_->get_insecurity()}
     };
     state["world"] = world_->serialize();
     state["investigation"] = investigation_->serialize();
     state["player"] = player_.serialize();
+    nlohmann::json catalog = nlohmann::json::array();
+    for (const auto& entry : SHOP_CATALOG) {
+        catalog.push_back({{"key", entry.key},
+                           {"name", entry.name},
+                           {"category", entry.category},
+                           {"price", entry.price},
+                           {"weight", entry.weight}});
+    }
+    state["shop_catalog"] = catalog;
     return state;
 }
 
@@ -520,6 +821,11 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
         res["player"] = player_.serialize();
         return res;
     }
+    if (type == "drop_item") {
+        auto res = handle_drop_item(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
     if (type == "rest") {
         auto res = handle_rest(action);
         res["player"] = player_.serialize();
@@ -545,6 +851,46 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
     }
     if (type == "advance_time") {
         auto res = handle_advance_time(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "plant") {
+        auto res = handle_plant(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "water") {
+        auto res = handle_water(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "harvest") {
+        auto res = handle_harvest(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "fish") {
+        auto res = handle_fish(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "give") {
+        auto res = handle_give(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "buy") {
+        auto res = handle_buy(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "sell") {
+        auto res = handle_sell(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "work") {
+        auto res = handle_work(action);
         res["player"] = player_.serialize();
         return res;
     }
@@ -607,6 +953,18 @@ nlohmann::json GameServer::handle_talk(const nlohmann::json& action) {
     }
 
     player_.current_action = "talking";
+
+    // Insecurity: certain conversations at night
+    const auto& time = simulation_->get_time();
+    bool is_night = time.hour >= 21 || time.hour < 6;
+    if (is_night) {
+        // Pastor (id 10) — knows the village's deepest secrets
+        if (target == 10) simulation_->add_insecurity(2.0f);
+        // Doctor (id 14) — treats the afflicted
+        else if (target == 14) simulation_->add_insecurity(1.5f);
+        // Blacksmith (id 15) — works with cold iron
+        else if (target == 15) simulation_->add_insecurity(1.0f);
+    }
 
     std::vector<nlohmann::json> topic_json;
     for (const auto& tp : topics) topic_json.push_back(tp.serialize());
@@ -737,6 +1095,22 @@ nlohmann::json GameServer::handle_use_item(const nlohmann::json& action) {
     return {{"ok", true}, {"message", "You examine the " + item->name + ". Nothing else comes to mind."}};
 }
 
+nlohmann::json GameServer::handle_drop_item(const nlohmann::json& action) {
+    EntityID target = action.value("target", INVALID_ENTITY_ID);
+    if (!player_.owns_item(target)) return action_error("You don't have that item.");
+    auto* item = world_->get_item(target);
+    if (!item) return action_error("Item no longer exists.");
+
+    // Drop at player's feet
+    item->owner_id = INVALID_ENTITY_ID;
+    item->position = player_.position;
+    item->position.z = 0;
+    player_.remove_item(target);
+    player_.log_action("drop", "Dropped " + item->name, item_description(*item));
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "Dropped " + item->name}};
+}
+
 nlohmann::json GameServer::handle_rest(const nlohmann::json& action) {
     player_.resting = true;
     player_.current_action = "resting";
@@ -775,6 +1149,25 @@ nlohmann::json GameServer::handle_enter(const nlohmann::json& action) {
     }
 
     player_.interior_id = target;
+
+    // Insecurity spikes: certain places at certain times
+    const auto& time = simulation_->get_time();
+    bool is_night = time.hour >= 21 || time.hour < 6;
+    bool is_twilight = time.hour >= 19 || time.hour < 7;
+    
+    // The Old Mill House (id 9) — the disappearance site
+    if (target == 9) {
+        simulation_->add_insecurity(is_night ? 4.0f : is_twilight ? 2.0f : 1.0f);
+    }
+    // St. Willow's Chapel (id 6) at night — the pastor knows secrets
+    else if (target == 6 && (is_night || is_twilight)) {
+        simulation_->add_insecurity(2.5f);
+    }
+    // Hartman's Forge (id 7) at night — the smith works late with strange metals
+    else if (target == 7 && is_night) {
+        simulation_->add_insecurity(1.5f);
+    }
+    
     return {{"ok", true},
             {"message", "You step inside " + building->name + "."},
             {"building_id", target}};
@@ -796,6 +1189,7 @@ nlohmann::json GameServer::handle_advance_time(const nlohmann::json& action) {
     }
     TimeTick ticks = static_cast<TimeTick>(hours * 3600);
     simulation_->advance_time(ticks);
+    tick_life_systems(ticks);
     const auto& time = simulation_->get_time();
     std::string msg = "Advanced " + std::to_string(hours) + " hour" + (hours != 1.0 ? "s" : "") + ". Now " +
                       std::to_string(time.hour) + ":" + (time.minute < 10 ? "0" : "") + std::to_string(time.minute) +
@@ -815,6 +1209,358 @@ nlohmann::json GameServer::handle_advance_time(const nlohmann::json& action) {
             }}};
 }
 
+nlohmann::json GameServer::handle_plant(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID plot_id = action.value("target", INVALID_ENTITY_ID);
+    auto* plot = world_->get_crop_plot(plot_id);
+    if (!plot) return action_error("That crop plot does not exist.");
+    if (plot->region_id != player_.region_id) return action_error("That plot is in another region.");
+    const float dx = player_.position.x - plot->position.x;
+    const float dy = player_.position.y - plot->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 12.0f) return action_error("Move closer to the plot first.");
+    if (plot->stage != CropStage::Empty && plot->stage != CropStage::Withered) return action_error("Something is already growing here.");
+    std::string crop_str = action.value("crop", "wheat");
+    CropType crop = CropType::Wheat;
+    if (crop_str == "carrots") crop = CropType::Carrots;
+    else if (crop_str == "potatoes") crop = CropType::Potatoes;
+    else if (crop_str == "cabbage") crop = CropType::Cabbage;
+    else if (crop_str == "herbs") crop = CropType::Herbs;
+    else if (crop_str == "flax") crop = CropType::Flax;
+    else if (crop_str == "turnips") crop = CropType::Turnips;
+    else if (crop_str != "wheat") return action_error("Unknown crop: " + crop_str);
+
+    // Planting requires seeds, which Ingrid sells at her shop.
+    EntityID seed_id = INVALID_ENTITY_ID;
+    for (EntityID iid : player_.inventory) {
+        const Item* it = world_->get_item(iid);
+        if (it && it->category == "seed") {
+            auto cit = it->properties.find("crop");
+            if (cit != it->properties.end() && cit->second == crop_str) {
+                seed_id = iid;
+                break;
+            }
+        }
+    }
+    if (seed_id == INVALID_ENTITY_ID) {
+        return action_error("You need " + crop_str + " seeds to plant here. Ingrid sells them at her shop.");
+    }
+    player_.remove_item(seed_id);
+    world_->remove_item(seed_id);
+
+    plot->crop = crop;
+    plot->stage = CropStage::Planted;
+    plot->progress = 0.0f;
+    plot->quality = 1.0f;
+    plot->water_level = 0.3f;
+    plot->fertilizer = 0.0f;
+    plot->planted_at = simulation_->get_time().ticks;
+    plot->last_tended = simulation_->get_time().ticks;
+    plot->owner_id = 0;
+    player_.skills.add_xp(JobType::Farmhand, 2.0f);
+    player_.log_action("plant", "Planted " + crop_str + " seeds", "Planted in plot " + std::to_string(plot_id));
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You plant " + crop_str + " in the plot."}};
+}
+
+nlohmann::json GameServer::handle_water(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID plot_id = action.value("target", INVALID_ENTITY_ID);
+    auto* plot = world_->get_crop_plot(plot_id);
+    if (!plot) return action_error("That crop plot does not exist.");
+    if (plot->region_id != player_.region_id) return action_error("That plot is in another region.");
+    const float dx = player_.position.x - plot->position.x;
+    const float dy = player_.position.y - plot->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 12.0f) return action_error("Move closer to the plot first.");
+    if (plot->stage == CropStage::Empty || plot->stage == CropStage::Withered) {
+        return action_error("There is nothing to water here.");
+    }
+    if (plot->water_level >= 1.0f) return action_error("The soil is already saturated.");
+    plot->water_level = std::min(1.0f, plot->water_level + 0.5f);
+    plot->last_tended = simulation_->get_time().ticks;
+    player_.log_action("water", "Watered a crop plot", "Plot " + std::to_string(plot_id));
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You water the plot. The soil drinks it down."}};
+}
+
+nlohmann::json GameServer::handle_harvest(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID plot_id = action.value("target", INVALID_ENTITY_ID);
+    auto* plot = world_->get_crop_plot(plot_id);
+    if (!plot) return action_error("That crop plot does not exist.");
+    if (plot->region_id != player_.region_id) return action_error("That plot is in another region.");
+    const float dx = player_.position.x - plot->position.x;
+    const float dy = player_.position.y - plot->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 12.0f) return action_error("Move closer to the plot first.");
+    if (plot->stage != CropStage::Ready) {
+        return action_error(plot->stage == CropStage::Empty ? "There is nothing to harvest." : "The crop is not ready yet.");
+    }
+
+    std::string crop_str = "produce";
+    switch (plot->crop) {
+        case CropType::Wheat: crop_str = "wheat"; break;
+        case CropType::Carrots: crop_str = "carrots"; break;
+        case CropType::Potatoes: crop_str = "potatoes"; break;
+        case CropType::Cabbage: crop_str = "cabbage"; break;
+        case CropType::Herbs: crop_str = "herbs"; break;
+        case CropType::Flax: crop_str = "flax"; break;
+        case CropType::Turnips: crop_str = "turnips"; break;
+        default: break;
+    }
+
+    float skill = player_.skills.farming;
+    float yield_mult = 1.0f + skill / 200.0f + plot->quality * 0.25f;
+    int count = std::max(1, static_cast<int>(std::round(yield_mult)));
+
+    Item produce;
+    produce.name = crop_str + " bundle";
+    produce.category = "food";
+    produce.weight = 0.5f * count;
+    produce.value = 2.0f * count;
+    produce.position = player_.position;
+    produce.owner_id = 0;
+    EntityID produce_id = world_->create_item(produce);
+    player_.add_item(produce_id);
+    player_.skills.add_xp(JobType::Farmhand, 5.0f);
+
+    plot->crop = CropType::None;
+    plot->stage = CropStage::Empty;
+    plot->progress = 0.0f;
+    plot->water_level = 0.0f;
+    plot->last_tended = simulation_->get_time().ticks;
+
+    player_.log_action("harvest", "Harvested " + produce.name, "Gained " + produce.name);
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You harvest " + crop_str + ". It goes into your pack."}, {"item_id", produce_id}};
+}
+
+nlohmann::json GameServer::handle_fish(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID spot_id = action.value("target", INVALID_ENTITY_ID);
+    auto* spot = world_->get_fishing_spot(spot_id);
+    if (!spot) return action_error("That fishing spot does not exist.");
+    if (spot->region_id != player_.region_id) return action_error("That spot is in another region.");
+    const float dx = player_.position.x - spot->position.x;
+    const float dy = player_.position.y - spot->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 20.0f) return action_error("Move closer to the water first.");
+    if (!spot->is_active) return action_error("The water here is dead and still. No fish remain.");
+
+    const auto& time = simulation_->get_time();
+    if (spot->last_fished > 0) {
+        double elapsed_hours = (time.ticks - spot->last_fished) / 3600.0;
+        if (elapsed_hours < spot->cooldown) {
+            return action_error("The fish need time to return here.");
+        }
+    }
+    spot->last_fished = time.ticks;
+
+    float skill = player_.skills.fishing;
+    float chance = std::min(0.95f, 0.3f + skill / 250.0f + spot->fish_density * 0.1f - spot->difficulty * 0.05f);
+    float roll = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    if (roll > chance) {
+        player_.skills.add_xp(JobType::Fisher, 1.5f);
+        player_.log_action("fish", "Fished at " + spot->name, "Nothing biting");
+        return {{"ok", true}, {"message", "You fish for a while... nothing bites."}};
+    }
+
+    FishType caught = FishType::Trout;
+    if (!spot->fish_types.empty()) {
+        caught = spot->fish_types[rand() % spot->fish_types.size()];
+    }
+    std::string fish_str = "fish";
+    switch (caught) {
+        case FishType::Trout: fish_str = "trout"; break;
+        case FishType::Carp: fish_str = "carp"; break;
+        case FishType::Perch: fish_str = "perch"; break;
+        case FishType::Pike: fish_str = "pike"; break;
+        case FishType::Eel: fish_str = "eel"; break;
+        case FishType::Salmon: fish_str = "salmon"; break;
+        case FishType::Catfish: fish_str = "catfish"; break;
+        default: break;
+    }
+
+    Item catch_item;
+    catch_item.name = fish_str;
+    catch_item.category = "food";
+    catch_item.weight = 0.8f;
+    catch_item.value = 3.0f;
+    catch_item.position = player_.position;
+    catch_item.owner_id = 0;
+    EntityID catch_id = world_->create_item(catch_item);
+    player_.add_item(catch_id);
+    player_.skills.add_xp(JobType::Fisher, 3.0f);
+    player_.log_action("fish", "Caught a " + fish_str, "Fished at " + spot->name);
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You pull in a " + fish_str + "!"}, {"item_id", catch_id}};
+}
+
+nlohmann::json GameServer::handle_work(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID job_id = action.value("target", INVALID_ENTITY_ID);
+    auto* job = world_->get_job_posting(job_id);
+    if (!job) return action_error("That job posting does not exist.");
+    if (!job->is_active) return action_error("That position is no longer open.");
+    if (job->region_id != player_.region_id) return action_error("That job is in another region.");
+
+    const float dx = player_.position.x - job->work_position.x;
+    const float dy = player_.position.y - job->work_position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 25.0f) return action_error("Move to the work site first.");
+
+    auto it = std::find(job->worker_ids.begin(), job->worker_ids.end(), 0);
+    bool employed = it != job->worker_ids.end();
+    if (!employed && static_cast<int>(job->worker_ids.size()) >= job->max_workers) {
+        return action_error("That position is already filled.");
+    }
+    if (player_.reputation < job->reputation_req) {
+        return action_error("You lack the standing for this position.");
+    }
+    float skill = player_.skills.get(job->type);
+    if (skill < 5.0f) {
+        return action_error("You don't know your way around this work yet (needs 5+ skill).");
+    }
+    if (!employed) job->worker_ids.push_back(0);
+
+    float pay = job->wage_per_hour * job->hours_per_shift;
+    pay *= 1.0f + skill / 200.0f;
+    player_.money += pay;
+    player_.xp += static_cast<uint32_t>(pay * 2.0f);
+    player_.level = static_cast<uint32_t>(1 + std::floor(std::sqrt(player_.xp / 50.0)));
+    player_.skills.add_xp(job->type, 8.0f);
+    player_.reputation = std::min(100.0f, player_.reputation + 1.0f);
+    player_.fatigue = std::min(100.0f, player_.fatigue + 15.0f);
+    player_.log_action("work", "Worked a shift: " + job->title, "Paid " + std::to_string(pay) + " coins");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true}, {"message", "You work a shift as " + job->title + " and earn " + std::to_string(pay) + " coins."}};
+}
+
+nlohmann::json GameServer::handle_give(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID item_id = action.value("item", INVALID_ENTITY_ID);
+    EntityID npc_id = action.value("target", INVALID_ENTITY_ID);
+    if (!player_.owns_item(item_id)) return action_error("You don't have that item.");
+    auto* item = world_->get_item(item_id);
+    if (!item) return action_error("Item no longer exists.");
+    auto npc = world_->get_npc(npc_id);
+    if (!npc) return action_error("No such villager.");
+    if (npc->position.region_id != player_.region_id) {
+        return action_error(npc->name + " is not in this region.");
+    }
+    const float dx = player_.position.x - npc->position.x;
+    const float dy = player_.position.y - npc->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 15.0f) {
+        return action_error("Move closer to " + npc->name + " first.");
+    }
+
+    // Remove the item from the player; the person takes it.
+    player_.remove_item(item_id);
+    item->owner_id = INVALID_ENTITY_ID;
+    item->position = npc->position;
+
+    // A gift buys goodwill. Food and valuables are appreciated more.
+    float affinity_gain = 0.05f;
+    if (item->category == "food") affinity_gain += 0.03f;
+    affinity_gain += std::max(0.0f, item->value) * 0.002f;
+    affinity_gain = std::min(0.25f, affinity_gain);
+
+    if (auto* rel = npc->get_relationship(0)) {
+        rel->affinity = std::min(1.0f, rel->affinity + affinity_gain);
+        rel->last_interaction = simulation_->get_time().ticks;
+        rel->history.push_back("given " + item->name);
+    } else {
+        Relationship new_rel;
+        new_rel.target_id = 0;
+        new_rel.type = "stranger";
+        new_rel.last_interaction = simulation_->get_time().ticks;
+        new_rel.familiarity = 0.05f;
+        new_rel.affinity = affinity_gain;
+        npc->relationships.push_back(new_rel);
+    }
+    player_.reputation = std::min(100.0f, player_.reputation + 1.0f);
+
+    player_.log_action("give", "Gave " + item->name + " to " + npc->name, "Affinity +" + std::to_string(affinity_gain));
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true},
+            {"message", "You hand the " + item->name + " to " + npc->name + "."},
+            {"affinity_gain", affinity_gain}};
+}
+
+nlohmann::json GameServer::handle_buy(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    std::string reason;
+    EntityID trader_id = find_trader(*world_, player_, reason);
+    if (trader_id == INVALID_ENTITY_ID) return action_error(reason);
+
+    std::string goods = action.value("goods", "");
+    const ShopEntry* entry = nullptr;
+    for (const auto& e : SHOP_CATALOG) {
+        if (e.key == goods) {
+            entry = &e;
+            break;
+        }
+    }
+    if (!entry) return action_error("That item is not sold here.");
+
+    float total = entry->price;
+    if (player_.money + 1e-4f < total) {
+        return action_error("You need " + std::to_string(static_cast<int>(std::ceil(total))) + " coins for that. Work a shift or sell produce to earn coin.");
+    }
+
+    Item bought;
+    bought.name = entry->name;
+    bought.category = entry->category;
+    bought.weight = entry->weight;
+    bought.value = entry->price;
+    bought.position = player_.position;
+    bought.owner_id = 0;
+    bought.properties["description"] = entry->description;
+    if (!entry->crop.empty()) bought.properties["crop"] = entry->crop;
+
+    EntityID item_id = world_->create_item(bought);
+    player_.add_item(item_id);
+    player_.money = std::max(0.0f, player_.money - total);
+
+    auto trader = world_->get_npc(trader_id);
+    if (auto* rel = trader->get_relationship(0)) {
+        rel->last_interaction = simulation_->get_time().ticks;
+        rel->history.push_back("sold " + entry->name);
+    }
+    player_.log_action("buy", "Bought " + entry->name + " from " + trader->name,
+                       "Paid " + std::to_string(static_cast<int>(total)) + " coins");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true},
+            {"message", "You buy " + entry->name + " from " + trader->name + " for " + std::to_string(static_cast<int>(total)) + " coins."},
+            {"item_id", item_id}};
+}
+
+nlohmann::json GameServer::handle_sell(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    std::string reason;
+    EntityID trader_id = find_trader(*world_, player_, reason);
+    if (trader_id == INVALID_ENTITY_ID) return action_error(reason);
+
+    EntityID item_id = action.value("item", INVALID_ENTITY_ID);
+    if (!player_.owns_item(item_id)) return action_error("You don't have that item.");
+    auto* item = world_->get_item(item_id);
+    if (!item) return action_error("Item no longer exists.");
+    if (item->category == "evidence") return action_error("You cannot sell evidence.");
+
+    int pay = std::max(1, static_cast<int>(std::floor(item->value * 0.6f)));
+    player_.remove_item(item_id);
+    world_->remove_item(item_id);
+    player_.money += static_cast<float>(pay);
+
+    auto trader = world_->get_npc(trader_id);
+    if (auto* rel = trader->get_relationship(0)) {
+        rel->last_interaction = simulation_->get_time().ticks;
+        rel->history.push_back("bought " + item->name);
+    }
+    player_.log_action("sell", "Sold " + item->name + " to " + trader->name,
+                       "Paid " + std::to_string(pay) + " coins");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true},
+            {"message", "You sell the " + item->name + " for " + std::to_string(pay) + " coins."},
+            {"coins", pay}};
+}
+
 bool GameServer::save_game(const std::string& filename) {
     try {
         std::filesystem::create_directories(config_.save_directory);
@@ -826,10 +1572,11 @@ bool GameServer::save_game(const std::string& filename) {
         save["world"] = world_->serialize();
         save["simulation"] = simulation_->serialize();
         save["investigation"] = investigation_->serialize();
+        save["player"] = player_.serialize();
         
         std::ofstream file(path);
         file << save.dump(2);
-        spdlog::info("Game saved to {}", path);
+        spdlog::info("Game saved to {}", path.c_str());
         return true;
     } catch (const std::exception& e) {
         spdlog::error("Save failed: {}", e.what());
@@ -842,7 +1589,7 @@ bool GameServer::load_game(const std::string& filename) {
         std::string path = config_.save_directory + "/" + filename + ".json";
         std::ifstream file(path);
         if (!file.is_open()) {
-            spdlog::error("Load failed: file not found: {}", path);
+            spdlog::error("Load failed: file not found: {}", path.c_str());
             return false;
         }
         
@@ -852,8 +1599,11 @@ bool GameServer::load_game(const std::string& filename) {
         world_->deserialize(save["world"]);
         simulation_->deserialize(save["simulation"]);
         investigation_->deserialize(save["investigation"]);
+        if (save.contains("player")) {
+            player_.deserialize(save["player"]);
+        }
         
-        spdlog::info("Game loaded from {}", path);
+        spdlog::info("Game loaded from {}", path.c_str());
         return true;
     } catch (const std::exception& e) {
         spdlog::error("Load failed: {}", e.what());
@@ -861,7 +1611,7 @@ bool GameServer::load_game(const std::string& filename) {
     }
 }
 
-std::string GameServer::llm_system_prompt(const NPC& npc) const {
+std::string GameServer::llm_system_prompt(const NPC& npc, float insecurity) const {
     std::string prompt = "You are " + npc.name;
     if (!npc.surname.empty()) prompt += " " + npc.surname;
     prompt += ", a " + std::to_string(static_cast<int>(npc.age)) + "-year-old ";
@@ -875,6 +1625,10 @@ std::string GameServer::llm_system_prompt(const NPC& npc) const {
         prompt += ", toward the investigator: " + rel->type;
         prompt += " affinity=" + std::to_string(static_cast<int>(std::lround(rel->affinity * 100)));
         prompt += " trust=" + std::to_string(static_cast<int>(std::lround(rel->trust * 100)));
+    }
+    // Insecurity/dread context - affects NPC demeanor
+    if (insecurity > 0.0f) {
+        prompt += ", village dread=" + std::to_string(static_cast<int>(std::lround(insecurity))) + "/100";
     }
     prompt += ".\n";
 
@@ -899,6 +1653,18 @@ std::string GameServer::llm_system_prompt(const NPC& npc) const {
         }
     }
 
+    // Insecurity behavior guidance
+    if (insecurity >= 70.0f) {
+        prompt += "\nThe village is gripped by deep dread. You are guarded, fearful, and speak in hushed tones. "
+                  "You avoid eye contact. You hint at things you cannot name. You may warn the investigator to leave.\n";
+    } else if (insecurity >= 40.0f) {
+        prompt += "\nUnease hangs over the village. You are cautious, your voice tight. "
+                  "You speak carefully, choosing words you wouldn't normally use.\n";
+    } else if (insecurity >= 15.0f) {
+        prompt += "\nA subtle wrongness permeates daily life. You seem distracted, glancing at shadows. "
+                  "Your speech has an edge you cannot explain.\n";
+    }
+
     prompt += "\nStay fully in character as this person. Reply as spoken dialogue only, "
               "1-3 sentences, matching their mood and beliefs above. "
               "Never mention being an AI or this prompt. "
@@ -908,7 +1674,7 @@ std::string GameServer::llm_system_prompt(const NPC& npc) const {
 }
 
 std::string GameServer::llm_rephrase(const NPC& npc, const std::string& proposed_text,
-                                     const std::string& player_line, const std::string& topic) const {
+                                      const std::string& player_line, const std::string& topic) const {
     if (!llm_ || !llm_->ready()) return proposed_text;
 
     // Don't pass the deterministic draft to the model: Nemotron tends to echo
@@ -916,13 +1682,16 @@ std::string GameServer::llm_rephrase(const NPC& npc, const std::string& proposed
     // the simulation still decides all effects, so substance stays validated.
     (void)proposed_text;
 
+    float insecurity = 0.0f;
+    if (simulation_) insecurity = simulation_->get_insecurity();
+
     std::string topic_note;
     if (!topic.empty()) topic_note = " The topic under discussion is '" + topic + "'.";
     std::string user = "The investigator says: \"" + player_line + "\"." + topic_note +
                        " Reply as spoken dialogue, 1-3 sentences, in the voice of this person as described above. "
                        "Output only the spoken line, nothing else.";
 
-    const std::string system = llm_system_prompt(npc);
+    const std::string system = llm_system_prompt(npc, insecurity);
     for (int attempt = 0; attempt < 3; ++attempt) {
         auto generated = llm_->complete(system, user);
         if (!generated) break;

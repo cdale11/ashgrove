@@ -54,6 +54,27 @@ EntityID World::create_npc(NPCPtr npc) {
     return id;
 }
 
+EntityID World::create_crop_plot(const CropPlot& plot) {
+    EntityID id = next_id();
+    crop_plots_[id] = plot;
+    crop_plots_[id].id = id;
+    return id;
+}
+
+EntityID World::create_fishing_spot(const FishingSpot& spot) {
+    EntityID id = next_id();
+    fishing_spots_[id] = spot;
+    fishing_spots_[id].id = id;
+    return id;
+}
+
+EntityID World::create_job_posting(const JobPosting& posting) {
+    EntityID id = next_id();
+    job_postings_[id] = posting;
+    job_postings_[id].id = id;
+    return id;
+}
+
 void World::remove_building(EntityID id) {
     if (auto* b = get_building(id)) {
         for (auto& region : regions_) {
@@ -100,6 +121,18 @@ void World::remove_npc(EntityID id) {
     npcs_.erase(id);
 }
 
+void World::remove_crop_plot(EntityID id) {
+    crop_plots_.erase(id);
+}
+
+void World::remove_fishing_spot(EntityID id) {
+    fishing_spots_.erase(id);
+}
+
+void World::remove_job_posting(EntityID id) {
+    job_postings_.erase(id);
+}
+
 Building* World::get_building(EntityID id) {
     auto it = buildings_.find(id);
     return it != buildings_.end() ? &it->second : nullptr;
@@ -138,6 +171,21 @@ NPCPtr World::get_npc(EntityID id) {
 ResourceDeposit* World::get_resource_deposit(EntityID id) {
     auto it = resource_deposits_.find(id);
     return it != resource_deposits_.end() ? &it->second : nullptr;
+}
+
+CropPlot* World::get_crop_plot(EntityID id) {
+    auto it = crop_plots_.find(id);
+    return it != crop_plots_.end() ? &it->second : nullptr;
+}
+
+FishingSpot* World::get_fishing_spot(EntityID id) {
+    auto it = fishing_spots_.find(id);
+    return it != fishing_spots_.end() ? &it->second : nullptr;
+}
+
+JobPosting* World::get_job_posting(EntityID id) {
+    auto it = job_postings_.find(id);
+    return it != job_postings_.end() ? &it->second : nullptr;
 }
 
 std::vector<EntityID> World::get_buildings_in_region(EntityID region_id) const {
@@ -179,6 +227,32 @@ std::vector<EntityID> World::get_buildings_near_position(const Position& pos, fl
         float dx = b.position.x - pos.x;
         float dy = b.position.y - pos.y;
         if (std::sqrt(dx * dx + dy * dy) <= radius) result.push_back(id);
+    }
+    return result;
+}
+
+std::vector<EntityID> World::get_crop_plots_in_region(EntityID region_id) const {
+    std::vector<EntityID> result;
+    for (const auto& [id, plot] : crop_plots_) {
+        if (plot.region_id == region_id) result.push_back(id);
+    }
+    return result;
+}
+
+std::vector<EntityID> World::get_fishing_spots_in_region(EntityID region_id) const {
+    std::vector<EntityID> result;
+    for (const auto& [id, spot] : fishing_spots_) {
+        if (spot.region_id == region_id && spot.is_active) result.push_back(id);
+    }
+    return result;
+}
+
+std::vector<EntityID> World::get_active_jobs_in_region(EntityID region_id) const {
+    std::vector<EntityID> result;
+    for (const auto& [id, job] : job_postings_) {
+        if (job.region_id == region_id && job.is_active && job.worker_ids.size() < job.max_workers) {
+            result.push_back(id);
+        }
     }
     return result;
 }
@@ -257,6 +331,15 @@ nlohmann::json World::serialize() const {
     j["npcs"] = nlohmann::json::array();
     for (const auto& [id, npc] : npcs_) j["npcs"].push_back(npc->serialize());
     
+    j["crop_plots"] = nlohmann::json::array();
+    for (const auto& [id, p] : crop_plots_) j["crop_plots"].push_back(p.serialize());
+    
+    j["fishing_spots"] = nlohmann::json::array();
+    for (const auto& [id, s] : fishing_spots_) j["fishing_spots"].push_back(s.serialize());
+    
+    j["job_postings"] = nlohmann::json::array();
+    for (const auto& [id, jp] : job_postings_) j["job_postings"].push_back(jp.serialize());
+
     return j;
 }
 
@@ -266,6 +349,9 @@ void World::deserialize(const nlohmann::json& j) {
     regions_.clear();
     items_.clear();
     resource_deposits_.clear();
+    crop_plots_.clear();
+    fishing_spots_.clear();
+    job_postings_.clear();
     npcs_.clear();
     
     for (const auto& bj : j.value("buildings", nlohmann::json::array())) {
@@ -293,6 +379,18 @@ void World::deserialize(const nlohmann::json& j) {
         d.depleted = dj.value("depleted", false);
         d.region_id = dj.value("region_id", INVALID_ENTITY_ID);
         resource_deposits_[d.id] = d;
+    }
+    for (const auto& pj : j.value("crop_plots", nlohmann::json::array())) {
+        auto p = CropPlot::deserialize(pj);
+        crop_plots_[p.id] = p;
+    }
+    for (const auto& fj : j.value("fishing_spots", nlohmann::json::array())) {
+        auto f = FishingSpot::deserialize(fj);
+        fishing_spots_[f.id] = f;
+    }
+    for (const auto& jj : j.value("job_postings", nlohmann::json::array())) {
+        auto jp = JobPosting::deserialize(jj);
+        job_postings_[jp.id] = jp;
     }
     for (const auto& nj : j.value("npcs", nlohmann::json::array())) {
         auto npc = std::make_shared<NPC>();
@@ -417,6 +515,195 @@ Item Item::deserialize(const nlohmann::json& j) {
     item.owner_id = j.value("owner_id", INVALID_ENTITY_ID);
     item.container_id = j.value("container_id", INVALID_ENTITY_ID);
     return item;
+}
+
+nlohmann::json CropPlot::serialize() const {
+    return nlohmann::json{
+        {"id", id},
+        {"position", {{"x", position.x}, {"y", position.y}, {"z", position.z}, {"region_id", region_id}}},
+        {"crop", static_cast<int>(crop)},
+        {"stage", static_cast<int>(stage)},
+        {"progress", progress},
+        {"quality", quality},
+        {"water_level", water_level},
+        {"fertilizer", fertilizer},
+        {"planted_at", planted_at},
+        {"last_tended", last_tended},
+        {"owner_id", owner_id}
+    };
+}
+
+CropPlot CropPlot::deserialize(const nlohmann::json& j) {
+    CropPlot p;
+    p.id = j.value("id", INVALID_ENTITY_ID);
+    if (j.contains("position")) {
+        p.position.x = j["position"].value("x", 0.0f);
+        p.position.y = j["position"].value("y", 0.0f);
+        p.position.z = j["position"].value("z", 0.0f);
+        p.position.region_id = j["position"].value("region_id", INVALID_ENTITY_ID);
+    }
+    p.crop = static_cast<CropType>(j.value("crop", 0));
+    p.stage = static_cast<CropStage>(j.value("stage", 0));
+    p.progress = j.value("progress", 0.0f);
+    p.quality = j.value("quality", 1.0f);
+    p.water_level = j.value("water_level", 0.5f);
+    p.fertilizer = j.value("fertilizer", 0.0f);
+    p.planted_at = j.value("planted_at", 0);
+    p.last_tended = j.value("last_tended", 0);
+    p.owner_id = j.value("owner_id", INVALID_ENTITY_ID);
+    return p;
+}
+
+nlohmann::json FishingSpot::serialize() const {
+    std::vector<int> fish_types_int;
+    for (auto ft : fish_types) fish_types_int.push_back(static_cast<int>(ft));
+    return nlohmann::json{
+        {"id", id},
+        {"name", name},
+        {"position", {{"x", position.x}, {"y", position.y}, {"z", position.z}, {"region_id", region_id}}},
+        {"fish_density", fish_density},
+        {"water_quality", water_quality},
+        {"fish_types", fish_types_int},
+        {"difficulty", difficulty},
+        {"is_active", is_active},
+        {"last_fished", last_fished},
+        {"cooldown", cooldown}
+    };
+}
+
+FishingSpot FishingSpot::deserialize(const nlohmann::json& j) {
+    FishingSpot s;
+    s.id = j.value("id", INVALID_ENTITY_ID);
+    s.name = j.value("name", "");
+    if (j.contains("position")) {
+        s.position.x = j["position"].value("x", 0.0f);
+        s.position.y = j["position"].value("y", 0.0f);
+        s.position.z = j["position"].value("z", 0.0f);
+        s.position.region_id = j["position"].value("region_id", INVALID_ENTITY_ID);
+    }
+    s.fish_density = j.value("fish_density", 1.0f);
+    s.water_quality = j.value("water_quality", 1.0f);
+    s.difficulty = j.value("difficulty", 1.0f);
+    s.is_active = j.value("is_active", true);
+    s.last_fished = j.value("last_fished", 0);
+    s.cooldown = j.value("cooldown", 0.0f);
+    s.fish_types.clear();
+    for (const auto& ft : j.value("fish_types", std::vector<int>{})) {
+        s.fish_types.push_back(static_cast<FishType>(ft));
+    }
+    return s;
+}
+
+nlohmann::json JobPosting::serialize() const {
+    return nlohmann::json{
+        {"id", id},
+        {"type", static_cast<int>(type)},
+        {"title", title},
+        {"employer_id", employer_id},
+        {"region_id", region_id},
+        {"work_position", {{"x", work_position.x}, {"y", work_position.y}, {"z", work_position.z}}},
+        {"wage_per_hour", wage_per_hour},
+        {"hours_per_shift", hours_per_shift},
+        {"max_workers", max_workers},
+        {"worker_ids", worker_ids},
+        {"requirements", requirements},
+        {"reputation_req", reputation_req},
+        {"is_active", is_active},
+        {"posted_at", posted_at},
+        {"expires_at", expires_at}
+    };
+}
+
+JobPosting JobPosting::deserialize(const nlohmann::json& j) {
+    JobPosting jp;
+    jp.id = j.value("id", INVALID_ENTITY_ID);
+    jp.type = static_cast<JobType>(j.value("type", 0));
+    jp.title = j.value("title", "");
+    jp.employer_id = j.value("employer_id", INVALID_ENTITY_ID);
+    jp.region_id = j.value("region_id", INVALID_ENTITY_ID);
+    if (j.contains("work_position")) {
+        jp.work_position.x = j["work_position"].value("x", 0.0f);
+        jp.work_position.y = j["work_position"].value("y", 0.0f);
+        jp.work_position.z = j["work_position"].value("z", 0.0f);
+    }
+    jp.wage_per_hour = j.value("wage_per_hour", 2.0f);
+    jp.hours_per_shift = j.value("hours_per_shift", 8.0f);
+    jp.max_workers = j.value("max_workers", 1);
+    jp.worker_ids = j.value("worker_ids", std::vector<EntityID>{});
+    jp.requirements = j.value("requirements", "");
+    jp.reputation_req = j.value("reputation_req", 0.0f);
+    jp.is_active = j.value("is_active", true);
+    jp.posted_at = j.value("posted_at", 0);
+    jp.expires_at = j.value("expires_at", 0);
+    return jp;
+}
+
+float PlayerSkills::get(JobType job) const {
+    switch (job) {
+        case JobType::Farmhand: return farming;
+        case JobType::Fisher: return fishing;
+        case JobType::Woodcutter: return woodcutting;
+        case JobType::Miner: return mining;
+        case JobType::BlacksmithHelper: return smithing;
+        case JobType::InnHelper: return trading;
+        case JobType::Guard: return combat;
+        case JobType::Courier: return stealth;
+        case JobType::Herbalist: return herbalism;
+        default: return 0.0f;
+    }
+}
+
+void PlayerSkills::add_xp(JobType job, float amount) {
+    float* skill = nullptr;
+    switch (job) {
+        case JobType::Farmhand: skill = &farming; break;
+        case JobType::Fisher: skill = &fishing; break;
+        case JobType::Woodcutter: skill = &woodcutting; break;
+        case JobType::Miner: skill = &mining; break;
+        case JobType::BlacksmithHelper: skill = &smithing; break;
+        case JobType::InnHelper: skill = &trading; break;
+        case JobType::Guard: skill = &combat; break;
+        case JobType::Courier: skill = &stealth; break;
+        case JobType::Herbalist: skill = &herbalism; break;
+        default: return;
+    }
+    if (skill) {
+        *skill = std::min(100.0f, *skill + amount);
+    }
+}
+
+nlohmann::json PlayerSkills::serialize() const {
+    return nlohmann::json{
+        {"farming", farming},
+        {"fishing", fishing},
+        {"woodcutting", woodcutting},
+        {"mining", mining},
+        {"smithing", smithing},
+        {"cooking", cooking},
+        {"herbalism", herbalism},
+        {"crafting", crafting},
+        {"trading", trading},
+        {"stealth", stealth},
+        {"perception", perception},
+        {"combat", combat}
+    };
+}
+
+PlayerSkills PlayerSkills::deserialize(const nlohmann::json& j) {
+    PlayerSkills s;
+    s.farming = j.value("farming", 0.0f);
+    s.fishing = j.value("fishing", 0.0f);
+    s.woodcutting = j.value("woodcutting", 0.0f);
+    s.mining = j.value("mining", 0.0f);
+    s.smithing = j.value("smithing", 0.0f);
+    s.cooking = j.value("cooking", 0.0f);
+    s.herbalism = j.value("herbalism", 0.0f);
+    s.crafting = j.value("crafting", 0.0f);
+    s.trading = j.value("trading", 0.0f);
+    s.stealth = j.value("stealth", 0.0f);
+    s.perception = j.value("perception", 0.0f);
+    s.combat = j.value("combat", 0.0f);
+    return s;
 }
 
 } // namespace ashgrove
