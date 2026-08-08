@@ -252,8 +252,10 @@ export default function App() {
   }
 
   if (!state) {
-    return (
-      <div className="app loading-screen">
+const openQuestCount = (state.quests ?? []).filter(q => q.status === 'available' || q.status === 'redeemable').length
+
+  return (
+    <div className="app loading-screen">
         <div className="loading-card">
           <h1>Ashgrove</h1>
           <p className="loading-status">{error ?? 'Connecting to the world...'}</p>
@@ -275,6 +277,7 @@ export default function App() {
         <div className="actions">
           <button onClick={() => setShowJournal(!showJournal)} disabled={!connected}>
             📔 Journal
+            {openQuestCount > 0 && <span className="topbar-badge">{openQuestCount}</span>}
           </button>
           <button onClick={() => setShowInventory(!showInventory)} disabled={!connected}>
             🎒 Inventory

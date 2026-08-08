@@ -1883,7 +1883,10 @@ nlohmann::json GameServer::handle_accept_quest(const nlohmann::json& action) {
     EntityID qid = action.value("quest", INVALID_ENTITY_ID);
     for (auto& q : quests_) {
         if (q.id != qid) continue;
-        if (q.status == "completed") return action_error("That errand is already done.");
+        if (q.status == "completed") return action_error("That errand is already finished.");
+        if (q.status == "active" || q.status == "redeemable") {
+            return action_error("You have already taken on this errand.");
+        }
         q.status = "active";
         std::string msg = "You take on: " + q.title;
         player_.log_action("accept_quest", msg, q.description);
@@ -2299,6 +2302,11 @@ bool GameServer::save_game(const std::string& filename) {
         save["simulation"] = simulation_->serialize();
         save["investigation"] = investigation_->serialize();
         save["player"] = player_.serialize();
+        nlohmann::json qs = nlohmann::json::array();
+        for (const auto& q : quests_) qs.push_back(q.serialize());
+        save["quests"] = qs;
+        save["quest_daily_day"] = quest_daily_day_;
+        save["next_quest_id"] = next_quest_id_;
         
         std::ofstream file(path);
         file << save.dump(2);
@@ -2328,6 +2336,14 @@ bool GameServer::load_game(const std::string& filename) {
         if (save.contains("player")) {
             player_.deserialize(save["player"]);
         }
+        quests_.clear();
+        if (save.contains("quests")) {
+            for (const auto& qj : save["quests"]) {
+                quests_.push_back(Quest::deserialize(qj));
+            }
+        }
+        quest_daily_day_ = save.value("quest_daily_day", static_cast<uint16_t>(0));
+        next_quest_id_ = save.value("next_quest_id", static_cast<uint32_t>(1000));
         
         spdlog::info("Game loaded from {}", path.c_str());
         return true;

@@ -61,6 +61,7 @@ struct Quest {
     bool is_complete() const { return required > 0 && progress >= required; }
 
     nlohmann::json serialize() const;
+    static Quest deserialize(const nlohmann::json& j);
 };
 
 } // namespace ashgrove

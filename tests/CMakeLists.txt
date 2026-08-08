@@ -6,6 +6,9 @@ add_executable(ashgrove_tests
     test_world.cpp
     test_npc.cpp
     test_simulation.cpp
+    test_quests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/server/game_server.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/server/player.cpp
 )
 
 target_include_directories(ashgrove_tests PRIVATE
@@ -19,6 +22,8 @@ target_link_libraries(ashgrove_tests PRIVATE
     ashgrove_quest
     ashgrove_npc
     ashgrove_investigation
+    ashgrove_ai
+    ashgrove_network
     nlohmann_json::nlohmann_json
     fmt::fmt
     spdlog::spdlog

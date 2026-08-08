@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <poll.h>
 #include <unistd.h>
 #include <fcntl.h>
 #define SOCKET int
@@ -170,14 +171,40 @@ int SocketTransport::get_port() const {
 
 void SocketTransport::accept_loop() {
     while (running_) {
+#ifdef _WIN32
         sockaddr_in client_addr{};
         socklen_t addr_len = sizeof(client_addr);
-        
         int client_socket = static_cast<int>(accept(listen_socket_, reinterpret_cast<sockaddr*>(&client_addr), &addr_len));
         if (client_socket < 0) {
             if (!running_) break;
             continue;
         }
+#else
+        // Poll briefly so stop() can interrupt a blocked accept() promptly.
+        struct pollfd pfd = {};
+        pfd.fd = listen_socket_;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int pr = poll(&pfd, 1, 500);
+        if (pr < 0) {
+            if (!running_) break;
+            continue;
+        }
+        if (pr == 0) continue; // timeout: spin again, check running_
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            if (!running_) break;
+            continue;
+        }
+
+        sockaddr_in client_addr{};
+        socklen_t addr_len = sizeof(client_addr);
+
+        int client_socket = static_cast<int>(accept(listen_socket_, reinterpret_cast<sockaddr*>(&client_addr), &addr_len));
+        if (client_socket < 0) {
+            if (!running_) break;
+            continue;
+        }
+#endif
         
         spdlog::debug("New connection from {}:{}", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         

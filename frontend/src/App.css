@@ -425,6 +425,18 @@ button:disabled {
   font-size: 0.7rem;
   color: var(--text-dim);
 }
+.topbar-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  margin-left: 4px;
+  border-radius: 8px;
+  background: var(--accent-bright, #d4a54a);
+  color: #1a1408;
+  vertical-align: middle;
+}
+.topbar .actions button { position: relative; }
+
 .badge {
   font-size: 0.6rem;
   padding: 1px 6px;
