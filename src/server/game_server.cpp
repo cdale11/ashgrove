@@ -8,6 +8,7 @@
 #include <fstream>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace ashgrove {
 
@@ -549,6 +550,82 @@ void GameServer::build_npc_schedules() {
     }
 }
 
+// Active schedule entry for `hour`, honoring entries that wrap past midnight.
+static const DailyScheduleEntry* active_schedule_entry(const NPC& npc, uint8_t hour) {
+    for (const auto& entry : npc.schedule) {
+        uint8_t end_hour = (entry.start_hour + entry.duration_hours) % 24;
+        bool covers = (entry.start_hour <= end_hour)
+                          ? (hour >= entry.start_hour && hour < end_hour)
+                          : (hour >= entry.start_hour || hour < end_hour);
+        if (covers) return &entry;
+    }
+    return nullptr;
+}
+
+// Anchors that are used when a schedule entry has no location (INVALID).
+// - generic villagers "work" at the Thorne Farm field instead of standing at home
+// - "patrol" walks the village square
+static void anchor_for_activity(const NPC& npc, const Position& home, const std::string& activity,
+                                Position& out, bool& out_anchored) {
+    if (activity == "work" && npc.occupation != "Doctor") {
+        // Farmhands and laborers gather at Thorne Farm (30, 0 site).
+        out = {30.0f + static_cast<float>(npc.id % 5) - 2.0f, 8.0f + static_cast<float>(npc.id % 4), 0.0f, home.region_id};
+        out_anchored = true;
+    } else if (activity == "patrol") {
+        // Doctor's rounds: loop around the village square, settled on distinct corners.
+        const uint8_t corner = static_cast<uint8_t>(npc.id % 4);
+        out = {-3.0f + (corner == 1 || corner == 2 ? 6.0f : 0.0f),
+               -2.0f + (corner >= 2 ? 4.0f : 0.0f), 0.0f, home.region_id};
+        out_anchored = true;
+    }
+}
+
+void GameServer::tick_npc_schedules(bool snap) {
+    if (simulation_->is_paused()) return;
+    const GameTime& gtime = simulation_->get_time();
+    const float step = snap ? std::numeric_limits<float>::max() : npc_walk_speed_;
+
+    for (auto& [nid, npc] : world_->npcs()) {
+        const DailyScheduleEntry* entry = active_schedule_entry(*npc, gtime.hour);
+
+        // Track what the character is currently doing (shown in the UI).
+        npc->current_activity = entry ? entry->activity : "idle";
+
+        Position dest;
+        bool anchored = false;
+
+        if (entry && entry->location_id != INVALID_ENTITY_ID) {
+            const auto& buildings = world_->buildings();
+            auto bit = buildings.find(entry->location_id);
+            if (bit != buildings.end()) {
+                dest = bit->second.position;
+                anchored = true;
+            }
+        } else {
+            Position home = npc->position;
+            if (npc_home_.count(nid)) home = npc_home_.at(nid);
+            anchor_for_activity(*npc, home, entry ? entry->activity : "idle", dest, anchored);
+        }
+
+        if (!anchored) {
+            // Fall back to the NPC's home.
+            if (npc_home_.count(nid)) dest = npc_home_.at(nid);
+            else dest = npc->position; // Never seen a home: stay put.
+        }
+
+        // Walk toward the destination, one small step per game minute.
+        const float dx = dest.x - npc->position.x;
+        const float dy = dest.y - npc->position.y;
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist <= step) {
+            npc->position = dest;
+        } else {
+            npc->position.x += dx / dist * step;
+            npc->position.y += dy / dist * step;
+        }
+    }
+}
+
 void GameServer::run() {
     running_ = true;
     spdlog::info("Game loop started (tick rate: {}ms, world time scale: {}x)", config_.tick_rate_ms, config_.world_time_scale);
@@ -588,6 +665,7 @@ void GameServer::tick() {
     // Advance simulation
     simulation_->advance_time(config_.world_time_scale);
     tick_life_systems(config_.world_time_scale);
+    tick_npc_schedules();
     
     // Periodic NPC AI updates
     TimeTick interval = static_cast<TimeTick>(config_.npc_ai_interval_ticks);
@@ -1190,6 +1268,8 @@ nlohmann::json GameServer::handle_advance_time(const nlohmann::json& action) {
     TimeTick ticks = static_cast<TimeTick>(hours * 3600);
     simulation_->advance_time(ticks);
     tick_life_systems(ticks);
+    // After a large jump, put everyone where their schedule says (no walking montage).
+    if (ticks >= TICKS_PER_HOUR) tick_npc_schedules(true);
     const auto& time = simulation_->get_time();
     std::string msg = "Advanced " + std::to_string(hours) + " hour" + (hours != 1.0 ? "s" : "") + ". Now " +
                       std::to_string(time.hour) + ":" + (time.minute < 10 ? "0" : "") + std::to_string(time.minute) +

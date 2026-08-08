@@ -59,8 +59,8 @@ export function LifestylePanel({ state, onPlant, onWater, onHarvest, onFish, onW
   const player = state.player
   const playerRegion = player?.region_id ?? state.world.regions[0]?.id ?? 0
 
-  const plots = state.world.crop_plots.filter((p) => p.region_id === playerRegion)
-  const spots = state.world.fishing_spots.filter((s) => s.region_id === playerRegion)
+  const plots = state.world.crop_plots.filter((p) => p.position.region_id === playerRegion)
+  const spots = state.world.fishing_spots.filter((s) => s.position.region_id === playerRegion)
   const jobs = state.world.job_postings.filter((j) => j.region_id === playerRegion && j.is_active)
 
   const skillLabel = (jobType: number): [string, number] => {

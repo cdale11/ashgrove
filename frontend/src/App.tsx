@@ -13,6 +13,7 @@ import { LensPanel } from './components/LensPanel'
 import { JournalPanel } from './components/JournalPanel'
 import { InventoryPanel } from './components/InventoryPanel'
 import { LifestylePanel } from './components/LifestylePanel'
+import { Accordion } from './components/Accordion'
 import type { DialogueSession } from './components/DialoguePanel'
 import type { ConversationTopic, DialogueLine } from './types'
 import './App.css'
@@ -327,20 +328,34 @@ export default function App() {
         </section>
 
         <aside className="column right">
-          {showJournal && <JournalPanel state={state} onClose={() => setShowJournal(false)} />}
-          {showInventory && <InventoryPanel state={state} onUseItem={handleUseItem} onDropItem={handleDropItem} onGiveItem={handleGiveItem} onBuy={handleBuy} onSell={handleSell} onClose={() => setShowInventory(false)} />}
-          {showLifestyle && (
-            <LifestylePanel
-              state={state}
-              onPlant={handlePlant}
-              onWater={handleWater}
-              onHarvest={handleHarvest}
-              onFish={handleFish}
-              onWork={handleWork}
-            />
+          {showJournal && (
+            <Accordion title="📔 Journal" onClose={() => setShowJournal(false)}>
+              <JournalPanel state={state} onClose={() => setShowJournal(false)} />
+            </Accordion>
           )}
-          <InvestigationPanel state={state} />
-          <WorldPanel state={state} />
+          {showInventory && (
+            <Accordion title="🎒 Inventory" onClose={() => setShowInventory(false)}>
+              <InventoryPanel state={state} onUseItem={handleUseItem} onDropItem={handleDropItem} onGiveItem={handleGiveItem} onBuy={handleBuy} onSell={handleSell} onClose={() => setShowInventory(false)} />
+            </Accordion>
+          )}
+          {showLifestyle && (
+            <Accordion title="🌾 Daily Life" onClose={() => setShowLifestyle(false)}>
+              <LifestylePanel
+                state={state}
+                onPlant={handlePlant}
+                onWater={handleWater}
+                onHarvest={handleHarvest}
+                onFish={handleFish}
+                onWork={handleWork}
+              />
+            </Accordion>
+          )}
+          <Accordion title="🔍 Investigation" defaultOpen>
+            <InvestigationPanel state={state} />
+          </Accordion>
+          <Accordion title="🗺️ World">
+            <WorldPanel state={state} />
+          </Accordion>
         </aside>
       </main>
 

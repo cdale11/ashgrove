@@ -57,7 +57,7 @@ private:
     void simulation_step();
     void tick();
     void tick_life_systems(TimeTick elapsed_ticks);
-    void tick_npc_schedules();
+    void tick_npc_schedules(bool snap = false);
 
     // Action handlers
     nlohmann::json handle_move(const nlohmann::json& action);
@@ -108,7 +108,9 @@ private:
     // NPC relationship with the player (NPC id -> Relationship with player id 0)
     std::unordered_map<EntityID, Relationship> player_relations_;
     // NPC home anchors (fallback when a schedule has no valid location)
-    std::unordered_map<EntityID, Position> npc_home_;;
+    std::unordered_map<EntityID, Position> npc_home_;
+    // Per-NPC walking speed (world units per tick call; ~1 real second at default tick rate)
+    float npc_walk_speed_ = 4.0f;
 };
 
 } // namespace ashgrove

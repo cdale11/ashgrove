@@ -199,7 +199,6 @@ export interface Evidence {
 export interface CropPlot {
   id: number
   position: Vec3 & { region_id: number }
-  region_id: number
   crop: number
   stage: number
   progress: number
@@ -215,7 +214,6 @@ export interface FishingSpot {
   id: number
   name: string
   position: Vec3 & { region_id: number }
-  region_id: number
   fish_density: number
   water_quality: number
   fish_types: number[]

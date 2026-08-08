@@ -116,6 +116,48 @@ button:disabled {
   padding: 14px;
 }
 
+/* ---------- Accordion ---------- */
+.accordion {
+  padding: 0;
+  overflow: hidden;
+}
+.accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.accordion-header:hover {
+  background: var(--bg-panel-2);
+}
+.accordion-title {
+  flex: 1;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.accordion-toggle {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+.accordion-close {
+  position: static;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+}
+.accordion-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.accordion-open .accordion-header {
+  border-bottom: 1px solid transparent;
+}
+
 .panel h3 {
   font-size: 0.85rem;
   letter-spacing: 1.5px;
@@ -647,14 +689,68 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-weight: normal;
   color: var(--text-dim);
 }
+.map-chips {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: normal;
+}
+.map-chip {
+  background: rgba(26, 24, 18, 0.75);
+  border: 1px solid rgba(146, 116, 74, 0.4);
+  color: #d8c39a;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.map-canvas-wrap {
+  position: relative;
+}
+.map-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(14, 12, 9, 0.72);
+  border: 1px solid rgba(146, 116, 74, 0.4);
+  border-radius: 999px;
+  padding: 3px 8px;
+  user-select: none;
+}
+.map-zoom button {
+  background: transparent;
+  border: none;
+  color: var(--accent-bright);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.map-zoom button:hover { color: #fff; }
+.map-zoom span {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  min-width: 38px;
+  text-align: center;
+}
+.map-region {
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
 .map-canvas {
   width: 100%;
   height: 360px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-panel-2);
-  cursor: crosshair;
+  cursor: grab;
+  touch-action: none;
 }
+.map-canvas.map-dragging { cursor: grabbing; }
+.map-hover-drag { color: var(--text-dim); font-style: italic; }
 .map-hover {
   font-size: 0.78rem;
   color: var(--accent-bright);
