@@ -238,6 +238,8 @@ public:
     std::unordered_map<EntityID, CropPlot>& crop_plots() { return crop_plots_; }
     const std::unordered_map<EntityID, FishingSpot>& fishing_spots() const { return fishing_spots_; }
     std::unordered_map<EntityID, FishingSpot>& fishing_spots() { return fishing_spots_; }
+    const std::unordered_map<EntityID, ResourceDeposit>& resource_deposits() const { return resource_deposits_; }
+    std::unordered_map<EntityID, ResourceDeposit>& resource_deposits() { return resource_deposits_; }
     const std::unordered_map<EntityID, JobPosting>& job_postings() const { return job_postings_; }
     std::unordered_map<EntityID, JobPosting>& job_postings() { return job_postings_; }
     

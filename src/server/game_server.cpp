@@ -1,5 +1,6 @@
 #include "server/game_server.h"
 #include "npc/dialogue.h"
+#include "quest/quest.h"
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -512,6 +513,13 @@ void GameServer::create_test_world() {
 
     // Assign each NPC a home anchor and a daily routine.
     build_npc_schedules();
+
+    // Procedural grind layer: resource deposits scattered around the valley.
+    spawn_resource_deposits();
+
+    // Authored + procedural-daily quests.
+    setup_quests();
+    roll_daily_quests();
 }
 
 static void add_schedule_entry(NPC& npc, uint8_t start_hour, uint8_t duration_hours,
@@ -660,6 +668,242 @@ void GameServer::tick_npc_schedules(bool snap) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Gameplay systems: recipes, quests, resource grinding, farm expansion.
+// ---------------------------------------------------------------------------
+
+void GameServer::create_recipe_items() {
+    // Recipes materialize fresh items from inventory names; nothing to seed.
+}
+
+const std::vector<GameServer::CraftRecipe>& GameServer::recipes() {
+    static const std::vector<CraftRecipe> RECIPES = {
+        {"log_pile", "firewood bundle", "material", 6.0f, {{"wood", 3}}, 0.0f, "woodcutting",
+         "A bundle of seasoned logs. Sells well after rain."},
+        {"stone_peg", "stone pegs", "material", 8.0f, {{"stone", 2}}, 0.0f, "mining",
+         "A pouch of chipped stone pegs for builders."},
+        {"herb_poultice", "herb poultice", "food", 12.0f, {{"herbs", 2}}, 2.0f, "herbalism",
+         "Pressed herb poultice. Eases hunger and mends small hurts."},
+        {"iron_ingot", "iron ingot", "material", 22.0f, {{"iron", 3}}, 4.0f, "mining",
+         "Smelted iron. The forge metal is worth real coin."},
+        {"charcoal", "charcoal sack", "material", 15.0f, {{"wood", 4}}, 3.0f, "woodcutting",
+         "Slow-burning charcoal. The smith pays well for it."},
+    };
+    return RECIPES;
+}
+
+// Procedural resource scatter: seeded per boot, so each new game gets a
+// different grind layout that stays stable for the whole session.
+void GameServer::spawn_resource_deposits() {
+    auto& deposits = world_->resource_deposits();
+    deposits.clear();
+    const EntityID village_id = 1;
+
+    // Tiny xorshift, seeded by region id — cheap and deterministic.
+    uint32_t seed = 0x9E3779B9u ^ static_cast<uint32_t>(village_id * 2654435761u);
+    auto rng = [&seed]() mutable {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return static_cast<double>(seed) / static_cast<double>(0xFFFFFFFFu);
+    };
+
+    // Anchor spots near the village landmarks so the new player always has
+    // wood + stone within sight of the square, then jitter each one so every
+    // boot places the grind differently.
+    struct Depot { const char* res; float x, y; float amt; float regen; };
+    const std::vector<Depot> anchors = {
+        {"wood",  42, -28, 60, 6},
+        {"wood", -26, -38, 55, 6},
+        {"wood",  18,  52, 50, 6},
+        {"stone", 30, -14, 45, 4},
+        {"stone", -32,  22, 40, 4},
+        {"herbs", -10, -22, 25, 3},
+        {"herbs",  44,   8, 25, 3},
+        {"iron",   24, -10, 22, 2},
+        {"iron",  -22, -30, 18, 2},
+    };
+    for (const auto& a : anchors) {
+        ResourceDeposit d;
+        d.resource_name = a.res;
+        d.amount = a.amt;
+        d.max_amount = a.amt;
+        d.regeneration_rate = a.regen;
+        d.depleted = false;
+        d.region_id = village_id;
+        d.position = {a.x + static_cast<float>((rng() - 0.5) * 10.0),
+                      a.y + static_cast<float>((rng() - 0.5) * 10.0), 0, village_id};
+        world_->create_resource_deposit(d);
+    }
+    spdlog::info("Scattered {} resource deposits around the valley", deposits.size());
+}
+
+void GameServer::setup_quests() {
+    auto add = [&](const Quest& q) {
+        quests_.push_back(q);
+        quests_.back().id = next_quest_id_++;
+    };
+
+    // --- Authored progression (main-ish arc) ---
+    Quest starter;
+    starter.title = "First Furrows";
+    starter.description = "Old Thorne needs his field worked. Plant and water your first crop plot, then bring in a harvest.";
+    starter.giver = "Thorne Farm";
+    starter.kind = QuestKind::Harvest;
+    starter.required = 3;
+    starter.reward_coins = 25.0f;
+    starter.reward_xp = 30.0f;
+    starter.reward_item = "herb seeds";
+    starter.status = "available";
+    add(starter);
+
+    Quest forage;
+    forage.title = "Forage the Valley";
+    forage.description = "The kitchens want firewood. Gather wood from the groves around the village.";
+    forage.giver = "Rosalind Baker";
+    forage.kind = QuestKind::Gather;
+    forage.target = "wood";
+    forage.required = 6;
+    forage.reward_coins = 30.0f;
+    forage.reward_xp = 25.0f;
+    forage.reward_item = "ale";
+    forage.status = "available";
+    add(forage);
+
+    Quest riches;
+    riches.title = "The Valley's Wealth";
+    riches.description = "Amass 150 coins. Sell produce, fish, and gathered goods to Ingrid at the store.";
+    riches.giver = "Ingrid Weiss";
+    riches.kind = QuestKind::ReachWealth;
+    riches.required = 150;
+    riches.reward_coins = 60.0f;
+    riches.reward_xp = 60.0f;
+    riches.reward_item = "iron ingot";
+    riches.status = "available";
+    add(riches);
+
+    Quest sleuth;
+    sleuth.title = "The Miller's Ledger";
+    sleuth.description = "Follow the disappearance to its end: gather the miller's journal, open the old mill, and learn the truth at the river.";
+    sleuth.giver = "The Disappearance";
+    sleuth.kind = QuestKind::Mystery;
+    sleuth.target = "The Disappearance";
+    sleuth.required = 1;
+    sleuth.reward_coins = 200.0f;
+    sleuth.reward_xp = 150.0f;
+    sleuth.reward_item = "rustic compass";
+    sleuth.status = "available";
+    add(sleuth);
+}
+
+// Procedural daily errands: seeded by the day so the same day always offers
+// the same three jobs, but the next day rolls three new ones.
+void GameServer::roll_daily_quests() {
+    const auto& gtime = simulation_->get_time();
+    quest_daily_day_ = gtime.day_of_year;
+
+    // Drop yesterday's unclaimed dailies.
+    quests_.erase(std::remove_if(quests_.begin(), quests_.end(),
+                                 [](const Quest& q) { return q.is_daily && q.status != "completed"; }),
+                  quests_.end());
+
+    uint32_t seed = 0x8DA6B33Fu ^ static_cast<uint32_t>(gtime.day_of_year * 7919u) ^ static_cast<uint32_t>(static_cast<int>(gtime.season) * 104729u);
+    auto rng = [&seed]() mutable {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return static_cast<double>(seed) / static_cast<double>(0xFFFFFFFFu);
+    };
+
+    const char* givers[] = {"Tor Hartman", "Father Malcolm", "Mara Voss", "Ingrid Weiss"};
+    const std::pair<const char*, QuestKind> daily_kinds[] = {
+        {"wood", QuestKind::Gather},
+        {"stone", QuestKind::Gather},
+        {"herbs", QuestKind::Gather},
+        {"iron", QuestKind::Gather},
+        {"fish", QuestKind::Fish},
+        {"crops", QuestKind::Harvest},
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        const auto& kind = daily_kinds[static_cast<size_t>(rng() * 6) % 6];
+        int n = 4 + static_cast<int>(rng() * 5); // 4-8 units
+        Quest q;
+        q.is_daily = true;
+        q.posted_day = gtime.day_of_year;
+        q.kind = kind.second;
+        q.target = kind.first;
+        q.required = n;
+        q.giver = givers[static_cast<size_t>(rng() * 4) % 4];
+        q.status = "available";
+        std::string what = kind.first;
+        q.title = "Daily: bring in " + what;
+        q.description = q.giver + " pays for " + what + ". Deliver " + std::to_string(n) + " of it before the day ends.";
+        q.reward_coins = static_cast<float>(n) * 6.0f;
+        q.reward_xp = static_cast<float>(n) * 4.0f;
+        q.id = next_quest_id_++;
+        quests_.push_back(q);
+    }
+    spdlog::info("Rolled daily errands for Day {}: {} active quests", gtime.day_of_year, quests_.size());
+}
+
+// Register a gameplay event against active/available quests of the matching kind.
+void GameServer::progress_quest(QuestKind kind, int amount, const std::string& target) {
+    for (auto& q : quests_) {
+        if (q.status != "active" && q.status != "available") continue;
+        if (q.is_complete()) {
+            if (q.status == "active") q.status = "redeemable";
+            continue;
+        }
+        if (q.kind != kind) continue;
+        if (!target.empty() && q.target != target && !q.target.empty()) continue;
+        q.progress = std::min(q.required, q.progress + amount);
+        if (q.is_complete() && q.status == "available") q.status = "active";
+        if (q.is_complete() && q.status == "active") q.status = "redeemable";
+    }
+}
+
+// Milestone quests (wealth/level/mystery) poll their metric.
+void GameServer::check_quest_milestones() {
+    for (auto& q : quests_) {
+        if (q.status != "available" && q.status != "active") continue;
+        switch (q.kind) {
+            case QuestKind::ReachWealth:
+                q.progress = static_cast<int>(player_.money);
+                break;
+            case QuestKind::ReachLevel:
+                q.progress = static_cast<int>(player_.level);
+                break;
+            case QuestKind::Mystery: {
+                const auto* k = investigation_->get_knowledge(2);
+                q.progress = (k && k->completeness >= 0.8f) ? 1 : 0;
+                break;
+            }
+            default: break;
+        }
+        if (q.is_complete()) q.status = q.status == "available" ? "active" : "redeemable";
+    }
+}
+
+// Pay out a quest reward; returns the item id granted (or INVALID_ENTITY_ID).
+EntityID GameServer::grant_reward(const Quest& q) {
+    player_.money += q.reward_coins;
+    player_.xp += static_cast<uint32_t>(q.reward_xp);
+    player_.level = static_cast<uint32_t>(1 + std::floor(std::sqrt(player_.xp / 50.0)));
+    if (q.reward_item.empty()) return INVALID_ENTITY_ID;
+
+    Item reward;
+    reward.name = q.reward_item;
+    reward.category = "material";
+    reward.weight = 0.4f;
+    reward.value = q.reward_coins * 0.5f;
+    reward.position = player_.position;
+    reward.owner_id = PLAYER_OWNER_ID;
+    EntityID rid = world_->create_item(reward);
+    player_.add_item(rid);
+    return rid;
+}
+
 void GameServer::run() {
     running_ = true;
     spdlog::info("Game loop started (tick rate: {}ms, world time scale: {}x)", config_.tick_rate_ms, config_.world_time_scale);
@@ -700,6 +944,11 @@ void GameServer::tick() {
     simulation_->advance_time(config_.world_time_scale);
     tick_life_systems(config_.world_time_scale);
     tick_npc_schedules();
+    check_quest_milestones();
+    // Roll the next day's procedural errands once per day.
+    if (quest_daily_day_ != simulation_->get_time().day_of_year) {
+        roll_daily_quests();
+    }
     
     // Periodic NPC AI updates
     TimeTick interval = static_cast<TimeTick>(config_.npc_ai_interval_ticks);
@@ -741,6 +990,13 @@ void GameServer::tick_life_systems(TimeTick elapsed_ticks) {
     // A bit of passive fatigue recovery even outside rest (only when idling)
     if (!player_.resting && player_.current_action == "idle") {
         player_.fatigue = std::max(0.0f, player_.fatigue - days * 8.0f);
+    }
+
+    // Resource deposits regrow slowly across the days.
+    for (auto& [dep_id, dep] : world_->resource_deposits()) {
+        if (dep.amount >= dep.max_amount) continue;
+        dep.amount = std::min(dep.max_amount, dep.amount + dep.regeneration_rate * days);
+        dep.depleted = (dep.amount <= 0.0f);
     }
 
     // Crop growth stages (days to maturity per crop)
@@ -827,6 +1083,27 @@ nlohmann::json GameServer::get_world_state() const {
                            {"weight", entry.weight}});
     }
     state["shop_catalog"] = catalog;
+
+    nlohmann::json quests = nlohmann::json::array();
+    for (const auto& q : quests_) quests.push_back(q.serialize());
+    state["quests"] = quests;
+
+    nlohmann::json recipes_out = nlohmann::json::array();
+    for (const auto& r : recipes()) {
+        nlohmann::json costs = nlohmann::json::array();
+        for (const auto& [name, count] : r.costs) {
+            costs.push_back({{"name", name}, {"count", count}});
+        }
+        recipes_out.push_back({{"key", r.key},
+                               {"name", r.name},
+                               {"category", r.category},
+                               {"value", r.value},
+                               {"costs", costs},
+                               {"skill_req", r.skill_req},
+                               {"skill", r.skill},
+                               {"description", r.description}});
+    }
+    state["recipes"] = recipes_out;
     return state;
 }
 
@@ -1009,6 +1286,31 @@ nlohmann::json GameServer::handle_action(const nlohmann::json& action) {
     }
     if (type == "work") {
         auto res = handle_work(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "accept_quest") {
+        auto res = handle_accept_quest(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "claim_quest") {
+        auto res = handle_claim_quest(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "gather") {
+        auto res = handle_gather(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "expand_farm") {
+        auto res = handle_expand_farm(action);
+        res["player"] = player_.serialize();
+        return res;
+    }
+    if (type == "craft") {
+        auto res = handle_craft(action);
         res["player"] = player_.serialize();
         return res;
     }
@@ -1440,6 +1742,7 @@ nlohmann::json GameServer::handle_plant(const nlohmann::json& action) {
     player_.skills.add_xp(JobType::Farmhand, 2.0f);
     player_.log_action("plant", "Planted " + crop_str + " seeds", "Planted in plot " + std::to_string(plot_id));
     player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Plant, 1, std::string("crops"));
     return {{"ok", true}, {"message", "You plant " + crop_str + " in the plot."}};
 }
 
@@ -1511,6 +1814,7 @@ nlohmann::json GameServer::handle_harvest(const nlohmann::json& action) {
 
     player_.log_action("harvest", "Harvested " + produce.name, "Gained " + produce.name);
     player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Harvest, count, std::string("crops"));
     return {{"ok", true}, {"message", "You harvest " + crop_str + ". It goes into your pack."}, {"item_id", produce_id}};
 }
 
@@ -1571,7 +1875,247 @@ nlohmann::json GameServer::handle_fish(const nlohmann::json& action) {
     player_.skills.add_xp(JobType::Fisher, 3.0f);
     player_.log_action("fish", "Caught a " + fish_str, "Fished at " + spot->name);
     player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Fish, 1, std::string("fish"));
     return {{"ok", true}, {"message", "You pull in a " + fish_str + "!"}, {"item_id", catch_id}};
+}
+
+nlohmann::json GameServer::handle_accept_quest(const nlohmann::json& action) {
+    EntityID qid = action.value("quest", INVALID_ENTITY_ID);
+    for (auto& q : quests_) {
+        if (q.id != qid) continue;
+        if (q.status == "completed") return action_error("That errand is already done.");
+        q.status = "active";
+        std::string msg = "You take on: " + q.title;
+        player_.log_action("accept_quest", msg, q.description);
+        player_.action_log.back().tick = simulation_->get_time().ticks;
+        return {{"ok", true}, {"message", msg}};
+    }
+    return action_error("No such errand.");
+}
+
+nlohmann::json GameServer::handle_claim_quest(const nlohmann::json& action) {
+    EntityID qid = action.value("quest", INVALID_ENTITY_ID);
+    for (auto& q : quests_) {
+        if (q.id != qid) continue;
+        if (!q.is_complete()) return action_error("That errand is not finished yet.");
+        EntityID reward_id = grant_reward(q);
+        q.status = "completed";
+        std::string msg = "Quest complete: " + q.title + " (+" +
+                          std::to_string(static_cast<int>(q.reward_coins)) + " coins)";
+        player_.log_action("claim_quest", msg, "Reward claimed");
+        player_.action_log.back().tick = simulation_->get_time().ticks;
+        nlohmann::json res = {{"ok", true}, {"message", msg}, {"coins", q.reward_coins}};
+        if (reward_id != INVALID_ENTITY_ID) res["item_id"] = reward_id;
+        return res;
+    }
+    return action_error("No such errand.");
+}
+
+nlohmann::json GameServer::handle_gather(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    EntityID dep_id = action.value("target", INVALID_ENTITY_ID);
+    auto* dep = world_->get_resource_deposit(dep_id);
+    if (!dep) return action_error("That resource spot does not exist.");
+    if (dep->depleted || dep->amount <= 0.0f) {
+        return action_error("This spot is picked clean. It will regrow over the next days.");
+    }
+    if (dep->region_id != player_.region_id) return action_error("That spot is in another region.");
+    const float dx = player_.position.x - dep->position.x;
+    const float dy = player_.position.y - dep->position.y;
+    if (std::sqrt(dx * dx + dy * dy) > 20.0f) return action_error("Move closer to the resource first.");
+
+    // Skill drives yield: woodcutting for wood, mining for stone/iron, herbalism for herbs.
+    float skill = 0.0f;
+    JobType job = JobType::Woodcutter;
+    if (dep->resource_name == "stone" || dep->resource_name == "iron") {
+        job = JobType::Miner;
+        skill = player_.skills.mining;
+    } else if (dep->resource_name == "herbs") {
+        job = JobType::Herbalist;
+        skill = player_.skills.herbalism;
+    } else {
+        job = JobType::Woodcutter;
+        skill = player_.skills.woodcutting;
+    }
+
+    int gather_count = 1 + (skill >= 15.0f ? 1 : 0) + (rand() % 3 == 0 ? 1 : 0);
+    gather_count = std::min(gather_count, static_cast<int>(std::ceil(dep->amount)));
+    dep->amount = std::max(0.0f, dep->amount - static_cast<float>(gather_count));
+
+    for (int i = 0; i < gather_count; ++i) {
+        Item gathered;
+        gathered.name = dep->resource_name;
+        gathered.category = "material";
+        gathered.weight = 1.0f;
+        gathered.value = dep->resource_name == "iron" ? 4.0f : dep->resource_name == "herbs" ? 3.0f : dep->resource_name == "stone" ? 2.0f : 1.5f;
+        gathered.position = player_.position;
+        gathered.owner_id = PLAYER_OWNER_ID;
+        player_.add_item(world_->create_item(gathered));
+    }
+    player_.skills.add_xp(job, 2.0f);
+    player_.fatigue = std::min(100.0f, player_.fatigue + 6.0f);
+    std::string verb = dep->resource_name == "stone" || dep->resource_name == "iron" ? "mined" : dep->resource_name == "herbs" ? "gathered" : "chopped";
+    player_.log_action("gather", verb + " " + dep->resource_name + " x" + std::to_string(gather_count),
+                       "Skill +2");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Gather, gather_count, dep->resource_name);
+    return {{"ok", true},
+            {"message", "You " + verb + " " + dep->resource_name + " x" + std::to_string(gather_count) + "."},
+            {"gathered", dep->resource_name},
+            {"count", gather_count}};
+}
+
+nlohmann::json GameServer::handle_expand_farm(const nlohmann::json& action) {
+    (void)action;
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    // Expansion happens at the Thorne fields.
+    const Position farm_anchor{30, 0, 0, player_.region_id};
+    const float dx = player_.position.x - farm_anchor.x;
+    const float dy = player_.position.y - farm_anchor.y;
+    if (std::sqrt(dx * dx + dy * dy) > 25.0f) {
+        return action_error("Go to the Thorne Farm field to clear new land.");
+    }
+    if (player_.region_id != 1) return action_error("The farmland is in the village region.");
+
+    // Count the plots the player owns at Thorne Farm (region_id == 1, cluster x>=26).
+    int owned = 0;
+    float min_dist = 1e9f;
+    Position best{-1000, -1000, 0, 1};
+    for (const auto& [pid, p] : world_->crop_plots()) {
+        if (p.region_id != 1 || p.position.x < 26) continue;
+        owned++;
+    }
+    const float cost = 20.0f + owned * 8.0f;
+    if (player_.money + 1e-4f < cost) {
+        return action_error("Clearing new land costs " + std::to_string(static_cast<int>(cost)) + " coins. You have " + std::to_string(static_cast<int>(player_.money)) + ".");
+    }
+
+    // Find the nearest free spot on the plot grid (spacing 4, the map enforces it).
+    for (int gx = 30; gx <= 46; gx += 4) {
+        for (int gy = -8; gy <= 16; gy += 4) {
+            if (std::abs(gx - 30) + std::abs(gy) - 0 > 14) continue; // keep a tilled patch shape
+            bool free = true;
+            for (const auto& [pid, p] : world_->crop_plots()) {
+                if (p.region_id == 1 && std::abs(p.position.x - gx) < 0.01f && std::abs(p.position.y - gy) < 0.01f) { free = false; break; }
+            }
+            if (!free) continue;
+            const float dist = std::hypot(gx - farm_anchor.x, gy - farm_anchor.y);
+            if (dist < min_dist) { min_dist = dist; best = {static_cast<float>(gx), static_cast<float>(gy), 0, 1}; }
+        }
+    }
+    if (best.x < -999.0f) return action_error("The whole field is plowed. The valley is yours.");
+
+    CropPlot plot;
+    plot.position = best;
+    plot.region_id = 1;
+    plot.crop = CropType::None;
+    plot.stage = CropStage::Empty;
+    plot.water_level = 0.5f;
+    plot.owner_id = PLAYER_OWNER_ID;
+    world_->create_crop_plot(plot);
+    player_.money = std::max(0.0f, player_.money - cost);
+    player_.skills.add_xp(JobType::Farmhand, 3.0f);
+
+    player_.log_action("expand", "Cleared a new farm plot", "Cost " + std::to_string(static_cast<int>(cost)) + " coins");
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    return {{"ok", true},
+            {"message", "You clear a new plot at (" + std::to_string(static_cast<int>(best.x)) + "," + std::to_string(static_cast<int>(best.y)) + ") for " + std::to_string(static_cast<int>(cost)) + " coins."},
+            {"plot_id", plot.id}};
+}
+
+nlohmann::json GameServer::handle_craft(const nlohmann::json& action) {
+    if (player_.resting) return action_error("You are resting; finish resting first.");
+    std::string key = action.value("recipe", "");
+    const auto& RECIPES = recipes();
+    const CraftRecipe* r = nullptr;
+    for (const auto& cand : RECIPES) {
+        if (cand.key == key) { r = &cand; break; }
+    }
+    if (!r) return action_error("Unknown recipe.");
+    // Crafting happens at your hands (or the forge nearby).
+    EntityID forge = INVALID_ENTITY_ID;
+    for (const auto& [bid, b] : world_->buildings()) {
+        if (b.name.find("Hartman") != std::string::npos) { forge = bid; break; }
+    }
+    if (forge != INVALID_ENTITY_ID) {
+        const auto* fb = world_->get_building(forge);
+        const float dx = player_.position.x - fb->position.x;
+        const float dy = player_.position.y - fb->position.y;
+        if (std::sqrt(dx * dx + dy * dy) > 30.0f) return action_error("Use the crafting bench at Hartman's Forge.");
+    }
+
+    // Check skill requirement.
+    auto skill_of = [&](const std::string& s) -> float {
+        if (s == "woodcutting") return player_.skills.woodcutting;
+        if (s == "mining") return player_.skills.mining;
+        if (s == "herbalism") return player_.skills.herbalism;
+        if (s == "farming") return player_.skills.farming;
+        if (s == "fishing") return player_.skills.fishing;
+        if (s == "smithing") return player_.skills.smithing;
+        if (s == "crafting") return player_.skills.crafting;
+        return 0.0f;
+    };
+    if (r->skill_req > 0.0f) {
+        float skill = skill_of(r->skill);
+        if (skill < r->skill_req) {
+            return action_error("You need " + r->skill + " level " + std::to_string(static_cast<int>(r->skill_req)) + " to craft this.");
+        }
+    }
+
+    // Count owned materials per recipe cost; consume them.
+    std::vector<EntityID> consumed;
+    for (const auto& [need_name, need_count] : r->costs) {
+        int have = 0;
+        for (EntityID iid : player_.inventory) {
+            const Item* it = world_->get_item(iid);
+            if (it && it->name == need_name) have++;
+        }
+        if (have < need_count) {
+            return action_error("You need " + std::to_string(need_count) + " " + need_name + " (have " + std::to_string(have) + "). Gather more.");
+        }
+    }
+    for (const auto& [need_name, need_count] : r->costs) {
+        int taken = 0;
+        for (auto it = player_.inventory.begin(); it != player_.inventory.end() && taken < need_count;) {
+            const Item* item = world_->get_item(*it);
+            if (item && item->name == need_name) {
+                consumed.push_back(*it);
+                it = player_.inventory.erase(it);
+                taken++;
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    // Skill XP for the recipe's skill.
+    JobType xp_job = JobType::None;
+    if (r->skill == "woodcutting") xp_job = JobType::Woodcutter;
+    else if (r->skill == "mining") xp_job = JobType::Miner;
+    else if (r->skill == "herbalism") xp_job = JobType::Herbalist;
+    else if (r->skill == "farming") xp_job = JobType::Farmhand;
+    else if (r->skill == "fishing") xp_job = JobType::Fisher;
+    else if (r->skill == "smithing") xp_job = JobType::BlacksmithHelper;
+    player_.skills.add_xp(xp_job, 4.0f);
+
+    Item made;
+    made.name = r->name;
+    made.category = r->category;
+    made.weight = 1.0f;
+    made.value = r->value;
+    made.position = player_.position;
+    made.owner_id = PLAYER_OWNER_ID;
+    made.properties["description"] = r->description;
+    EntityID made_id = world_->create_item(made);
+    player_.add_item(made_id);
+    player_.fatigue = std::min(100.0f, player_.fatigue + 8.0f);
+
+    player_.log_action("craft", "Crafted " + r->name, r->description);
+    player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Craft, 1, r->name);
+    return {{"ok", true},
+            {"message", "You craft " + r->name + "."},
+            {"item_id", made_id}};
 }
 
 nlohmann::json GameServer::handle_work(const nlohmann::json& action) {
@@ -1737,6 +2281,7 @@ nlohmann::json GameServer::handle_sell(const nlohmann::json& action) {
     player_.log_action("sell", "Sold " + item->name + " to " + trader->name,
                        "Paid " + std::to_string(pay) + " coins");
     player_.action_log.back().tick = simulation_->get_time().ticks;
+    progress_quest(QuestKind::Sell, pay, std::string("coins"));
     return {{"ok", true},
             {"message", "You sell the " + item->name + " for " + std::to_string(pay) + " coins."},
             {"coins", pay}};

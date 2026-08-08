@@ -5,6 +5,7 @@
 #include "world/world.h"
 #include "npc/npc.h"
 #include "npc/dialogue.h"
+#include "quest/quest.h"
 #include "investigation/investigation.h"
 #include "network/network.h"
 #include "server/player.h"
@@ -58,6 +59,38 @@ private:
     void tick();
     void tick_life_systems(TimeTick elapsed_ticks);
     void tick_npc_schedules(bool snap = false);
+
+    // ---- Gameplay: quests, gathering, farming expansion, crafting ----
+    void setup_quests();
+    void roll_daily_quests();                 // procedural, seeded per day
+    void progress_quest(QuestKind kind, int amount = 1, const std::string& target = "");
+    void check_quest_milestones();            // wealth / level / mystery quests
+    EntityID grant_reward(const Quest& q);    // coins+item+xp; returns item id or INVALID
+    uint32_t next_quest_id_ = 1000;
+    std::vector<Quest> quests_;
+    std::vector<EntityID> quest_item_ids_;    // items created to seed quest targets
+    uint16_t quest_daily_day_ = 0;            // last day daily errands were rolled
+
+    void spawn_resource_deposits();           // procedural deposit placement
+    void create_recipe_items();
+    nlohmann::json handle_accept_quest(const nlohmann::json& action);
+    nlohmann::json handle_claim_quest(const nlohmann::json& action);
+    nlohmann::json handle_gather(const nlohmann::json& action);
+    nlohmann::json handle_expand_farm(const nlohmann::json& action);
+    nlohmann::json handle_craft(const nlohmann::json& action);
+
+    // ---- Recipe table ----
+    struct CraftRecipe {
+        std::string key;                       // recipe id
+        std::string name;                      // resulting item name
+        std::string category;                  // "tool" | "food" | "material"
+        float value;                           // item value
+        std::vector<std::pair<std::string, int>> costs; // item name -> qty
+        float skill_req = 0.0f;                // required skill level
+        std::string skill;                     // which player skill gates it
+        std::string description;
+    };
+    static const std::vector<CraftRecipe>& recipes();
 
     // Action handlers
     nlohmann::json handle_move(const nlohmann::json& action);

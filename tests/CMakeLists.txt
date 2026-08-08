@@ -16,6 +16,7 @@ target_link_libraries(ashgrove_tests PRIVATE
     ashgrove_common
     ashgrove_simulation
     ashgrove_world
+    ashgrove_quest
     ashgrove_npc
     ashgrove_investigation
     nlohmann_json::nlohmann_json

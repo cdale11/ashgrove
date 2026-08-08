@@ -90,6 +90,7 @@ add_subdirectory(src/npc)
 add_subdirectory(src/world)
 add_subdirectory(src/network)
 add_subdirectory(src/investigation)
+add_subdirectory(src/quest)
 add_subdirectory(src/ai)
 add_subdirectory(src/server)
 

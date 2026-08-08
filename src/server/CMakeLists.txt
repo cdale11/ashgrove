@@ -14,6 +14,7 @@ target_link_libraries(ashgrove_server PRIVATE
     ashgrove_common
     ashgrove_simulation
     ashgrove_world
+    ashgrove_quest
     ashgrove_npc
     ashgrove_investigation
     ashgrove_ai
