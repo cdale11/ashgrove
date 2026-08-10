@@ -5,915 +5,748 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ashgrove Valley</title>
 <style>
-    :root { color-scheme: dark; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-        background: #0c0f0e;
-        color: #c8d6c0;
-        font-family: "Courier New", ui-monospace, Menlo, Consolas, monospace;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-    }
-    #status {
-        display: flex;
-        gap: 24px;
-        padding: 8px 16px;
-        background: #141a17;
-        border-bottom: 1px solid #2a342e;
-        font-size: 13px;
-        letter-spacing: 0.5px;
-        flex-shrink: 0;
-    }
-    #status .lbl { color: #6f8a74; }
-    #status .val { color: #e8f0e5; }
-    #status .money { color: #e8c562; }
-    #status .energy { color: #7fd49c; }
-    #status .season { color: #b48ad8; }
-    #main {
-        flex: 1;
-        display: flex;
-        min-height: 0;
-    }
-    #log {
-        flex: 1;
-        overflow-y: auto;
-        padding: 12px 16px;
-        font-size: 14px;
-        line-height: 1.55;
-        scroll-behavior: smooth;
-    }
-    #log .me { color: #89c4f8; }
-    #log .sys { color: #8a9a86; font-style: italic; }
-    #log .err { color: #e07b6a; }
-    #log .gold { color: #e8c562; }
-    #log .ok { color: #9fd8a8; }
-    #log .title { color: #e8f0e5; font-weight: bold; margin-top: 6px; }
-    #log div { white-space: pre-wrap; word-wrap: break-word; }
-    #sidebar {
-        width: 216px;
-        flex-shrink: 0;
-        padding: 10px;
-        background: #101512;
-        border-left: 1px solid #2a342e;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        overflow-y: auto;
-    }
-    #sidebar h3 {
-        font-size: 11px;
-        letter-spacing: 1.5px;
-        color: #6f8a74;
-        text-transform: uppercase;
-    }
-    #map {
-        image-rendering: pixelated;
-        border: 1px solid #2a342e;
-        background: #0a0d0b;
-        width: 100%;
-        height: auto;
-    }
-    #map-toggle {
-        background: #1a221e;
-        border: 1px solid #2a342e;
-        color: #9fd8a8;
-        padding: 4px 8px;
-        font-family: inherit;
-        font-size: 11px;
-        cursor: pointer;
-        border-radius: 2px;
-    }
-    #map-toggle:hover { background: #243028; }
-    #map-region {
-        font-size: 12px;
-        color: #9fd8a8;
-        text-align: center;
-    }
-    .legend { font-size: 11px; color: #7d8f7a; line-height: 1.7; }
-    .legend .row { display: flex; align-items: center; gap: 6px; }
-    .legend .sw { width: 10px; height: 10px; display: inline-block; border: 1px solid #00000055; }
-    #prompt {
-        display: flex;
-        align-items: center;
-        padding: 10px 16px;
-        background: #141a17;
-        border-top: 1px solid #2a342e;
-        flex-shrink: 0;
-    }
-    #prompt .caret { color: #9fd8a8; font-size: 15px; margin-right: 8px; }
-    #input {
-        flex: 1;
-        background: transparent;
-        border: none;
-        outline: none;
-        color: #e8f0e5;
-        font-family: inherit;
-        font-size: 14px;
-    }
-    #suggest {
-        padding: 4px 16px 8px;
-        font-size: 12px;
-        color: #5a6a58;
-        border-top: 1px dashed #222b25;
-        flex-shrink: 0;
-    }
+/* ============================================================
+   Ashgrove Valley — client
+   Sections: theme / layout / statusbar / terminal / sidebar /
+             map / inventory / modal / responsive
+   ============================================================ */
+:root {
+  --bg: #0d0f12;
+  --bg-panel: #14171c;
+  --bg-panel-2: #1a1e25;
+  --border: #2a2f38;
+  --text: #cfd4dc;
+  --text-dim: #8a93a0;
+  --accent: #7d5ba6;
+  --accent-bright: #9b7cc4;
+  --green: #27ae60;
+  --red: #c0392b;
+  --yellow: #f1c40f;
+  --blue: #3498db;
+  --orange: #e67e22;
+  --gold: #e8c562;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Topbar / status ---------------------------------------------------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.brand {
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--accent-bright);
+  font-size: 14px;
+}
+.statussp {
+  display: flex;
+  gap: 18px;
+  font-size: 13px;
+  flex: 1;
+  align-items: center;
+}
+.statussp .label { color: var(--text-dim); letter-spacing: 1px; font-size: 11px; }
+.statussp .val { color: var(--text); font-weight: 600; margin-left: 5px; }
+.statussp .season-pill {
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+}
+.statussp .energy-low { color: var(--red); }
+.statussp .money { color: var(--gold); }
+.connect-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 6px var(--green);
+  margin-left: 4px;
+}
+.connect-dot.off { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+/* Main layout: terminal (left) + sidebar (right) -------------------- */
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  min-height: 0;
+}
+.column { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+.column.right { border-right: none; border-left: 1px solid var(--border); }
+
+/* Terminal panel ----------------------------------------------------- */
+.terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', 'Courier New', ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  scroll-behavior: smooth;
+}
+.log .me   { color: #89c4f8; }
+.log .sys  { color: var(--text-dim); font-style: italic; }
+.log .err  { color: var(--red); }
+.log .ok   { color: #9fd8a8; }
+.log .gold { color: var(--gold); }
+.log .npc  { color: var(--accent-bright); }
+.log .title{ color: var(--text); font-weight: 600; margin-top: 8px; }
+.log div { white-space: pre-wrap; word-wrap: break-word; }
+.log .preamble { color: var(--text-dim); border-left: 2px solid var(--border); padding-left: 10px; margin: 6px 0; }
+
+.prompt-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.prompt-row .caret { color: var(--accent-bright); margin-right: 8px; font-weight: 700; }
+.prompt-row input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+.suggest {
+  padding: 4px 16px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px dashed #222b25;
+  font-family: 'JetBrains Mono', 'Courier New', ui-monospace, monospace;
+}
+.suggest .cmd { color: var(--accent-bright); cursor: pointer; }
+.suggest .cmd:hover { text-decoration: underline; }
+
+/* Sidebar: map + panels --------------------------------------------- */
+.sidebar {
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.map-wrap {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.map-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.map-header h3 {
+  font-size: 11px; letter-spacing: 1.5px; color: var(--text-dim);
+  text-transform: uppercase; font-weight: 600;
+}
+.map-controls button {
+  background: var(--bg-panel-2); border: 1px solid var(--border);
+  color: var(--text-dim); padding: 2px 8px; font-size: 11px;
+  cursor: pointer; border-radius: 3px; margin-left: 4px; font-family: inherit;
+}
+.map-controls button:hover { color: var(--text); border-color: var(--accent); }
+.map-canvas {
+  display: block;
+  width: 100%;
+  background: #0a0d0b;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  image-rendering: -webkit-optimize-contrast;
+}
+.map-region {
+  font-size: 11px; color: var(--accent-bright); text-align: center;
+  margin-top: 4px; min-height: 14px;
+  font-family: 'JetBrains Mono','Courier New',ui-monospace,monospace;
+}
+
+/* Legend (NPCs only) ------------------------------------------------- */
+.legend {
+  padding: 4px 10px 6px; font-size: 11px; color: var(--text-dim);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px;
+}
+.legend .row { display: flex; align-items: center; gap: 6px; }
+.legend .glyph { font-size: 14px; width: 18px; text-align: center; }
+
+/* Inventory panel ---------------------------------------------------- */
+.inventory {
+  flex: 1; overflow-y: auto; padding: 10px 12px;
+}
+.inv-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; letter-spacing: 1.5px; color: var(--text-dim);
+  text-transform: uppercase; margin-bottom: 8px;
+}
+.inv-grid {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+}
+.inv-slot {
+  aspect-ratio: 1 / 1;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; position: relative; cursor: pointer;
+}
+.inv-slot.empty { color: #1a221c; cursor: default; }
+.inv-slot.selected { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.inv-slot .count {
+  position: absolute; bottom: 0; right: 2px;
+  font-size: 10px; color: var(--text); font-family: monospace;
+  background: rgba(0,0,0,0.55); border-radius: 2px; padding: 0 2px;
+}
+
+/* Modal overlays ----------------------------------------------------- */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: none; align-items: center; justify-content: center; z-index: 50;
+}
+.modal-bg.show { display: flex; }
+.modal {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 18px; max-width: 540px; width: 92%;
+  max-height: 80vh; overflow-y: auto;
+}
+.modal h2 { color: var(--accent-bright); margin-bottom: 10px; font-size: 16px; }
+.modal .close-btn { float: right; cursor: pointer; color: var(--text-dim); }
+.modal .close-btn:hover { color: var(--text); }
+
+/* Responsive --------------------------------------------------------- */
+@media (max-width: 900px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
+  .column { border-right: none; border-bottom: 1px solid var(--border); }
+  .column.right { border-left: none; border-top: 1px solid var(--border); border-bottom: none; }
+}
 </style>
 </head>
 <body>
-<div id="status">
-    <span><span class="lbl">DAY</span> <span class="val" id="st-day">-</span></span>
-    <span><span class="lbl">TIME</span> <span class="val" id="st-time">-</span></span>
-    <span><span class="lbl">SEASON</span> <span class="val season" id="st-season">-</span></span>
-    <span><span class="lbl">ENERGY</span> <span class="val energy" id="st-energy">-</span></span>
-    <span><span class="lbl">GOLD</span> <span class="val money" id="st-money">-</span></span>
+<div class="topbar">
+  <div class="brand">ASHGROVE</div>
+  <div class="statussp" id="status">
+    <span><span class="label">DAY</span><span class="val" id="st-day">-</span></span>
+    <span><span class="label">TIME</span><span class="val" id="st-time">-</span></span>
+    <span><span class="label">SEASON</span><span class="val" id="st-season">-</span></span>
+    <span><span class="label">WEATHER</span><span class="val" id="st-weather">-</span></span>
+    <span><span class="label">ENERGY</span><span class="val" id="st-energy">-</span></span>
+    <span><span class="label">GOLD</span><span class="val money" id="st-money">-</span></span>
+  </div>
+  <span class="connect-dot" id="conn-dot" title="connection"></span>
 </div>
-<div id="main">
-    <div id="log"></div>
-    <div id="sidebar">
-        <h3>Ashgrove Map</h3>
-        <button id="map-toggle">Full Map</button>
-        <canvas id="map" width="135" height="85"</canvas>
-        <div id="map-region">-</div>
-        <div class="legend">
-            <div class="row npc-row"><span class="sw" style="background:#e08ad8"</span> Leah</div>
-            <div class="row npc-row"><span class="sw" style="background:#e08a5a"</span> Abigail</div>
-            <div class="row npc-row"><span class="sw" style="background:#5aa8e0"</span> Elliot</div>
-            <div class="row npc-row"><span class="sw" style="background:#8ae0a0"</span> Robin</div>
-            <div class="row npc-row"><span class="sw" style="background:#d0c86a"</span> Evelyn</div>
-       </div>
+
+<div class="main">
+  <div class="column left">
+    <div class="terminal">
+      <div class="log" id="log"></div>
+      <div class="suggest" id="suggest"></div>
+      <div class="prompt-row">
+        <span class="caret">></span>
+        <input id="input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="type a command (try: help)" autofocus>
+      </div>
     </div>
+  </div>
+
+  <div class="column right">
+    <div class="sidebar">
+      <div class="map-wrap">
+        <div class="map-header">
+          <h3>Ashgrove Map</h3>
+          <div class="map-controls">
+            <button id="btn-zoom-out" title="zoom out">−</button>
+            <button id="btn-zoom-in" title="zoom in">+</button>
+            <button id="btn-recenter" title="recenter">◎</button>
+          </div>
+        </div>
+        <canvas id="map" class="map-canvas" width="700" height="500"></canvas>
+        <div class="map-region" id="map-region">-</div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="inventory">
+        <div class="inv-header">
+          <span>Inventory</span><span><span class="label">SLOT</span> <span id="st-sel">-</span></span>
+        </div>
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+    </div>
+  </div>
 </div>
-<div id="suggest">go north | look | inv | hoe | plant parsnip | water | fish | forage | axe | pick | scythe | harvest | talk | sleep | shop | buy | sell | help</div>
-<div id="prompt">
-    <span class="caret">&gt;</span>
-    <input id="input" type="text" autocomplete="off" spellcheck="false" placeholder="type a command..." autofocus>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal">
+    <span class="close-btn" id="modal-close">✕</span>
+    <h2 id="modal-title">Title</h2>
+    <div id="modal-body"></div>
+  </div>
 </div>
 
 <script>
-const logEl = document.getElementById('log');
-const input = document.getElementById('input');
-const mapCv = document.getElementById('map');
-const mapCtx = mapCv.getContext('2d');
-const mapRegionEl = document.getElementById('map-region');
-const mapToggle = document.getElementById('map-toggle');
-let S = 5; // pixels per tile
-let VW = 27, VH = 17; // viewport tiles; full-map mode uses 96x64
-let showFullMap = false;
-let myId = null;
-let tileMap = null;
+// =====================================================================
+// Ashgrove Valley — single-file client
+// =====================================================================
+// Section order:
+//   1. Constants & palettes     (matches server enums in include/world.hpp)
+//   2. Helpers                  (DOM, fetch, hashing, formatting)
+//   3. State store              (player/world snapshot, derived helpers)
+//   4. Terminal log + commands  (MUD-style text I/O, /cmd dispatch)
+//   5. Status bar + inventory   (live vitals + 12-slot grid)
+//   6. Map renderer             (offscreen + RAF, painterly Stardew look)
+//   7. Modal panels             (dialogue, lens, help)
+//   8. Init / polling loop
+//
+// Server endpoints (current src/main.cpp):
+//   POST /join   {name}        -> {player_id, tile_map, buildings, house, ...}
+//   GET  /state                -> live snapshot {players, cells, npcs, ...}
+//   POST /cmd    {player_id,cmd} -> {lines: [...]}
+//   POST /move   {player_id,target_x,target_y}  (for click-to-walk)
+// =====================================================================
+'use strict';
 
-// ---- palette (Stardew Valley inspired: warm saturated earthy tones) ----
-const PAL = {
-    grass:      '#5c8c3e', grass_d:    '#4a7a2e', grass_sp: '#6ba048', grass_sp_d:'#528832',
-    grass_var:  '#557d34', grass_var_d:'#3f6d28',
-    water:      '#2a72c0', water_d:    '#1a54a0', water_lt:'#4a8cd8', water_deep:'#124088',
-    dirt:       '#9a7b4a', dirt_d:     '#7a5b2e', dirt_lt: '#b8986a',
-    sand:       '#e0cc8a', sand_d:     '#c8b474', sand_lt: '#f0de9e',
-    tilled:     '#5a3818', tilled_d:   '#4a2a14', tilled_lt:'#6e4422',
-    bridge:     '#9a6a38', bridge_d:   '#725028', bridge_lt:'#b88a4e',
-    snow:       '#f0f4f8', snow_d:     '#d0d8e0', snow_sp:'#e4eaF0',
-    ice:        '#b8d8e8', ice_d:      '#98b8d0', ice_sp:'#d0eef8',
-    tree:       '#2a6832', tree_lt:    '#3a803a', tree_dk: '#1a4a1e', trunk:    '#5a3818', trunk_d:'#3a2410',
-    pine:       '#1a4a28', pine_lt:    '#2a5c38', pine_dk: '#0a3a18',
-    rock:       '#6e6e74', rock_lt:    '#9a9aa0', rock_dk: '#4a4a50',
-    ore_cu:     '#c8833a', ore_fe:     '#b0b0b0', ore_au:   '#ffd84a', ore_ir:  '#c970b0',
-    bush:       '#3a7a3a', bush_lt:    '#5a9a5a', bush_dk: '#2a5a2a',
-    weed:       '#7aa64a', weed_sp:    '#92c062',
-    tall:       '#6a9a3a', tall_sp:    '#8ac04a',
-    flower:     '#e86ab4', flower_lt:  '#f8a4d4', flower_dk:'#a04878',
-    mushroom:   '#c9a86a', mush_stem:  '#e8d8a8', mush_dk: '#9a7838',
-    fence:      '#a08040', fence_d:    '#584020', fence_lt:'#c8a060',
-    sprinkler:  '#8ab6d6', sprinkler_lt:'#d8f0ff', sprinkler_dk:'#5a8aa6',
-    wall:       '#a06a44', wall_d:     '#604024', wall_lt: '#c08a5a',
-    wall_dk2:   '#503018',
-    roof:       '#8a3a2a', roof_lt:    '#b8604a', roof_dk: '#5a2418',
-    outline:    '#0a0d0b',
-    ring:       '#ffd700', ring_dk:    '#b8950a',
-    player:     '#f5dca0', player_d:   '#5a6ab0', player_hair:'#5a3818', player_skin:'#f0c898', eye:'#1a1a1a',
-    // crop palette: leaf + ripe-fruit colors per crop id (20=parsnip,21=potato,22=cauliflower,23=corn,24=tomato,25=wheat,26=blueberry)
-    crop_leaf:  '#4a9028', crop_leaf_dk:'#3a7018',
-    crop_stem:  '#6aa038',
-    crop20:     '#e8d05a', crop21: '#c8a04a', crop22: '#d8e0a0', crop23: '#f0c830', crop24: '#e84838', crop25: '#d8b860', crop26: '#4a6ace',
+// ----- 1. constants & palettes ---------------------------------------
+const MAP_W = 96, MAP_H = 64, DAY_LENGTH_S = 800;
+
+// Item table mirrors include/world.hpp:50-67 (ItemDef).  type: 0 tool,1 seed,2 produce,3 resource.
+// Each entry: [name, type, emoji, color]
+const ITEM = {
+  0:  ['—', 0, '',  '#666'],
+  1:  ['Hoe', 0, '⛏️', '#8b7355'],         // generic tool glyph; real hoe not in emoji set
+  2:  ['Watering Can', 0, '🪣', '#3498db'],
+  3:  ['Axe', 0, '🪓', '#8b4513'],
+  4:  ['Pickaxe', 0, '⛏️', '#7f8c8d'],
+  5:  ['Scythe', 0, '🌾', '#a9a9a9'],
+  6:  ['Copper Ore', 3, '🟤', '#b87333'],
+  7:  ['Iron Ore', 3, '⚪', '#b0b0b0'],
+  8:  ['Gold Ore', 3, '🟡', '#ffd700'],
+  9:  ['Iridium Ore', 3, '🟣', '#b26a8b'],
+  10: ['Parsnip Seeds', 1, '🌱', '#7fd49c'],
+  11: ['Potato Seeds', 1, '🌱', '#d4a76a'],
+  12: ['Cauliflower Seeds', 1, '🌱', '#cfe0a0'],
+  13: ['Corn Seeds', 1, '🌱', '#f0c830'],
+  14: ['Tomato Seeds', 1, '🌱', '#e84838'],
+  15: ['Wheat Seeds', 1, '🌱', '#d8b860'],
+  16: ['Blueberry Seeds', 1, '🌱', '#4a6ace'],
+  17: ['Copper Bar', 3, '🟫', '#c8833a'],
+  18: ['Iron Bar', 3, '⬜', '#c0c0c0'],
+  19: ['Gold Bar', 3, '🟨', '#ffd84a'],
+  20: ['Parsnip', 2, '🥕', '#e8d05a'],
+  21: ['Potato', 2, '🥔', '#c8a04a'],
+  22: ['Cauliflower', 2, '🥬', '#d8e0a0'],
+  23: ['Corn', 2, '🌽', '#f0c830'],
+  24: ['Tomato', 2, '🍅', '#e84838'],
+  25: ['Wheat', 2, '🌾', '#d8b860'],
+  26: ['Blueberry', 2, '🫐', '#4a6ace'],
+  30: ['Wood', 3, '🪵', '#8b7355'],
+  31: ['Stone', 3, '🪨', '#7f8c8d'],
+  32: ['Fiber', 3, '🧵', '#d2b48c'],
+  33: ['Fish', 3, '🐟', '#5aa8e0'],
+  34: ['Forage', 3, '🍄', '#c9a86a'],
+  35: ['Bread', 2, '🍞', '#d2a679'],
 };
-const rgb = {};
-for (const k in PAL) rgb[k] = [parseInt(PAL[k].slice(1,3),16), parseInt(PAL[k].slice(3,5),16), parseInt(PAL[k].slice(5,7),16)];
-const CROP_RIPE = [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, rgb.crop20, rgb.crop21, rgb.crop22, rgb.crop23, rgb.crop24, rgb.crop25, rgb.crop26];
-// deterministic per-tile hash for texture variation (stable across re-renders)
-const tileHash = (x, y) => {
-    let h = (x * 374761393 + y * 668265263) | 0;
-    h = (h ^ (h >> 13)) * 1274126177 | 0;
-    return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+
+// ObjType -> glyph. Mirrors include/world.hpp:146-150.
+const OBJ_GLYPH = {
+  0: '', 1: '🌳', 2: '🪨', 3: '🌿', 4: '🌾', 5: '🌸', 6: '🪵', 7: '🚧',
+  8: '🚧', 9: '🌲', 10: '🟢', 11: '🍄', 12: '🏠', 13: '⛲',
 };
-const TILE_PAIR = {
-    0:  [rgb.grass,      rgb.grass_d],
-    1:  [rgb.grass_var,   rgb.grass_var_d],
-    2:  [rgb.water,       rgb.water_d], 3: [rgb.water, rgb.water_d], 4: [rgb.water, rgb.water_d], 5: [rgb.water, rgb.water_d], 6: [rgb.water, rgb.water_d],
-    7:  [rgb.dirt,        rgb.dirt_d],
-    8:  [rgb.sand,        rgb.sand_d],
-    9:  [rgb.tilled,      rgb.tilled_d],
-    10: [rgb.bridge,      rgb.bridge_d],
-    11: [rgb.snow,        rgb.snow_d],
-    12: [rgb.ice,         rgb.ice_d],
+
+// NPC list (mirrors world.cpp:651-666 init_npcs). color: 1..5 used for palette.
+const NPC_LIST = [
+  { name: 'Leah',    color: 1, glyph: '🧑‍🌾', hue: '#e08ad8' },
+  { name: 'Abigail', color: 2, glyph: '👩',   hue: '#e08a5a' },
+  { name: 'Elliot',  color: 3, glyph: '🧔',   hue: '#5aa8e0' },
+  { name: 'Robin',   color: 4, glyph: '👩‍🔧', hue: '#8ae0a0' },
+  { name: 'Evelyn',  color: 5, glyph: '👵',   hue: '#d0c86a' },
+];
+const NPC_BY = name => NPC_LIST.find(n => n.name.toLowerCase() === name.toLowerCase());
+
+// Buildings -> roof color + glyph (matches world.cpp:410-443 place_buildings order).
+const BLD_STYLE = {
+  'Blacksmith':      { roof: '#5f4a3a', wall: '#9a6a44', glyph: '⚒️' },
+  'General Store':   { roof: '#a06a3a', wall: '#9a6a44', glyph: '🏪' },
+  'Old Mill':        { roof: '#c9b47a', wall: '#9a6a44', glyph: '🏚️' },
+  'Clinic':          { roof: '#d8d8e0', wall: '#b8c8d0', glyph: '🏥' },
+  'Museum':          { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🏛️' },
+  'Town Center':     { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏛️' },
+  'Stardrop Saloon': { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🍻' },
+  'Market':          { roof: '#a06a3a', wall: '#9a6a44', glyph: '🛒' },
+  'Willow House':    { roof: '#7a9a4a', wall: '#9a6a44', glyph: '🏠' },
+  'Maple House':     { roof: '#c97a3a', wall: '#9a6a44', glyph: '🏠' },
+  'Rowan Cottage':   { roof: '#8a4a3a', wall: '#9a6a44', glyph: '🏡' },
+  'Bus Stop':        { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🚌' },
+  'Railway Station': { roof: '#5f4a3a', wall: '#7a6a54', glyph: '🚉' },
+  'Hawthorn Barn':   { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🏚️' },
+  'Glasshouse':      { roof: '#7fbf6a', wall: '#b8d8c0', glyph: '透视' },
+  'Farmhouse':       { roof: '#b5503a', wall: '#9a6a44', glyph: '🏠' },
 };
-const NPC_COLOR = ['#e08ad8', '#e08a5a', '#5aa8e0', '#8ae0a0', '#d0c86a'];
-const NPC_RGB = NPC_COLOR.map(c => [parseInt(c.slice(1,3),16), parseInt(c.slice(3,5),16), parseInt(c.slice(5,7),16)]);
+const bldStyle = n => BLD_STYLE[n] || { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏠' };
 
-function drawMap(state) {
-    const w = 96, h = 64;
-    let me = null;
-    if (state.players) me = state.players.find(p => p.player_id === myId);
+// Season tint palette (Stardew warm tones, derived from prior MapPanel.tsx).
+const SEASON_TINT = {
+  Spring: { grass: '#5a8a3a', tint: '#3a5c44' },
+  Summer: { grass: '#6a9a3a', tint: '#4a7048' },
+  Fall:   { grass: '#b8722a', tint: '#7a5c38' },
+  Winter: { grass: '#c9d4dd', tint: '#c9d4dd' },
+};
+const SEASON_PILL = {
+  Spring: ['#7dcea0', '#27ae60'], Summer: ['#f7dc6f', '#f1c40f'],
+  Fall:   ['#e59866', '#e67e22'], Winter: ['#85c1e9', '#5dade2'],
+};
+const WEATHER_GLYPH = { 0: '☀️ Sunny', 1: '🌧️ Rainy' };
 
-    // ---- interiors ----
-    if (me && me.inside && state.interiors && state.interiors[me.inside]) {
-        const rows = state.interiors[me.inside];
-        const rw = rows[0].length, rh = rows.length;
-        const W = VW * S, H = VH * S;
-        const img = mapCtx.createImageData(W, H);
-        const data = img.data;
-        const setPx = (x, y, r, g, b) => {
-            if (x < 0 || y < 0 || x >= W || y >= H) return;
-            const i = (y * W + x) * 4;
-            data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
-        };
-        const fillTile = (tx, ty, c) => {
-            const px = tx * S, py = ty * S;
-            for (let dy = 0; dy < S; dy++)
-                for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
-        };
-        for (let y = 0; y < VH; y++)
-            for (let x = 0; x < VW; x++) setPx(x*S, y*S, 0, 0, 0); // (won't matter, we'll fill)
-        // floor: warm wood tone
-        const floor = rgb.wall_d, wallC = rgb.wall, pl = rgb.flower, rug = rgb.crop20, stone = rgb.rock;
-        for (let y = 0; y < rh; y++) {
-            for (let x = 0; x < rw; x++) {
-                const ch = rows[y][x];
-                const tile = ch === '#' ? wallC : ch === ' ' ? floor :
-                             ch === 'P' ? stone : ch === '.' ? rug : rgb.bridge;
-                fillTile(x, y, tile);
-            }
-        }
-        // player marker in interior
-        const px = me.inx * S, py = me.iny * S;
-        // dark ring on 4 sides
-        setPx(px, py, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
-        if (S >= 4) {
-            for (let i = 0; i < S; i++) {
-                setPx(px + i, py, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
-                setPx(px, py + i, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
-            }
-            for (let i = 0; i < S; i++) {
-                setPx(px + S - 1, py + i, rgb.player[0], rgb.player[1], rgb.player[2]);
-                setPx(px + i, py + S - 1, rgb.player[0], rgb.player[1], rgb.player[2]);
-            }
-        } else {
-            for (let dy = 0; dy < S; dy++) for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, rgb.player[0], rgb.player[1], rgb.player[2]);
-        }
-        mapCtx.putImageData(img, 0, 0);
-        mapRegionEl.textContent = 'Inside: ' + me.inside;
-        return;
-    }
+// Common commands shown in suggest bar (clickable).
+const SUGGESTIONS = [
+  'go north', 'look', 'inv', 'stats', 'time', 'shop',
+  'hoe', 'water', 'plant parsnip', 'harvest',
+  'fish', 'forage', 'axe', 'pick', 'scythe',
+  'eat parsnip', 'gift Leah parsnip', 'talk Leah',
+  'enter', 'exit', 'interact', 'sleep', 'help',
+];
 
-    const cx = me ? me.x : 48, cy = me ? me.y : 32;
-    const vx = showFullMap ? 0 : Math.max(0, Math.min(w - VW, cx - Math.floor(VW / 2)));
-    const vy = showFullMap ? 0 : Math.max(0, Math.min(h - VH, cy - Math.floor(VH / 2)));
+// ----- 2. helpers -----------------------------------------------------
+const $ = id => document.getElementById(id);
 
-    const W = VW * S, H = VH * S;
-    const img = mapCtx.createImageData(W, H);
-    const data = img.data;
-    const setPx = (x, y, r, g, b) => {
-        if (x < 0 || y < 0 || x >= W || y >= H) return;
-        const i = (y * W + x) * 4;
-        data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
-    };
-    const fillTileSolid = (tx, ty, c) => {
-        const px = (tx - vx) * S, py = (ty - vy) * S;
-        for (let dy = 0; dy < S; dy++)
-            for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
-    };
-    const fillTileChecker = (tx, ty, c1, c2) => {
-        const px = (tx - vx) * S, py = (ty - vy) * S;
-        const lit = ((tx + ty) & 1) === 0;
-        const c = lit ? c1 : c2;
-        for (let dy = 0; dy < S; dy++)
-            for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
-    };
-    const tilePx = (tx, ty, dx, dy, c) => {
-        setPx((tx - vx) * S + dx, (ty - vy) * S + dy, c[0], c[1], c[2]);
-    };
-
-    // 1. ground tiles with 2-tone checker + per-tile texture detail
-    for (let y = vy; y < vy + VH; y++) {
-        for (let x = vx; x < vx + VW; x++) {
-            const tile = tileMap[y * w + x];
-            const pair = TILE_PAIR[tile];
-            if (pair) {
-                fillTileChecker(x, y, pair[0], pair[1]);
-                const ox = (x - vx) * S, oy = (y - vy) * S;
-
-                // grass & grass-var: warm speckles (organic feel, not flat)
-                if ((tile === 0 || tile === 1) && S >= 4) {
-                    const rnd = tileHash(x, y);
-                    const spCol = tile === 0 ? rgb.grass_sp : rgb.grass_sp_d;
-                    // deterministic 1-2 speckles per tile
-                    const sx1 = Math.floor(rnd * 4) % (S-1), sy1 = Math.floor(rnd * 100) % (S-1);
-                    const sx2 = Math.floor(rnd * 400) % (S-1), sy2 = Math.floor(rnd * 900) % (S-1);
-                    setPx(ox+sx1, oy+sy1, spCol[0], spCol[1], spCol[2]);
-                    if (S >= 5) setPx(ox+sx2, oy+sy2, spCol[0], spCol[1], spCol[2]);
-                }
-                // water: rippled wave lines (horizontal lighter band on alternating rows)
-                if (tile >= 2 && tile <= 6 && S >= 3) {
-                    const waveRow = (y & 1) === 0 ? 0 : Math.floor(S/2);
-                    for (let dx = 0; dx < S; dx++) {
-                        const i = ((oy + waveRow) * W + ox + dx) * 4;
-                        data[i] = rgb.water_lt[0]; data[i+1] = rgb.water_lt[1]; data[i+2] = rgb.water_lt[2]; data[i+3] = 255;
-                    }
-                    // deeper border on bottom row
-                    if (S >= 4) {
-                        for (let dx = 0; dx < S; dx++) {
-                            const i = ((oy + S - 1) * W + ox + dx) * 4;
-                            data[i] = rgb.water_deep[0]; data[i+1] = rgb.water_deep[1]; data[i+2] = rgb.water_deep[2]; data[i+3] = 255;
-                        }
-                    }
-                }
-                // dirt road: lighter center, darker edge (worn path look)
-                if (tile === 7 && S >= 4) {
-                    for (let dx = 1; dx < S-1; dx++) {
-                        const i = (oy * W + ox + dx) * 4;
-                        data[i] = rgb.dirt_lt[0]; data[i+1] = rgb.dirt_lt[1]; data[i+2] = rgb.dirt_lt[2]; data[i+3]=255;
-                    }
-                }
-                // sand: subtle sparkle
-                if (tile === 8 && S >= 4) {
-                    const rnd = tileHash(x, y);
-                    if (rnd > 0.6) {
-                        const sx = Math.floor(rnd * 50) % (S-1), sy = Math.floor(rnd * 500) % (S-1);
-                        setPx(ox+sx, oy+sy, rgb.sand_lt[0], rgb.sand_lt[1], rgb.sand_lt[2]);
-                    }
-                }
-                // tilled soil: deep furrow lines (top + bottom rows darker = rows of soil)
-                if (tile === 9) {
-                    for (let dx = 0; dx < S; dx++) {
-                        // top dark line (deep furrow)
-                        const i1 = (oy * W + ox + dx) * 4;
-                        data[i1] = 28; data[i1+1] = 16; data[i1+2] = 6; data[i1+3] = 255;
-                        // lighter middle (raised bed)
-                        if (S >= 5) {
-                            const mid = Math.floor(S/2);
-                            const i2 = ((oy + mid) * W + ox + dx) * 4;
-                            data[i2] = rgb.tilled_lt[0]; data[i2+1] = rgb.tilled_lt[1]; data[i2+2] = rgb.tilled_lt[2]; data[i2+3] = 255;
-                        }
-                    }
-                    // bottom edge darker
-                    if (S >= 3) {
-                        for (let dx = 0; dx < S; dx++) {
-                            const i = ((oy + S - 1) * W + ox + dx) * 4;
-                            data[i] = rgb.tilled_d[0]; data[i+1] = rgb.tilled_d[1]; data[i+2] = rgb.tilled_d[2]; data[i+3] = 255;
-                        }
-                    }
-                }
-                // bridge: wood plank detail (alternating dark/light vertical strips)
-                if (tile === 10 && S >= 4) {
-                    for (let dy = 0; dy < S; dy++) {
-                        const i = ((oy + dy) * W + ox) * 4;
-                        data[i] = rgb.bridge_d[0]; data[i+1] = rgb.bridge_d[1]; data[i+2] = rgb.bridge_d[2]; data[i+3]=255;
-                        const i2 = ((oy + dy) * W + ox + S - 1) * 4;
-                        data[i2] = rgb.bridge_lt[0]; data[i2+1] = rgb.bridge_lt[1]; data[i2+2] = rgb.bridge_lt[2]; data[i2+3]=255;
-                    }
-                }
-                // snow: subtle sparkle
-                if (tile === 11 && S >= 4) {
-                    const rnd = tileHash(x, y);
-                    if (rnd > 0.5) {
-                        const sx = Math.floor(rnd * 50) % (S-1), sy = Math.floor(rnd * 500) % (S-1);
-                        setPx(ox+sx, oy+sy, rgb.snow_sp[0], rgb.snow_sp[1], rgb.snow_sp[2]);
-                    }
-                }
-                // ice: crystalline shimmer
-                if (tile === 12 && S >= 4) {
-                    const rnd = tileHash(x, y);
-                    const sx = Math.floor(rnd * 100) % (S-1);
-                    setPx(ox+sx, oy, rgb.ice_sp[0], rgb.ice_sp[1], rgb.ice_sp[2]);
-                }
-            } else {
-                fillTileSolid(x, y, rgb.grass);
-            }
-        }
-    }
-
-    // 2. objects with rich bevel + shadow detail (Stardew-style sprites)
-    const cells = state.cells || [];
-    const ORE = [null, rgb.ore_cu, rgb.ore_fe, rgb.ore_au, rgb.ore_ir];
-    for (const cell of cells) {
-        const x = cell.x, y = cell.y;
-        if (x < vx || x >= vx + VW || y < vy || y >= vy + VH) continue;
-        if (cell.obj === 12) continue; // buildings drawn below
-
-        if (cell.obj === 2 && cell.ore) {
-            // ore-rock: ore color body, light sparkle top-left, dark base bottom-right
-            const ore = ORE[cell.ore] || rgb.ore_au;
-            fillTileSolid(x, y, ore);
-            if (S >= 4) {
-                // bevel: light TL, dark BR (3D mineral look)
-                tilePx(x, y, 0, 0, rgb.rock_lt);
-                tilePx(x, y, 1, 0, rgb.rock_lt);
-                tilePx(x, y, S-1, S-1, rgb.rock_dk);
-                tilePx(x, y, S-2, S-1, rgb.rock_dk);
-                // shine sparkle
-                tilePx(x, y, 2, 1, rgb.sprinkler_lt);
-            }
-        } else if (cell.obj === 1) {
-            // deciduous tree: lush green crown + trunk + light highlight + dark shadow
-            fillTileSolid(x, y, rgb.tree);
-            const tx_ = Math.floor(S / 2);
-            // trunk at bottom center (2px tall for visibility)
-            tilePx(x, y, tx_, S-1, rgb.trunk);
-            if (S >= 4) tilePx(x, y, tx_, S-2, rgb.trunk);
-            if (S >= 4) {
-                // highlight: lighter green top-left (sunlight)
-                tilePx(x, y, 1, 1, rgb.tree_lt);
-                tilePx(x, y, 0, 1, rgb.tree_lt);
-                // shadow: darker bottom-right
-                tilePx(x, y, S-2, S-2, rgb.tree_dk);
-                tilePx(x, y, S-1, S-3, rgb.tree_dk);
-            }
-        } else if (cell.obj === 9) {
-            // pine: dark pointed conifer + trunk + tip highlight
-            fillTileSolid(x, y, rgb.pine);
-            tilePx(x, y, Math.floor(S/2), S-1, rgb.trunk);
-            if (S >= 4) {
-                // star tip at top
-                tilePx(x, y, Math.floor(S/2), 0, rgb.pine_lt);
-                // shadow left side, highlight right
-                tilePx(x, y, 0, S-2, rgb.pine_dk);
-                tilePx(x, y, S-1, 1, rgb.pine_lt);
-            }
-        } else if (cell.obj === 2) {
-            // rock: beveled, light TL + dark BR + center crack
-            fillTileSolid(x, y, rgb.rock);
-            if (S >= 3) {
-                tilePx(x, y, 0, 0, rgb.rock_lt);
-                tilePx(x, y, 1, 0, rgb.rock_lt);
-                tilePx(x, y, 0, 1, rgb.rock_lt);
-                tilePx(x, y, S-1, S-1, rgb.rock_dk);
-                tilePx(x, y, S-2, S-1, rgb.rock_dk);
-                // center darker spot
-                if (S >= 5) tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.rock_dk);
-            }
-        } else if (cell.obj === 6) {
-            // stump: tree trunk with rings
-            fillTileSolid(x, y, rgb.trunk);
-            if (S >= 4) {
-                // darker outer ring + lighter center (cross-section)
-                tilePx(x, y, 0, 0, rgb.trunk_d);
-                tilePx(x, y, S-1, S-1, rgb.trunk_d);
-                tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.mush_stem);
-            }
-        } else if (cell.obj === 10) {
-            // bush: leafy bush with light dapples + dark base
-            fillTileSolid(x, y, rgb.bush);
-            if (S >= 4) {
-                // light dapples (sunlight on leaves)
-                tilePx(x, y, 0, 0, rgb.bush_lt);
-                tilePx(x, y, S-1, 0, rgb.bush_lt);
-                tilePx(x, y, 1, 1, rgb.bush_lt);
-                // dark base
-                tilePx(x, y, 0, S-1, rgb.bush_dk);
-                tilePx(x, y, S-1, S-1, rgb.bush_dk);
-            }
-        } else if (cell.obj === 11) {
-            // mushroom: tan cap + cream stem, with cap shadow
-            fillTileSolid(x, y, rgb.mushroom);
-            if (S >= 3) {
-                // stem (pale center)
-                tilePx(x, y, Math.floor(S/2), Math.floor(S/2)+1, rgb.mush_stem);
-                // cap shadow (darker rim)
-                tilePx(x, y, 0, 0, rgb.mush_dk);
-                tilePx(x, y, S-1, 0, rgb.mush_dk);
-            }
-        } else if (cell.obj === 7 || cell.obj === 8) {
-            // fence: vertical planks with light/dark
-            fillTileSolid(x, y, rgb.fence);
-            if (S >= 3) {
-                // posts (darker) + rail (lighter)
-                tilePx(x, y, 0, 0, rgb.fence_d);
-                tilePx(x, y, S-1, S-1, rgb.fence_d);
-                tilePx(x, y, Math.floor(S/2), 1, rgb.fence_lt);
-                // cross-rail
-                tilePx(x, y, Math.floor(S/2), S-2, rgb.fence_lt);
-            }
-        } else if (cell.obj === 13) {
-            // sprinkler: silver base + 3-4 shine spokes (Stardew iridium sprinkler)
-            fillTileSolid(x, y, rgb.sprinkler_dk);
-            // center bright
-            const cx_ = Math.floor(S/2), cy_ = Math.floor(S/2);
-            tilePx(x, y, cx_, cy_, rgb.sprinkler_lt);
-            if (S >= 4) {
-                // 4 spokes radiating
-                tilePx(x, y, cx_-1, cy_, rgb.sprinkler);
-                tilePx(x, y, cx_+1, cy_, rgb.sprinkler);
-                tilePx(x, y, cx_, cy_-1, rgb.sprinkler);
-                tilePx(x, y, cx_, cy_+1, rgb.sprinkler);
-            }
-        } else if (cell.obj === 3) {
-            // weed: small wild tuft
-            fillTileSolid(x, y, rgb.weed);
-            if (S >= 4) {
-                tilePx(x, y, 1, 1, rgb.weed_sp);
-                tilePx(x, y, S-2, S-2, rgb.weed_sp);
-            }
-        } else if (cell.obj === 4) {
-            // tall grass
-            fillTileSolid(x, y, rgb.tall);
-            if (S >= 4) {
-                // blade tips lighter
-                tilePx(x, y, 0, 0, rgb.tall_sp);
-                tilePx(x, y, S-2, 0, rgb.tall_sp);
-                tilePx(x, y, Math.floor(S/2), 0, rgb.tall_sp);
-            }
-        } else if (cell.obj === 5) {
-            // flower: pink bloom + bright center + green stem hint
-            fillTileSolid(x, y, rgb.flower_dk);
-            if (S >= 3) {
-                // petals
-                tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.flower);
-                // bright bloom center
-                tilePx(x, y, Math.floor(S/2)-1, Math.floor(S/2)-1, rgb.flower_lt);
-            }
-        }
-
-        // crops: leaf + fruit colored by crop type, multi-stage growth
-        if (cell.crop && cell.crop > 0) {
-            const stage = cell.stage || 0;
-            const ripe = stage === 3 && (cell.days_left || 0) <= 0;
-            const leafCol = rgb.crop_leaf;
-            const fruitCol = CROP_RIPE[cell.crop] || rgb.crop20;
-            const cx = Math.floor(S / 2);
-            const cy = Math.floor(S * 0.65);
-            if (S >= 4) {
-                // draw on top of tilled soil (which is already there)
-                if (stage <= 1) {
-                    // tiny sprout: 1-2 leaf pixels
-                    tilePx(x, y, cx, cy, leafCol);
-                    tilePx(x, y, cx-1, cy, leafCol);
-                    tilePx(x, y, cx, cy-1, leafCol);
-                } else if (stage === 2) {
-                    // bushy leaf cluster
-                    for (let dx = -1; dx <= 1; dx++) tilePx(x, y, cx+dx, cy, leafCol);
-                    tilePx(x, y, cx, cy-1, leafCol);
-                    tilePx(x, y, cx, cy-2, leafCol);
-                    tilePx(x, y, cx-1, cy-1, rgb.crop_leaf_dk);
-                } else {
-                    // stage 3: full plant with fruit (if ripe, show colored berries/fruits)
-                    // leaves
-                    for (let dx = -2; dx <= 2; dx++) tilePx(x, y, cx+dx, cy, leafCol);
-                    tilePx(x, y, cx, cy-1, leafCol);
-                    tilePx(x, y, cx-2, cy-1, rgb.crop_leaf_dk);
-                    tilePx(x, y, cx+2, cy-1, rgb.crop_leaf_dk);
-                    if (ripe) {
-                        // fruit/produce dots on top of leaves
-                        tilePx(x, y, cx-1, cy-1, fruitCol);
-                        tilePx(x, y, cx+1, cy-1, fruitCol);
-                        if (S >= 5) tilePx(x, y, cx, cy-2, fruitCol);
-                    }
-                }
-            } else {
-                fillTileSolid(x, y, ripe ? fruitCol : leafCol);
-            }
-        }
-    }
-
-    // 3. buildings with peaked roof + windows + door + outline + shadow
-    const drawBuilding = (x, y, wdt, hgt, wallC, roofC) => {
-        const roofH = Math.max(1, Math.floor(hgt * 0.4));
-        for (let dy = 0; dy < hgt; dy++) {
-            for (let dx = 0; dx < wdt; dx++) {
-                const tx = x + dx, ty = y + dy;
-                if (tx < vx || tx >= vx + VW || ty < vy || ty >= vy + VH) continue;
-                if (dy < roofH) {
-                    // roof: lighter on top row (apex highlight), darker on last roof row (eave shadow)
-                    if (dy === 0) fillTileSolid(tx, ty, rgb.roof_lt);
-                    else if (dy === roofH - 1) fillTileSolid(tx, ty, rgb.roof_dk);
-                    else fillTileSolid(tx, ty, roofC);
-                    // roof ridge sparkle
-                    if (dy === 0 && S >= 4 && (dx === 0 || dx === wdt-1)) {
-                        tilePx(tx, ty, Math.floor(S/2), 0, rgb.roof_lt);
-                    }
-                } else {
-                    fillTileSolid(tx, ty, wallC);
-                    // wall top stripe (light) and bottom stripe (shadow)
-                    if (dy === roofH && S >= 4) {
-                        for (let dxx = 0; dxx < S; dxx++) tilePx(tx, ty, dxx, 0, rgb.wall_lt);
-                    }
-                    if (dy === hgt - 1 && S >= 4) {
-                        for (let dxx = 0; dxx < S; dxx++) tilePx(tx, ty, dxx, S-1, rgb.wall_dk2);
-                    }
-                    // window: small bright dot on middle wall tiles
-                    if (dy > roofH && dy < hgt - 1 && S >= 4 && (dx === 0 || dx === wdt-1)) {
-                        tilePx(tx, ty, Math.floor(S/2), Math.floor(S/2), rgb.flower_lt);
-                        tilePx(tx, ty, Math.floor(S/2)+1, Math.floor(S/2), rgb.flower_lt);
-                    }
-                }
-            }
-        }
-        // outline border (1 tile wide dark frame)
-        const O = rgb.outline;
-        for (let dy = -1; dy <= hgt; dy++) {
-            if (x-1 >= 0 && y+dy >= 0 && y+dy < h) fillTileSolid(x-1, y+dy, O);
-            if (x+wdt < w && y+dy >= 0 && y+dy < h) fillTileSolid(x+wdt, y+dy, O);
-        }
-        for (let dx = -1; dx <= wdt; dx++) {
-            if (y-1 >= 0 && x+dx >= 0 && x+dx < w) fillTileSolid(x+dx, y-1, O);
-            if (y+hgt < h && x+dx >= 0 && x+dx < w) fillTileSolid(x+dx, y+hgt, O);
-        }
-        // door: small dark door with arch, on bottom-center wall tile
-        if (S >= 4 && hgt - roofH >= 1) {
-            const doorX = x + Math.floor(wdt / 2);
-            const doorY = y + hgt - 1;
-            if (doorX >= vx && doorX < vx + VW && doorY >= vy && doorY < vy + VH) {
-                // door outline + warm interior
-                fillTileSolid(doorX, doorY, rgb.wall_dk2);
-                tilePx(doorX, doorY, Math.floor(S/2), Math.floor(S/2), rgb.mush_stem);
-                tilePx(doorX, doorY, Math.floor(S/2), 0, rgb.wall_dk2);
-                // door knob
-                if (S >= 5) tilePx(doorX, doorY, Math.floor(S*0.7), Math.floor(S*0.5), rgb.ring);
-            }
-        }
-    };
-    const BLD_COL = {
-        'Blacksmith':    [rgb.wall, rgb.outline],
-        'General Store': [rgb.wall, rgb.roof],
-        'Old Mill':      [rgb.wall, rgb.ore_cu],
-        'Hawthorn Barn': [rgb.wall_d, rgb.trunk],
-        'Glasshouse':    [rgb.wall, rgb.bush],
-    };
-    if (state.house) drawBuilding(state.house.x, state.house.y, 3, 4, rgb.wall, rgb.roof);
-    for (const b of (state.buildings || [])) {
-        const cols = BLD_COL[b.name] || [rgb.wall, rgb.roof];
-        drawBuilding(b.x, b.y, b.w, b.h, cols[0], cols[1]);
-    }
-
-    // 4. NPCs as mini-humanoids: colored body + dark hair + legs
-    for (const n of (state.npcs || [])) {
-        if (n.x < vx || n.x >= vx + VW || n.y < vy || n.y >= vy + VH) continue;
-        const np = NPC_RGB[(n.color - 1) % NPC_RGB.length];
-        // dark body underneath
-        fillTileSolid(n.x, n.y, rgb.outline);
-        if (S >= 4) {
-            // shirt color (rows 1-3)
-            for (let dy = 1; dy <= 3; dy++) for (let dx = 0; dx < S; dx++) tilePx(n.x, n.y, dx, dy, np);
-            // hair (row 0) darker shade
-            tilePx(n.x, n.y, 1, 0, rgb.outline);
-            tilePx(n.x, n.y, Math.floor(S/2), 0, rgb.outline);
-            // legs (row S-1) darker
-            for (let dx = Math.floor(S/3); dx <= Math.floor(S*2/3); dx++) tilePx(n.x, n.y, dx, S-1, rgb.outline);
-            // outline corners
-            tilePx(n.x, n.y, 0, 0, rgb.outline);
-            tilePx(n.x, n.y, S-1, 0, rgb.outline);
-            tilePx(n.x, n.y, 0, S-1, rgb.outline);
-            tilePx(n.x, n.y, S-1, S-1, rgb.outline);
-        } else {
-            fillTileSolid(n.x, n.y, np);
-        }
-    }
-
-    // 5. player sprite: mini-humanoid with hair + skin + shirt + legs + direction eye
-    if (me) {
-        const px = me.x, py = me.y;
-        // dark outline ring on 4 adjacent tiles (diagonal corners shared)
-        const O = rgb.outline;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const ax = px + dx, ay = py + dy;
-            if (ax >= 0 && ax < w && ay >= 0 && ay < h) fillTileSolid(ax, ay, O);
-        }
-        // sprite body (on top of dark ground):
-        if (S >= 4) {
-            // layout (S=5): 0:hat 1:face 2:face 3:shirt 4:legs
-            // hat (y=0): hair color
-            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 0, rgb.player_hair);
-            // face (y=1,2): skin color
-            for (let dy = 1; dy <= 2; dy++) for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, dy, rgb.player_skin);
-            // shirt (y=3): blue
-            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 3, rgb.player_d);
-            // legs (y=4): darker
-            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 4, rgb.player_hair);
-            // pants split (center line darker)
-            tilePx(px, py, Math.floor(S/2), 4, O);
-            // direction eye on the face
-            const d = me.dir || 0;
-            let ex, ey;
-            if (d === 0)      { ex = Math.floor(S/2);     ey = 2; }                       // south: bottom face
-            else if (d === 1) { ex = 0;                    ey = 1; }                       // west: left face
-            else if (d === 2) { ex = S - 1;               ey = 1; }                       // east: right face
-            else              { ex = Math.floor(S/2);     ey = 1; }                       // north: top face (hidden)
-            tilePx(px, py, ex, ey, rgb.eye);
-            // small hat brim
-            if (S >= 5) {
-                tilePx(px, py, 0, 1, rgb.player_hair);
-                tilePx(px, py, S-1, 1, rgb.player_hair);
-            }
-        } else {
-            fillTileSolid(px, py, rgb.player);
-        }
-        // gold highlight arrow 2 tiles ahead (direction indicator)
-        const ahead = [[0,1],[-1,0],[1,0],[0,-1]];
-        const d = me.dir || 0;
-        const [adx, ady] = ahead[d] || [0,1];
-        for (let i = 1; i <= 2; i++) {
-            const ax = px + adx * i, ay = py + ady * i;
-            if (ax >= 0 && ax < w && ay >= 0 && ay < h)
-                fillTileSolid(ax, ay, i === 1 ? rgb.ring : rgb.ring_dk);
-        }
-    }
-
-    // 6. atmospheric day/night overlay (warm dawn, golden dusk, deep night)
-    const t = state.time || 0;
-    const DAY_LENGTH = 800;
-    const hrs = 6 + 16 * t / DAY_LENGTH;
-    let alpha = 0, nr = 0, ng = 0, nb = 0;
-    if (hrs < 6.5 || hrs >= 20) {
-        // night: deep blue dim
-        alpha = 0.5;  nr = 10;  ng = 18;  nb = 48;
-    } else if (hrs < 8) {
-        // dawn: cool blue fading + faint warm tint
-        const f = (8 - hrs) / 1.5;
-        alpha = 0.4 * f;  nr = 30;  ng = 30;  nb = 70;
-    } else if (hrs > 17 && hrs < 19.5) {
-        // dusk: golden orange transition
-        const f = (hrs - 17) / 2.5;
-        alpha = 0.35 * f;  nr = 168;  ng = 88;  nb = 24;
-        if (hrs > 19) { alpha = 0.45 * (hrs - 18) / 2; nr = 30; ng = 26; nb = 64; }
-    } else if (hrs >= 19.5 && hrs < 20) {
-        // dusk-to-night transition
-        const f = (hrs - 19.5) / 0.5;
-        alpha = 0.45 + 0.05 * f; nr = 10; ng = 18; nb = 48;
-    }
-    if (alpha > 0) {
-        const inv = 1 - alpha;
-        for (let i = 0; i < data.length; i += 4) {
-            data[i]   = data[i]   * inv + nr * alpha;
-            data[i+1] = data[i+1] * inv + ng * alpha;
-            data[i+2] = data[i+2] * inv + nb * alpha;
-        }
-    }
-    // rain overlay (if raining): subtle cool blue wash + darken
-    if (state.weather) {
-        for (let i = 0; i < data.length; i += 4) {
-            data[i]   = data[i]   * 0.82 + 20;
-            data[i+1] = data[i+1] * 0.82 + 24;
-            data[i+2] = data[i+2] * 0.85 + 36;
-        }
-    }
-
-    mapCtx.putImageData(img, 0, 0);
-
-    if (me) {
-        let reg = me.region || '';
-        if (!me.inside) {
-            const doorAt = (x, y, name) => {
-                if (me.x === x && me.y === y) reg += '  [' + name + ' door]';
-            };
-            if (state.house) doorAt(state.house.x + 1, state.house.y + 3, 'Farmhouse');
-            for (const b of (state.buildings || []))
-                doorAt(b.x + ((b.w - 1) >> 1), b.y + b.h, b.name);
-        }
-        mapRegionEl.textContent = reg || '-';
-    }
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Stable per-tile hash for decoration placement.
+function worldHash(ix, iy) {
+  let h = (ix * 374761393 + iy * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-// ---- terminal log ----
-function print(text, cls = '') {
+async function postJSON(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+async function getJSON(path) {
+  const r = await fetch(path);
+  return r.json();
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ----- 3. state store -------------------------------------------------
+const State = {
+  myId: null,
+  tileMap: null,            // uint8[6144] from /join
+  world: null,              // last /state snapshot
+  join: null,               // last /join response (buildings, house, welcome)
+  prevPlayer: null,        // for diff/transition flagging
+  sel: 0,                  // selected inventory slot (client-only mirror)
+  selectedEntity: null,    // {kind:'npc'|'building'|'item'|'crop'|'spot'|'deposit', id, x, y}
+  zoom: 1.0,
+  cam: { x: 48, y: 32 },
+
+  me() {
+    if (!this.world || !this.myId) return null;
+    return (this.world.players || []).find(p => p.player_id === this.myId) || null;
+  },
+  cellAt(x, y) {
+    if (!this.world) return null;
+    for (const c of (this.world.cells || [])) {
+      if (c.x === x && c.y === y) return c;
+    }
+    return null;
+  },
+  buildingAt(x, y) {
+    const all = [];
+    if (this.join && this.join.buildings) all.push(...this.join.buildings);
+    if (this.world && this.world.house) all.push({ name: 'Farmhouse', x: this.world.house.x, y: this.world.house.y, w: 3, h: 4 });
+    for (const b of all) {
+      if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return b;
+    }
+    return null;
+  },
+  npcAt(x, y) {
+    if (!this.world) return null;
+    return (this.world.npcs || []).find(n => n.x === x && n.y === y) || null;
+  },
+};
+
+// ----- 4. terminal log + commands ------------------------------------
+const Log = {
+  el: null,
+  init() { this.el = $('log'); },
+  print(text, cls = '') {
     const div = document.createElement('div');
     if (cls) div.className = cls;
     div.textContent = text;
-    logEl.appendChild(div);
-    logEl.scrollTop = logEl.scrollHeight;
-}
+    this.el.appendChild(div);
+    this.el.scrollTop = this.el.scrollHeight;
+  },
+  printLines(text, cls = '') {
+    text.split('\n').forEach(l => this.print(l, cls));
+  },
+  preamble(text) {
+    const div = document.createElement('div');
+    div.className = 'preamble sys';
+    div.textContent = text;
+    this.el.appendChild(div);
+    this.el.scrollTop = this.el.scrollHeight;
+  },
+  clear() { this.el.innerHTML = ''; },
+};
 
-function printLines(text, cls = '') {
-    text.split('\n').forEach(l => print(l, cls));
-}
+const Cmd = {
+  busy: false,
+  history: [],
+  histIdx: -1,
 
-function showStatus(s) {
-    document.getElementById('st-day').textContent = s ? s.day : '-';
-    document.getElementById('st-time').textContent = s ? s.time : '-';
-    document.getElementById('st-season').textContent = s ? s.season + ' · ' + (s.weather ? 'Rain' : 'Sun') : '-';
-    document.getElementById('st-energy').textContent = s ? Math.round(s.energy) + '/' + s.max_energy : '-';
-    document.getElementById('st-money').textContent = s ? s.money + 'g' : '-';
-}
-
-async function post(path, body) {
-    const r = await fetch(path, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-    });
-    return r.json();
-}
-
-async function pollStatus() {
-    try {
-        const r = await fetch('/state');
-        const s = await r.json();
-        let me = null;
-        if (s.players) me = s.players.find(p => p.player_id === myId);
-        if (me) {
-            const t = s.time || 0;
-            const DAY_LENGTH_S = 800; // must match server
-            const hrs = Math.floor(6 + 16 * t / DAY_LENGTH_S);
-            const mins = Math.floor(((t / DAY_LENGTH_S) * 16 * 60) % 60);
-            const ampm = hrs >= 12 ? 'PM' : 'AM';
-            const h12 = hrs % 12 === 0 ? 12 : hrs % 12;
-            showStatus({
-                day: s.day,
-                time: h12 + ':' + String(mins).padStart(2, '0') + ' ' + ampm,
-                season: s.season,
-                weather: s.weather,
-                energy: me.energy,
-                max_energy: me.max_energy,
-                money: me.money,
-            });
-        }
-        if (tileMap) drawMap(s);
-    } catch (e) { /* server briefly down */ }
-}
-
-async function sendCmd(text) {
-    if (!myId) return;
+  async send(text) {
+    if (!State.myId) { Log.print('Not connected yet.', 'err'); return; }
     const clean = text.trim();
     if (!clean) return;
-    print('> ' + clean, 'me');
+    this.history.push(clean);
+    if (this.history.length > 50) this.history.shift();
+    this.histIdx = this.history.length;
+    Log.print('> ' + clean, 'me');
+    this.busy = true;
     try {
-        const resp = await post('/cmd', {player_id: myId, cmd: clean});
-        (resp.lines || []).forEach(l => print(l));
+      const resp = await postJSON('/cmd', { player_id: State.myId, cmd: clean });
+      (resp.lines || []).forEach(l => Log.print(l));
     } catch (e) {
-        print('Connection lost.', 'err');
+      Log.print('Connection lost.', 'err');
     }
-    pollStatus();
+    this.busy = false;
+    pollState();   // refresh immediately after a command
+  },
+};
+
+// ----- 5. status bar + inventory render ------------------------------
+const UI = {
+  renderStatus() {
+    const me = State.me();
+    const w = State.world;
+    if (!me || !w) {
+      $('st-day').textContent = '-'; $('st-time').textContent = '-';
+      $('st-season').textContent = '-'; $('st-weather').textContent = '-';
+      $('st-energy').textContent = '-'; $('st-money').textContent = '-';
+      $('conn-dot').classList.toggle('off', !State.myId);
+      return;
+    }
+    $('st-day').textContent = 'Day ' + w.day;
+    // clock: 6 AM start, 24h over DAY_LENGTH_S seconds (server uses 24h span)
+    const hrs = 6 + 24 * (w.time / DAY_LENGTH_S);
+    const h12 = Math.floor(hrs) % 24;
+    const m = Math.floor((hrs - Math.floor(hrs)) * 60);
+    const ampm = h12 < 12 || h12 >= 24 ? 'AM' : 'PM';
+    const disp = h12 % 12 === 0 ? 12 : h12 % 12;
+    $('st-time').textContent = disp + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+    const season = w.season || 'Spring';
+    const pill = SEASON_PILL[season] || ['#cfd4dc', '#666'];
+    const sel = $('st-season');
+    sel.textContent = season;
+    sel.style.background = pill[1]; sel.style.color = '#0a0d0b';
+    $('st-weather').textContent = WEATHER_GLYPH[w.weather] || '-';
+    const stE = $('st-energy');
+    stE.textContent = Math.round(me.energy) + '/' + me.max_energy;
+    stE.classList.toggle('energy-low', me.energy < me.max_energy * 0.25);
+    $('st-money').textContent = me.money + 'g';
+    $('st-sel').textContent = (me.sel ?? 0) + 1;
+    $('conn-dot').classList.toggle('off', false);
+    $('map-region').textContent = me.region || (me.inside ? 'Inside: ' + me.inside : '-');
+  },
+
+  renderInventory() {
+    const me = State.me();
+    const grid = $('inv-grid');
+    grid.innerHTML = '';
+    if (!me) return;
+    for (let i = 0; i < 12; i++) {
+      const slot = me.inv && me.inv[i] ? me.inv[i] : null;
+      const div = document.createElement('div');
+      div.className = 'inv-slot' + (!slot || !slot.item ? ' empty' : '') +
+                      ((me.sel ?? 0) === i ? ' selected' : '');
+      if (slot && slot.item) {
+        const [name, type, glyph, color] = ITEM[slot.item] || ['?', 0, '❓', '#999'];
+        div.textContent = glyph;
+        div.style.color = color;
+        div.title = name + (slot.count > 1 ? ' ×' + slot.count : '');
+        if (slot.count > 1) {
+          const c = document.createElement('span');
+          c.className = 'count';
+          c.textContent = slot.count;
+          div.appendChild(c);
+        }
+        div.onclick = () => selectSlot(i);
+      }
+      grid.appendChild(div);
+    }
+  },
+
+  renderLegend() {
+    const el = $('legend');
+    el.innerHTML = '';
+    NPC_LIST.forEach(n => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<span class="glyph">' + n.glyph + '</span><span>' + n.name + '</span>';
+      el.appendChild(row);
+    });
+  },
+
+  renderSuggest() {
+    const el = $('suggest');
+    el.innerHTML = '';
+    const parts = SUGGESTIONS.map(s => '<span class="cmd" data-cmd="' + s + '">' + s + '</span>');
+    el.innerHTML = parts.join(' · ');
+    el.querySelectorAll('.cmd').forEach(c => {
+      c.onclick = () => { $('input').value = c.dataset.cmd; $('input').focus(); };
+    });
+  },
+};
+
+async function selectSlot(i) {
+  State.sel = i;
+  try {
+    await postJSON('/action', { player_id: State.myId, sel: i });
+    pollState();
+  } catch (e) { /* ignore */ }
+}
+
+// ----- 6. map renderer (placeholder; full painterly version next) ---
+let mapRaf = null;
+function renderMapPlaceholder() {
+  const cv = $('map');
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0d0b';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#5a8a3a';
+  ctx.font = '14px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Loading map...', cv.width / 2, cv.height / 2);
+}
+function startMapLoop() {
+  if (mapRaf) cancelAnimationFrame(mapRaf);
+  renderMapPlaceholder();
+}
+
+// ----- 7. modal panels (placeholder; full version later) ------------
+const Modal = {
+  bg: null, box: null, titleEl: null, bodyEl: null,
+  init() {
+    this.bg = $('modal-bg'); this.box = $('modal');
+    this.titleEl = $('modal-title'); this.bodyEl = $('modal-body');
+    $('modal-close').onclick = () => this.hide();
+    this.bg.onclick = e => { if (e.target === this.bg) this.hide(); };
+  },
+  show(title, bodyHTML) {
+    this.titleEl.textContent = title;
+    this.bodyEl.innerHTML = bodyHTML;
+    this.bg.classList.add('show');
+  },
+  hide() { this.bg.classList.remove('show'); },
+};
+
+// ----- 8. init / polling ---------------------------------------------
+async function join() {
+  const name = prompt('What is your farmer name?', 'Farmer');
+  if (!name) { Log.print('Reload the page to start playing.', 'err'); return null; }
+  try {
+    const resp = await postJSON('/join', { name });
+    State.join = resp;
+    State.myId = resp.player_id;
+    State.tileMap = resp.tile_map;
+    UI.renderStatus();
+    return resp;
+  } catch (e) {
+    Log.print('Could not connect to the server.', 'err');
+    return null;
+  }
+}
+
+async function pollState() {
+  if (!State.myId) return;
+  try {
+    const s = await getJSON('/state');
+    State.prevPlayer = State.me();
+    State.world = s;
+    UI.renderStatus();
+    UI.renderInventory();
+    // auto-recenter map on first state arrival (full renderer will take over next iter)
+    if (State.cam.x === 48 && State.cam.y === 32) {
+      const me = State.me();
+      if (me) { State.cam = { x: me.x, y: me.y }; }
+    }
+  } catch (e) { $('conn-dot').classList.add('off'); }
 }
 
 async function init() {
-    const name = prompt('What is your farmer name?', 'Farmer');
-    if (!name) { print('Reload the page to start playing.', 'err'); return; }
-    try {
-        const resp = await post('/join', {name: name});
-        myId = resp.player_id;
-        tileMap = resp.tile_map;
-        printLines(resp.welcome || 'Welcome to Ashgrove Valley!', 'sys');
-        setInterval(pollStatus, 1000);
-        showStatus({day: resp.day, time: '6:00 AM', season: resp.season, weather: resp.weather, energy: 270, max_energy: 270, money: 500});
-    } catch (e) {
-        print('Could not connect to the server.', 'err');
-    }
-}
+  Log.init();
+  Modal.init();
+  UI.renderLegend();
+  UI.renderSuggest();
+  Log.print('Ashgrove Valley — a text-MUD farming adventure', 'title');
+  Log.print('Connecting to the server…', 'sys');
+  startMapLoop();
 
-const cmdHistory = [];
-let histIdx = -1;
-input.addEventListener('keydown', (e) => {
+  const resp = await join();
+  if (!resp) return;
+  Log.printLines(resp.welcome || 'Welcome to Ashgrove Valley!', 'sys');
+  Log.print('Type "help" for commands. Click command suggestions above the input.', 'sys');
+
+  // initial state, then poll every second
+  await pollState();
+  setInterval(pollState, 1000);
+
+  // terminal input handler
+  const input = $('input');
+  input.addEventListener('keydown', e => {
+    if (Cmd.busy) return;
     if (e.key === 'Enter') {
-        const v = input.value;
-        if (v.trim()) {
-            cmdHistory.push(v.trim());
-            if (cmdHistory.length > 30) cmdHistory.shift();
-            histIdx = cmdHistory.length;
-        }
-        input.value = '';
-        sendCmd(v);
+      const v = input.value;
+      input.value = '';
+      Cmd.send(v);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (Cmd.history.length) {
+        Cmd.histIdx = Math.max(0, Cmd.histIdx - 1);
+        input.value = Cmd.history[Cmd.histIdx] || '';
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (Cmd.history.length) {
+        Cmd.histIdx = Math.min(Cmd.history.length, Cmd.histIdx + 1);
+        input.value = Cmd.histIdx === Cmd.history.length ? '' : (Cmd.history[Cmd.histIdx] || '');
+      }
     }
-    if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (cmdHistory.length) {
-            histIdx = Math.max(0, histIdx - 1);
-            input.value = cmdHistory[histIdx];
-        }
-    }
-    if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (cmdHistory.length) {
-            histIdx = Math.min(cmdHistory.length, histIdx + 1);
-            input.value = histIdx === cmdHistory.length ? '' : cmdHistory[histIdx];
-        }
-    }
-});
+  });
 
-input.addEventListener('beforeinput', () => {
-    sessionStorage.setItem('lastCmd', input.value);
-});
-
-mapToggle.addEventListener('click', () => {
-    showFullMap = !showFullMap;
-    if (showFullMap) {
-        VW = 96; VH = 64; S = 2;
-        mapCv.style.width = '100%';
-    } else {
-        VW = 27; VH = 17; S = 5;
-        mapCv.style.width = '100%';
-    }
-    mapCv.width = VW * S;
-    mapCv.height = VH * S;
-    mapToggle.textContent = showFullMap ? 'Viewport' : 'Full Map';
-    if (tileMap) pollStatus();
-});
+  // map zoom buttons (placeholder wiring)
+  $('btn-zoom-in').onclick = () => { State.zoom = clamp(State.zoom * 1.15, 0.5, 3); };
+  $('btn-zoom-out').onclick = () => { State.zoom = clamp(State.zoom / 1.15, 0.5, 3); };
+  $('btn-recenter').onclick = () => {
+    const me = State.me();
+    if (me) State.cam = { x: me.x, y: me.y };
+  };
+}
 
 window.addEventListener('load', init);
 </script>
