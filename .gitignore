@@ -1,51 +1,15 @@
 # Build artifacts
-build/
-cmake-build-*/
-*.o
-*.obj
-*.exe
+/build/
+/_deps/
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-venv/
-env/
-.env
-
-# Node.js
-node_modules/
-dist/
-build/
-*.log
-npm-debug.log*
-
-# Model files (large)
-*.gguf
-*.bin
-models/
-
-# OS
-.DS_Store
-Thumbs.db
+# Node
+/node_modules/
 
 # Save files
-saves/
-*.save
+/save.json
+/build/save.json
 
-# Logs
-logs/
-*.logsaves_test/
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

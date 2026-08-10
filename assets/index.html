@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ashgrove Valley</title>
+<style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        background: #0c0f0e;
+        color: #c8d6c0;
+        font-family: "Courier New", ui-monospace, Menlo, Consolas, monospace;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    #status {
+        display: flex;
+        gap: 24px;
+        padding: 8px 16px;
+        background: #141a17;
+        border-bottom: 1px solid #2a342e;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+    }
+    #status .lbl { color: #6f8a74; }
+    #status .val { color: #e8f0e5; }
+    #status .money { color: #e8c562; }
+    #status .energy { color: #7fd49c; }
+    #status .season { color: #b48ad8; }
+    #main {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+    }
+    #log {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 16px;
+        font-size: 14px;
+        line-height: 1.55;
+        scroll-behavior: smooth;
+    }
+    #log .me { color: #89c4f8; }
+    #log .sys { color: #8a9a86; font-style: italic; }
+    #log .err { color: #e07b6a; }
+    #log .gold { color: #e8c562; }
+    #log .ok { color: #9fd8a8; }
+    #log .title { color: #e8f0e5; font-weight: bold; margin-top: 6px; }
+    #log div { white-space: pre-wrap; word-wrap: break-word; }
+    #sidebar {
+        width: 216px;
+        flex-shrink: 0;
+        padding: 10px;
+        background: #101512;
+        border-left: 1px solid #2a342e;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        overflow-y: auto;
+    }
+    #sidebar h3 {
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        color: #6f8a74;
+        text-transform: uppercase;
+    }
+    #map {
+        image-rendering: pixelated;
+        border: 1px solid #2a342e;
+        background: #0a0d0b;
+        width: 100%;
+        height: auto;
+    }
+    #map-toggle {
+        background: #1a221e;
+        border: 1px solid #2a342e;
+        color: #9fd8a8;
+        padding: 4px 8px;
+        font-family: inherit;
+        font-size: 11px;
+        cursor: pointer;
+        border-radius: 2px;
+    }
+    #map-toggle:hover { background: #243028; }
+    #map-region {
+        font-size: 12px;
+        color: #9fd8a8;
+        text-align: center;
+    }
+    .legend { font-size: 11px; color: #7d8f7a; line-height: 1.7; }
+    .legend .row { display: flex; align-items: center; gap: 6px; }
+    .legend .sw { width: 10px; height: 10px; display: inline-block; border: 1px solid #00000055; }
+    #prompt {
+        display: flex;
+        align-items: center;
+        padding: 10px 16px;
+        background: #141a17;
+        border-top: 1px solid #2a342e;
+        flex-shrink: 0;
+    }
+    #prompt .caret { color: #9fd8a8; font-size: 15px; margin-right: 8px; }
+    #input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        color: #e8f0e5;
+        font-family: inherit;
+        font-size: 14px;
+    }
+    #suggest {
+        padding: 4px 16px 8px;
+        font-size: 12px;
+        color: #5a6a58;
+        border-top: 1px dashed #222b25;
+        flex-shrink: 0;
+    }
+</style>
+</head>
+<body>
+<div id="status">
+    <span><span class="lbl">DAY</span> <span class="val" id="st-day">-</span></span>
+    <span><span class="lbl">TIME</span> <span class="val" id="st-time">-</span></span>
+    <span><span class="lbl">SEASON</span> <span class="val season" id="st-season">-</span></span>
+    <span><span class="lbl">ENERGY</span> <span class="val energy" id="st-energy">-</span></span>
+    <span><span class="lbl">GOLD</span> <span class="val money" id="st-money">-</span></span>
+</div>
+<div id="main">
+    <div id="log"></div>
+    <div id="sidebar">
+        <h3>Ashgrove Map</h3>
+        <button id="map-toggle">Full Map</button>
+        <canvas id="map" width="135" height="85"</canvas>
+        <div id="map-region">-</div>
+        <div class="legend">
+            <div class="row npc-row"><span class="sw" style="background:#e08ad8"</span> Leah</div>
+            <div class="row npc-row"><span class="sw" style="background:#e08a5a"</span> Abigail</div>
+            <div class="row npc-row"><span class="sw" style="background:#5aa8e0"</span> Elliot</div>
+            <div class="row npc-row"><span class="sw" style="background:#8ae0a0"</span> Robin</div>
+            <div class="row npc-row"><span class="sw" style="background:#d0c86a"</span> Evelyn</div>
+       </div>
+    </div>
+</div>
+<div id="suggest">go north | look | inv | hoe | plant parsnip | water | fish | forage | axe | pick | scythe | harvest | talk | sleep | shop | buy | sell | help</div>
+<div id="prompt">
+    <span class="caret">&gt;</span>
+    <input id="input" type="text" autocomplete="off" spellcheck="false" placeholder="type a command..." autofocus>
+</div>
+
+<script>
+const logEl = document.getElementById('log');
+const input = document.getElementById('input');
+const mapCv = document.getElementById('map');
+const mapCtx = mapCv.getContext('2d');
+const mapRegionEl = document.getElementById('map-region');
+const mapToggle = document.getElementById('map-toggle');
+let S = 5; // pixels per tile
+let VW = 27, VH = 17; // viewport tiles; full-map mode uses 96x64
+let showFullMap = false;
+let myId = null;
+let tileMap = null;
+
+// ---- palette (Stardew Valley inspired: warm saturated earthy tones) ----
+const PAL = {
+    grass:      '#5c8c3e', grass_d:    '#4a7a2e', grass_sp: '#6ba048', grass_sp_d:'#528832',
+    grass_var:  '#557d34', grass_var_d:'#3f6d28',
+    water:      '#2a72c0', water_d:    '#1a54a0', water_lt:'#4a8cd8', water_deep:'#124088',
+    dirt:       '#9a7b4a', dirt_d:     '#7a5b2e', dirt_lt: '#b8986a',
+    sand:       '#e0cc8a', sand_d:     '#c8b474', sand_lt: '#f0de9e',
+    tilled:     '#5a3818', tilled_d:   '#4a2a14', tilled_lt:'#6e4422',
+    bridge:     '#9a6a38', bridge_d:   '#725028', bridge_lt:'#b88a4e',
+    snow:       '#f0f4f8', snow_d:     '#d0d8e0', snow_sp:'#e4eaF0',
+    ice:        '#b8d8e8', ice_d:      '#98b8d0', ice_sp:'#d0eef8',
+    tree:       '#2a6832', tree_lt:    '#3a803a', tree_dk: '#1a4a1e', trunk:    '#5a3818', trunk_d:'#3a2410',
+    pine:       '#1a4a28', pine_lt:    '#2a5c38', pine_dk: '#0a3a18',
+    rock:       '#6e6e74', rock_lt:    '#9a9aa0', rock_dk: '#4a4a50',
+    ore_cu:     '#c8833a', ore_fe:     '#b0b0b0', ore_au:   '#ffd84a', ore_ir:  '#c970b0',
+    bush:       '#3a7a3a', bush_lt:    '#5a9a5a', bush_dk: '#2a5a2a',
+    weed:       '#7aa64a', weed_sp:    '#92c062',
+    tall:       '#6a9a3a', tall_sp:    '#8ac04a',
+    flower:     '#e86ab4', flower_lt:  '#f8a4d4', flower_dk:'#a04878',
+    mushroom:   '#c9a86a', mush_stem:  '#e8d8a8', mush_dk: '#9a7838',
+    fence:      '#a08040', fence_d:    '#584020', fence_lt:'#c8a060',
+    sprinkler:  '#8ab6d6', sprinkler_lt:'#d8f0ff', sprinkler_dk:'#5a8aa6',
+    wall:       '#a06a44', wall_d:     '#604024', wall_lt: '#c08a5a',
+    wall_dk2:   '#503018',
+    roof:       '#8a3a2a', roof_lt:    '#b8604a', roof_dk: '#5a2418',
+    outline:    '#0a0d0b',
+    ring:       '#ffd700', ring_dk:    '#b8950a',
+    player:     '#f5dca0', player_d:   '#5a6ab0', player_hair:'#5a3818', player_skin:'#f0c898', eye:'#1a1a1a',
+    // crop palette: leaf + ripe-fruit colors per crop id (20=parsnip,21=potato,22=cauliflower,23=corn,24=tomato,25=wheat,26=blueberry)
+    crop_leaf:  '#4a9028', crop_leaf_dk:'#3a7018',
+    crop_stem:  '#6aa038',
+    crop20:     '#e8d05a', crop21: '#c8a04a', crop22: '#d8e0a0', crop23: '#f0c830', crop24: '#e84838', crop25: '#d8b860', crop26: '#4a6ace',
+};
+const rgb = {};
+for (const k in PAL) rgb[k] = [parseInt(PAL[k].slice(1,3),16), parseInt(PAL[k].slice(3,5),16), parseInt(PAL[k].slice(5,7),16)];
+const CROP_RIPE = [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, rgb.crop20, rgb.crop21, rgb.crop22, rgb.crop23, rgb.crop24, rgb.crop25, rgb.crop26];
+// deterministic per-tile hash for texture variation (stable across re-renders)
+const tileHash = (x, y) => {
+    let h = (x * 374761393 + y * 668265263) | 0;
+    h = (h ^ (h >> 13)) * 1274126177 | 0;
+    return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+};
+const TILE_PAIR = {
+    0:  [rgb.grass,      rgb.grass_d],
+    1:  [rgb.grass_var,   rgb.grass_var_d],
+    2:  [rgb.water,       rgb.water_d], 3: [rgb.water, rgb.water_d], 4: [rgb.water, rgb.water_d], 5: [rgb.water, rgb.water_d], 6: [rgb.water, rgb.water_d],
+    7:  [rgb.dirt,        rgb.dirt_d],
+    8:  [rgb.sand,        rgb.sand_d],
+    9:  [rgb.tilled,      rgb.tilled_d],
+    10: [rgb.bridge,      rgb.bridge_d],
+    11: [rgb.snow,        rgb.snow_d],
+    12: [rgb.ice,         rgb.ice_d],
+};
+const NPC_COLOR = ['#e08ad8', '#e08a5a', '#5aa8e0', '#8ae0a0', '#d0c86a'];
+const NPC_RGB = NPC_COLOR.map(c => [parseInt(c.slice(1,3),16), parseInt(c.slice(3,5),16), parseInt(c.slice(5,7),16)]);
+
+function drawMap(state) {
+    const w = 96, h = 64;
+    let me = null;
+    if (state.players) me = state.players.find(p => p.player_id === myId);
+
+    // ---- interiors ----
+    if (me && me.inside && state.interiors && state.interiors[me.inside]) {
+        const rows = state.interiors[me.inside];
+        const rw = rows[0].length, rh = rows.length;
+        const W = VW * S, H = VH * S;
+        const img = mapCtx.createImageData(W, H);
+        const data = img.data;
+        const setPx = (x, y, r, g, b) => {
+            if (x < 0 || y < 0 || x >= W || y >= H) return;
+            const i = (y * W + x) * 4;
+            data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
+        };
+        const fillTile = (tx, ty, c) => {
+            const px = tx * S, py = ty * S;
+            for (let dy = 0; dy < S; dy++)
+                for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
+        };
+        for (let y = 0; y < VH; y++)
+            for (let x = 0; x < VW; x++) setPx(x*S, y*S, 0, 0, 0); // (won't matter, we'll fill)
+        // floor: warm wood tone
+        const floor = rgb.wall_d, wallC = rgb.wall, pl = rgb.flower, rug = rgb.crop20, stone = rgb.rock;
+        for (let y = 0; y < rh; y++) {
+            for (let x = 0; x < rw; x++) {
+                const ch = rows[y][x];
+                const tile = ch === '#' ? wallC : ch === ' ' ? floor :
+                             ch === 'P' ? stone : ch === '.' ? rug : rgb.bridge;
+                fillTile(x, y, tile);
+            }
+        }
+        // player marker in interior
+        const px = me.inx * S, py = me.iny * S;
+        // dark ring on 4 sides
+        setPx(px, py, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
+        if (S >= 4) {
+            for (let i = 0; i < S; i++) {
+                setPx(px + i, py, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
+                setPx(px, py + i, rgb.outline[0], rgb.outline[1], rgb.outline[2]);
+            }
+            for (let i = 0; i < S; i++) {
+                setPx(px + S - 1, py + i, rgb.player[0], rgb.player[1], rgb.player[2]);
+                setPx(px + i, py + S - 1, rgb.player[0], rgb.player[1], rgb.player[2]);
+            }
+        } else {
+            for (let dy = 0; dy < S; dy++) for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, rgb.player[0], rgb.player[1], rgb.player[2]);
+        }
+        mapCtx.putImageData(img, 0, 0);
+        mapRegionEl.textContent = 'Inside: ' + me.inside;
+        return;
+    }
+
+    const cx = me ? me.x : 48, cy = me ? me.y : 32;
+    const vx = showFullMap ? 0 : Math.max(0, Math.min(w - VW, cx - Math.floor(VW / 2)));
+    const vy = showFullMap ? 0 : Math.max(0, Math.min(h - VH, cy - Math.floor(VH / 2)));
+
+    const W = VW * S, H = VH * S;
+    const img = mapCtx.createImageData(W, H);
+    const data = img.data;
+    const setPx = (x, y, r, g, b) => {
+        if (x < 0 || y < 0 || x >= W || y >= H) return;
+        const i = (y * W + x) * 4;
+        data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
+    };
+    const fillTileSolid = (tx, ty, c) => {
+        const px = (tx - vx) * S, py = (ty - vy) * S;
+        for (let dy = 0; dy < S; dy++)
+            for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
+    };
+    const fillTileChecker = (tx, ty, c1, c2) => {
+        const px = (tx - vx) * S, py = (ty - vy) * S;
+        const lit = ((tx + ty) & 1) === 0;
+        const c = lit ? c1 : c2;
+        for (let dy = 0; dy < S; dy++)
+            for (let dx = 0; dx < S; dx++) setPx(px+dx, py+dy, c[0], c[1], c[2]);
+    };
+    const tilePx = (tx, ty, dx, dy, c) => {
+        setPx((tx - vx) * S + dx, (ty - vy) * S + dy, c[0], c[1], c[2]);
+    };
+
+    // 1. ground tiles with 2-tone checker + per-tile texture detail
+    for (let y = vy; y < vy + VH; y++) {
+        for (let x = vx; x < vx + VW; x++) {
+            const tile = tileMap[y * w + x];
+            const pair = TILE_PAIR[tile];
+            if (pair) {
+                fillTileChecker(x, y, pair[0], pair[1]);
+                const ox = (x - vx) * S, oy = (y - vy) * S;
+
+                // grass & grass-var: warm speckles (organic feel, not flat)
+                if ((tile === 0 || tile === 1) && S >= 4) {
+                    const rnd = tileHash(x, y);
+                    const spCol = tile === 0 ? rgb.grass_sp : rgb.grass_sp_d;
+                    // deterministic 1-2 speckles per tile
+                    const sx1 = Math.floor(rnd * 4) % (S-1), sy1 = Math.floor(rnd * 100) % (S-1);
+                    const sx2 = Math.floor(rnd * 400) % (S-1), sy2 = Math.floor(rnd * 900) % (S-1);
+                    setPx(ox+sx1, oy+sy1, spCol[0], spCol[1], spCol[2]);
+                    if (S >= 5) setPx(ox+sx2, oy+sy2, spCol[0], spCol[1], spCol[2]);
+                }
+                // water: rippled wave lines (horizontal lighter band on alternating rows)
+                if (tile >= 2 && tile <= 6 && S >= 3) {
+                    const waveRow = (y & 1) === 0 ? 0 : Math.floor(S/2);
+                    for (let dx = 0; dx < S; dx++) {
+                        const i = ((oy + waveRow) * W + ox + dx) * 4;
+                        data[i] = rgb.water_lt[0]; data[i+1] = rgb.water_lt[1]; data[i+2] = rgb.water_lt[2]; data[i+3] = 255;
+                    }
+                    // deeper border on bottom row
+                    if (S >= 4) {
+                        for (let dx = 0; dx < S; dx++) {
+                            const i = ((oy + S - 1) * W + ox + dx) * 4;
+                            data[i] = rgb.water_deep[0]; data[i+1] = rgb.water_deep[1]; data[i+2] = rgb.water_deep[2]; data[i+3] = 255;
+                        }
+                    }
+                }
+                // dirt road: lighter center, darker edge (worn path look)
+                if (tile === 7 && S >= 4) {
+                    for (let dx = 1; dx < S-1; dx++) {
+                        const i = (oy * W + ox + dx) * 4;
+                        data[i] = rgb.dirt_lt[0]; data[i+1] = rgb.dirt_lt[1]; data[i+2] = rgb.dirt_lt[2]; data[i+3]=255;
+                    }
+                }
+                // sand: subtle sparkle
+                if (tile === 8 && S >= 4) {
+                    const rnd = tileHash(x, y);
+                    if (rnd > 0.6) {
+                        const sx = Math.floor(rnd * 50) % (S-1), sy = Math.floor(rnd * 500) % (S-1);
+                        setPx(ox+sx, oy+sy, rgb.sand_lt[0], rgb.sand_lt[1], rgb.sand_lt[2]);
+                    }
+                }
+                // tilled soil: deep furrow lines (top + bottom rows darker = rows of soil)
+                if (tile === 9) {
+                    for (let dx = 0; dx < S; dx++) {
+                        // top dark line (deep furrow)
+                        const i1 = (oy * W + ox + dx) * 4;
+                        data[i1] = 28; data[i1+1] = 16; data[i1+2] = 6; data[i1+3] = 255;
+                        // lighter middle (raised bed)
+                        if (S >= 5) {
+                            const mid = Math.floor(S/2);
+                            const i2 = ((oy + mid) * W + ox + dx) * 4;
+                            data[i2] = rgb.tilled_lt[0]; data[i2+1] = rgb.tilled_lt[1]; data[i2+2] = rgb.tilled_lt[2]; data[i2+3] = 255;
+                        }
+                    }
+                    // bottom edge darker
+                    if (S >= 3) {
+                        for (let dx = 0; dx < S; dx++) {
+                            const i = ((oy + S - 1) * W + ox + dx) * 4;
+                            data[i] = rgb.tilled_d[0]; data[i+1] = rgb.tilled_d[1]; data[i+2] = rgb.tilled_d[2]; data[i+3] = 255;
+                        }
+                    }
+                }
+                // bridge: wood plank detail (alternating dark/light vertical strips)
+                if (tile === 10 && S >= 4) {
+                    for (let dy = 0; dy < S; dy++) {
+                        const i = ((oy + dy) * W + ox) * 4;
+                        data[i] = rgb.bridge_d[0]; data[i+1] = rgb.bridge_d[1]; data[i+2] = rgb.bridge_d[2]; data[i+3]=255;
+                        const i2 = ((oy + dy) * W + ox + S - 1) * 4;
+                        data[i2] = rgb.bridge_lt[0]; data[i2+1] = rgb.bridge_lt[1]; data[i2+2] = rgb.bridge_lt[2]; data[i2+3]=255;
+                    }
+                }
+                // snow: subtle sparkle
+                if (tile === 11 && S >= 4) {
+                    const rnd = tileHash(x, y);
+                    if (rnd > 0.5) {
+                        const sx = Math.floor(rnd * 50) % (S-1), sy = Math.floor(rnd * 500) % (S-1);
+                        setPx(ox+sx, oy+sy, rgb.snow_sp[0], rgb.snow_sp[1], rgb.snow_sp[2]);
+                    }
+                }
+                // ice: crystalline shimmer
+                if (tile === 12 && S >= 4) {
+                    const rnd = tileHash(x, y);
+                    const sx = Math.floor(rnd * 100) % (S-1);
+                    setPx(ox+sx, oy, rgb.ice_sp[0], rgb.ice_sp[1], rgb.ice_sp[2]);
+                }
+            } else {
+                fillTileSolid(x, y, rgb.grass);
+            }
+        }
+    }
+
+    // 2. objects with rich bevel + shadow detail (Stardew-style sprites)
+    const cells = state.cells || [];
+    const ORE = [null, rgb.ore_cu, rgb.ore_fe, rgb.ore_au, rgb.ore_ir];
+    for (const cell of cells) {
+        const x = cell.x, y = cell.y;
+        if (x < vx || x >= vx + VW || y < vy || y >= vy + VH) continue;
+        if (cell.obj === 12) continue; // buildings drawn below
+
+        if (cell.obj === 2 && cell.ore) {
+            // ore-rock: ore color body, light sparkle top-left, dark base bottom-right
+            const ore = ORE[cell.ore] || rgb.ore_au;
+            fillTileSolid(x, y, ore);
+            if (S >= 4) {
+                // bevel: light TL, dark BR (3D mineral look)
+                tilePx(x, y, 0, 0, rgb.rock_lt);
+                tilePx(x, y, 1, 0, rgb.rock_lt);
+                tilePx(x, y, S-1, S-1, rgb.rock_dk);
+                tilePx(x, y, S-2, S-1, rgb.rock_dk);
+                // shine sparkle
+                tilePx(x, y, 2, 1, rgb.sprinkler_lt);
+            }
+        } else if (cell.obj === 1) {
+            // deciduous tree: lush green crown + trunk + light highlight + dark shadow
+            fillTileSolid(x, y, rgb.tree);
+            const tx_ = Math.floor(S / 2);
+            // trunk at bottom center (2px tall for visibility)
+            tilePx(x, y, tx_, S-1, rgb.trunk);
+            if (S >= 4) tilePx(x, y, tx_, S-2, rgb.trunk);
+            if (S >= 4) {
+                // highlight: lighter green top-left (sunlight)
+                tilePx(x, y, 1, 1, rgb.tree_lt);
+                tilePx(x, y, 0, 1, rgb.tree_lt);
+                // shadow: darker bottom-right
+                tilePx(x, y, S-2, S-2, rgb.tree_dk);
+                tilePx(x, y, S-1, S-3, rgb.tree_dk);
+            }
+        } else if (cell.obj === 9) {
+            // pine: dark pointed conifer + trunk + tip highlight
+            fillTileSolid(x, y, rgb.pine);
+            tilePx(x, y, Math.floor(S/2), S-1, rgb.trunk);
+            if (S >= 4) {
+                // star tip at top
+                tilePx(x, y, Math.floor(S/2), 0, rgb.pine_lt);
+                // shadow left side, highlight right
+                tilePx(x, y, 0, S-2, rgb.pine_dk);
+                tilePx(x, y, S-1, 1, rgb.pine_lt);
+            }
+        } else if (cell.obj === 2) {
+            // rock: beveled, light TL + dark BR + center crack
+            fillTileSolid(x, y, rgb.rock);
+            if (S >= 3) {
+                tilePx(x, y, 0, 0, rgb.rock_lt);
+                tilePx(x, y, 1, 0, rgb.rock_lt);
+                tilePx(x, y, 0, 1, rgb.rock_lt);
+                tilePx(x, y, S-1, S-1, rgb.rock_dk);
+                tilePx(x, y, S-2, S-1, rgb.rock_dk);
+                // center darker spot
+                if (S >= 5) tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.rock_dk);
+            }
+        } else if (cell.obj === 6) {
+            // stump: tree trunk with rings
+            fillTileSolid(x, y, rgb.trunk);
+            if (S >= 4) {
+                // darker outer ring + lighter center (cross-section)
+                tilePx(x, y, 0, 0, rgb.trunk_d);
+                tilePx(x, y, S-1, S-1, rgb.trunk_d);
+                tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.mush_stem);
+            }
+        } else if (cell.obj === 10) {
+            // bush: leafy bush with light dapples + dark base
+            fillTileSolid(x, y, rgb.bush);
+            if (S >= 4) {
+                // light dapples (sunlight on leaves)
+                tilePx(x, y, 0, 0, rgb.bush_lt);
+                tilePx(x, y, S-1, 0, rgb.bush_lt);
+                tilePx(x, y, 1, 1, rgb.bush_lt);
+                // dark base
+                tilePx(x, y, 0, S-1, rgb.bush_dk);
+                tilePx(x, y, S-1, S-1, rgb.bush_dk);
+            }
+        } else if (cell.obj === 11) {
+            // mushroom: tan cap + cream stem, with cap shadow
+            fillTileSolid(x, y, rgb.mushroom);
+            if (S >= 3) {
+                // stem (pale center)
+                tilePx(x, y, Math.floor(S/2), Math.floor(S/2)+1, rgb.mush_stem);
+                // cap shadow (darker rim)
+                tilePx(x, y, 0, 0, rgb.mush_dk);
+                tilePx(x, y, S-1, 0, rgb.mush_dk);
+            }
+        } else if (cell.obj === 7 || cell.obj === 8) {
+            // fence: vertical planks with light/dark
+            fillTileSolid(x, y, rgb.fence);
+            if (S >= 3) {
+                // posts (darker) + rail (lighter)
+                tilePx(x, y, 0, 0, rgb.fence_d);
+                tilePx(x, y, S-1, S-1, rgb.fence_d);
+                tilePx(x, y, Math.floor(S/2), 1, rgb.fence_lt);
+                // cross-rail
+                tilePx(x, y, Math.floor(S/2), S-2, rgb.fence_lt);
+            }
+        } else if (cell.obj === 13) {
+            // sprinkler: silver base + 3-4 shine spokes (Stardew iridium sprinkler)
+            fillTileSolid(x, y, rgb.sprinkler_dk);
+            // center bright
+            const cx_ = Math.floor(S/2), cy_ = Math.floor(S/2);
+            tilePx(x, y, cx_, cy_, rgb.sprinkler_lt);
+            if (S >= 4) {
+                // 4 spokes radiating
+                tilePx(x, y, cx_-1, cy_, rgb.sprinkler);
+                tilePx(x, y, cx_+1, cy_, rgb.sprinkler);
+                tilePx(x, y, cx_, cy_-1, rgb.sprinkler);
+                tilePx(x, y, cx_, cy_+1, rgb.sprinkler);
+            }
+        } else if (cell.obj === 3) {
+            // weed: small wild tuft
+            fillTileSolid(x, y, rgb.weed);
+            if (S >= 4) {
+                tilePx(x, y, 1, 1, rgb.weed_sp);
+                tilePx(x, y, S-2, S-2, rgb.weed_sp);
+            }
+        } else if (cell.obj === 4) {
+            // tall grass
+            fillTileSolid(x, y, rgb.tall);
+            if (S >= 4) {
+                // blade tips lighter
+                tilePx(x, y, 0, 0, rgb.tall_sp);
+                tilePx(x, y, S-2, 0, rgb.tall_sp);
+                tilePx(x, y, Math.floor(S/2), 0, rgb.tall_sp);
+            }
+        } else if (cell.obj === 5) {
+            // flower: pink bloom + bright center + green stem hint
+            fillTileSolid(x, y, rgb.flower_dk);
+            if (S >= 3) {
+                // petals
+                tilePx(x, y, Math.floor(S/2), Math.floor(S/2), rgb.flower);
+                // bright bloom center
+                tilePx(x, y, Math.floor(S/2)-1, Math.floor(S/2)-1, rgb.flower_lt);
+            }
+        }
+
+        // crops: leaf + fruit colored by crop type, multi-stage growth
+        if (cell.crop && cell.crop > 0) {
+            const stage = cell.stage || 0;
+            const ripe = stage === 3 && (cell.days_left || 0) <= 0;
+            const leafCol = rgb.crop_leaf;
+            const fruitCol = CROP_RIPE[cell.crop] || rgb.crop20;
+            const cx = Math.floor(S / 2);
+            const cy = Math.floor(S * 0.65);
+            if (S >= 4) {
+                // draw on top of tilled soil (which is already there)
+                if (stage <= 1) {
+                    // tiny sprout: 1-2 leaf pixels
+                    tilePx(x, y, cx, cy, leafCol);
+                    tilePx(x, y, cx-1, cy, leafCol);
+                    tilePx(x, y, cx, cy-1, leafCol);
+                } else if (stage === 2) {
+                    // bushy leaf cluster
+                    for (let dx = -1; dx <= 1; dx++) tilePx(x, y, cx+dx, cy, leafCol);
+                    tilePx(x, y, cx, cy-1, leafCol);
+                    tilePx(x, y, cx, cy-2, leafCol);
+                    tilePx(x, y, cx-1, cy-1, rgb.crop_leaf_dk);
+                } else {
+                    // stage 3: full plant with fruit (if ripe, show colored berries/fruits)
+                    // leaves
+                    for (let dx = -2; dx <= 2; dx++) tilePx(x, y, cx+dx, cy, leafCol);
+                    tilePx(x, y, cx, cy-1, leafCol);
+                    tilePx(x, y, cx-2, cy-1, rgb.crop_leaf_dk);
+                    tilePx(x, y, cx+2, cy-1, rgb.crop_leaf_dk);
+                    if (ripe) {
+                        // fruit/produce dots on top of leaves
+                        tilePx(x, y, cx-1, cy-1, fruitCol);
+                        tilePx(x, y, cx+1, cy-1, fruitCol);
+                        if (S >= 5) tilePx(x, y, cx, cy-2, fruitCol);
+                    }
+                }
+            } else {
+                fillTileSolid(x, y, ripe ? fruitCol : leafCol);
+            }
+        }
+    }
+
+    // 3. buildings with peaked roof + windows + door + outline + shadow
+    const drawBuilding = (x, y, wdt, hgt, wallC, roofC) => {
+        const roofH = Math.max(1, Math.floor(hgt * 0.4));
+        for (let dy = 0; dy < hgt; dy++) {
+            for (let dx = 0; dx < wdt; dx++) {
+                const tx = x + dx, ty = y + dy;
+                if (tx < vx || tx >= vx + VW || ty < vy || ty >= vy + VH) continue;
+                if (dy < roofH) {
+                    // roof: lighter on top row (apex highlight), darker on last roof row (eave shadow)
+                    if (dy === 0) fillTileSolid(tx, ty, rgb.roof_lt);
+                    else if (dy === roofH - 1) fillTileSolid(tx, ty, rgb.roof_dk);
+                    else fillTileSolid(tx, ty, roofC);
+                    // roof ridge sparkle
+                    if (dy === 0 && S >= 4 && (dx === 0 || dx === wdt-1)) {
+                        tilePx(tx, ty, Math.floor(S/2), 0, rgb.roof_lt);
+                    }
+                } else {
+                    fillTileSolid(tx, ty, wallC);
+                    // wall top stripe (light) and bottom stripe (shadow)
+                    if (dy === roofH && S >= 4) {
+                        for (let dxx = 0; dxx < S; dxx++) tilePx(tx, ty, dxx, 0, rgb.wall_lt);
+                    }
+                    if (dy === hgt - 1 && S >= 4) {
+                        for (let dxx = 0; dxx < S; dxx++) tilePx(tx, ty, dxx, S-1, rgb.wall_dk2);
+                    }
+                    // window: small bright dot on middle wall tiles
+                    if (dy > roofH && dy < hgt - 1 && S >= 4 && (dx === 0 || dx === wdt-1)) {
+                        tilePx(tx, ty, Math.floor(S/2), Math.floor(S/2), rgb.flower_lt);
+                        tilePx(tx, ty, Math.floor(S/2)+1, Math.floor(S/2), rgb.flower_lt);
+                    }
+                }
+            }
+        }
+        // outline border (1 tile wide dark frame)
+        const O = rgb.outline;
+        for (let dy = -1; dy <= hgt; dy++) {
+            if (x-1 >= 0 && y+dy >= 0 && y+dy < h) fillTileSolid(x-1, y+dy, O);
+            if (x+wdt < w && y+dy >= 0 && y+dy < h) fillTileSolid(x+wdt, y+dy, O);
+        }
+        for (let dx = -1; dx <= wdt; dx++) {
+            if (y-1 >= 0 && x+dx >= 0 && x+dx < w) fillTileSolid(x+dx, y-1, O);
+            if (y+hgt < h && x+dx >= 0 && x+dx < w) fillTileSolid(x+dx, y+hgt, O);
+        }
+        // door: small dark door with arch, on bottom-center wall tile
+        if (S >= 4 && hgt - roofH >= 1) {
+            const doorX = x + Math.floor(wdt / 2);
+            const doorY = y + hgt - 1;
+            if (doorX >= vx && doorX < vx + VW && doorY >= vy && doorY < vy + VH) {
+                // door outline + warm interior
+                fillTileSolid(doorX, doorY, rgb.wall_dk2);
+                tilePx(doorX, doorY, Math.floor(S/2), Math.floor(S/2), rgb.mush_stem);
+                tilePx(doorX, doorY, Math.floor(S/2), 0, rgb.wall_dk2);
+                // door knob
+                if (S >= 5) tilePx(doorX, doorY, Math.floor(S*0.7), Math.floor(S*0.5), rgb.ring);
+            }
+        }
+    };
+    const BLD_COL = {
+        'Blacksmith':    [rgb.wall, rgb.outline],
+        'General Store': [rgb.wall, rgb.roof],
+        'Old Mill':      [rgb.wall, rgb.ore_cu],
+        'Hawthorn Barn': [rgb.wall_d, rgb.trunk],
+        'Glasshouse':    [rgb.wall, rgb.bush],
+    };
+    if (state.house) drawBuilding(state.house.x, state.house.y, 3, 4, rgb.wall, rgb.roof);
+    for (const b of (state.buildings || [])) {
+        const cols = BLD_COL[b.name] || [rgb.wall, rgb.roof];
+        drawBuilding(b.x, b.y, b.w, b.h, cols[0], cols[1]);
+    }
+
+    // 4. NPCs as mini-humanoids: colored body + dark hair + legs
+    for (const n of (state.npcs || [])) {
+        if (n.x < vx || n.x >= vx + VW || n.y < vy || n.y >= vy + VH) continue;
+        const np = NPC_RGB[(n.color - 1) % NPC_RGB.length];
+        // dark body underneath
+        fillTileSolid(n.x, n.y, rgb.outline);
+        if (S >= 4) {
+            // shirt color (rows 1-3)
+            for (let dy = 1; dy <= 3; dy++) for (let dx = 0; dx < S; dx++) tilePx(n.x, n.y, dx, dy, np);
+            // hair (row 0) darker shade
+            tilePx(n.x, n.y, 1, 0, rgb.outline);
+            tilePx(n.x, n.y, Math.floor(S/2), 0, rgb.outline);
+            // legs (row S-1) darker
+            for (let dx = Math.floor(S/3); dx <= Math.floor(S*2/3); dx++) tilePx(n.x, n.y, dx, S-1, rgb.outline);
+            // outline corners
+            tilePx(n.x, n.y, 0, 0, rgb.outline);
+            tilePx(n.x, n.y, S-1, 0, rgb.outline);
+            tilePx(n.x, n.y, 0, S-1, rgb.outline);
+            tilePx(n.x, n.y, S-1, S-1, rgb.outline);
+        } else {
+            fillTileSolid(n.x, n.y, np);
+        }
+    }
+
+    // 5. player sprite: mini-humanoid with hair + skin + shirt + legs + direction eye
+    if (me) {
+        const px = me.x, py = me.y;
+        // dark outline ring on 4 adjacent tiles (diagonal corners shared)
+        const O = rgb.outline;
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const ax = px + dx, ay = py + dy;
+            if (ax >= 0 && ax < w && ay >= 0 && ay < h) fillTileSolid(ax, ay, O);
+        }
+        // sprite body (on top of dark ground):
+        if (S >= 4) {
+            // layout (S=5): 0:hat 1:face 2:face 3:shirt 4:legs
+            // hat (y=0): hair color
+            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 0, rgb.player_hair);
+            // face (y=1,2): skin color
+            for (let dy = 1; dy <= 2; dy++) for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, dy, rgb.player_skin);
+            // shirt (y=3): blue
+            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 3, rgb.player_d);
+            // legs (y=4): darker
+            for (let dx = 0; dx < S; dx++) tilePx(px, py, dx, 4, rgb.player_hair);
+            // pants split (center line darker)
+            tilePx(px, py, Math.floor(S/2), 4, O);
+            // direction eye on the face
+            const d = me.dir || 0;
+            let ex, ey;
+            if (d === 0)      { ex = Math.floor(S/2);     ey = 2; }                       // south: bottom face
+            else if (d === 1) { ex = 0;                    ey = 1; }                       // west: left face
+            else if (d === 2) { ex = S - 1;               ey = 1; }                       // east: right face
+            else              { ex = Math.floor(S/2);     ey = 1; }                       // north: top face (hidden)
+            tilePx(px, py, ex, ey, rgb.eye);
+            // small hat brim
+            if (S >= 5) {
+                tilePx(px, py, 0, 1, rgb.player_hair);
+                tilePx(px, py, S-1, 1, rgb.player_hair);
+            }
+        } else {
+            fillTileSolid(px, py, rgb.player);
+        }
+        // gold highlight arrow 2 tiles ahead (direction indicator)
+        const ahead = [[0,1],[-1,0],[1,0],[0,-1]];
+        const d = me.dir || 0;
+        const [adx, ady] = ahead[d] || [0,1];
+        for (let i = 1; i <= 2; i++) {
+            const ax = px + adx * i, ay = py + ady * i;
+            if (ax >= 0 && ax < w && ay >= 0 && ay < h)
+                fillTileSolid(ax, ay, i === 1 ? rgb.ring : rgb.ring_dk);
+        }
+    }
+
+    // 6. atmospheric day/night overlay (warm dawn, golden dusk, deep night)
+    const t = state.time || 0;
+    const DAY_LENGTH = 800;
+    const hrs = 6 + 16 * t / DAY_LENGTH;
+    let alpha = 0, nr = 0, ng = 0, nb = 0;
+    if (hrs < 6.5 || hrs >= 20) {
+        // night: deep blue dim
+        alpha = 0.5;  nr = 10;  ng = 18;  nb = 48;
+    } else if (hrs < 8) {
+        // dawn: cool blue fading + faint warm tint
+        const f = (8 - hrs) / 1.5;
+        alpha = 0.4 * f;  nr = 30;  ng = 30;  nb = 70;
+    } else if (hrs > 17 && hrs < 19.5) {
+        // dusk: golden orange transition
+        const f = (hrs - 17) / 2.5;
+        alpha = 0.35 * f;  nr = 168;  ng = 88;  nb = 24;
+        if (hrs > 19) { alpha = 0.45 * (hrs - 18) / 2; nr = 30; ng = 26; nb = 64; }
+    } else if (hrs >= 19.5 && hrs < 20) {
+        // dusk-to-night transition
+        const f = (hrs - 19.5) / 0.5;
+        alpha = 0.45 + 0.05 * f; nr = 10; ng = 18; nb = 48;
+    }
+    if (alpha > 0) {
+        const inv = 1 - alpha;
+        for (let i = 0; i < data.length; i += 4) {
+            data[i]   = data[i]   * inv + nr * alpha;
+            data[i+1] = data[i+1] * inv + ng * alpha;
+            data[i+2] = data[i+2] * inv + nb * alpha;
+        }
+    }
+    // rain overlay (if raining): subtle cool blue wash + darken
+    if (state.weather) {
+        for (let i = 0; i < data.length; i += 4) {
+            data[i]   = data[i]   * 0.82 + 20;
+            data[i+1] = data[i+1] * 0.82 + 24;
+            data[i+2] = data[i+2] * 0.85 + 36;
+        }
+    }
+
+    mapCtx.putImageData(img, 0, 0);
+
+    if (me) {
+        let reg = me.region || '';
+        if (!me.inside) {
+            const doorAt = (x, y, name) => {
+                if (me.x === x && me.y === y) reg += '  [' + name + ' door]';
+            };
+            if (state.house) doorAt(state.house.x + 1, state.house.y + 3, 'Farmhouse');
+            for (const b of (state.buildings || []))
+                doorAt(b.x + ((b.w - 1) >> 1), b.y + b.h, b.name);
+        }
+        mapRegionEl.textContent = reg || '-';
+    }
+}
+
+// ---- terminal log ----
+function print(text, cls = '') {
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function printLines(text, cls = '') {
+    text.split('\n').forEach(l => print(l, cls));
+}
+
+function showStatus(s) {
+    document.getElementById('st-day').textContent = s ? s.day : '-';
+    document.getElementById('st-time').textContent = s ? s.time : '-';
+    document.getElementById('st-season').textContent = s ? s.season + ' · ' + (s.weather ? 'Rain' : 'Sun') : '-';
+    document.getElementById('st-energy').textContent = s ? Math.round(s.energy) + '/' + s.max_energy : '-';
+    document.getElementById('st-money').textContent = s ? s.money + 'g' : '-';
+}
+
+async function post(path, body) {
+    const r = await fetch(path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    return r.json();
+}
+
+async function pollStatus() {
+    try {
+        const r = await fetch('/state');
+        const s = await r.json();
+        let me = null;
+        if (s.players) me = s.players.find(p => p.player_id === myId);
+        if (me) {
+            const t = s.time || 0;
+            const DAY_LENGTH_S = 800; // must match server
+            const hrs = Math.floor(6 + 16 * t / DAY_LENGTH_S);
+            const mins = Math.floor(((t / DAY_LENGTH_S) * 16 * 60) % 60);
+            const ampm = hrs >= 12 ? 'PM' : 'AM';
+            const h12 = hrs % 12 === 0 ? 12 : hrs % 12;
+            showStatus({
+                day: s.day,
+                time: h12 + ':' + String(mins).padStart(2, '0') + ' ' + ampm,
+                season: s.season,
+                weather: s.weather,
+                energy: me.energy,
+                max_energy: me.max_energy,
+                money: me.money,
+            });
+        }
+        if (tileMap) drawMap(s);
+    } catch (e) { /* server briefly down */ }
+}
+
+async function sendCmd(text) {
+    if (!myId) return;
+    const clean = text.trim();
+    if (!clean) return;
+    print('> ' + clean, 'me');
+    try {
+        const resp = await post('/cmd', {player_id: myId, cmd: clean});
+        (resp.lines || []).forEach(l => print(l));
+    } catch (e) {
+        print('Connection lost.', 'err');
+    }
+    pollStatus();
+}
+
+async function init() {
+    const name = prompt('What is your farmer name?', 'Farmer');
+    if (!name) { print('Reload the page to start playing.', 'err'); return; }
+    try {
+        const resp = await post('/join', {name: name});
+        myId = resp.player_id;
+        tileMap = resp.tile_map;
+        printLines(resp.welcome || 'Welcome to Ashgrove Valley!', 'sys');
+        setInterval(pollStatus, 1000);
+        showStatus({day: resp.day, time: '6:00 AM', season: resp.season, weather: resp.weather, energy: 270, max_energy: 270, money: 500});
+    } catch (e) {
+        print('Could not connect to the server.', 'err');
+    }
+}
+
+const cmdHistory = [];
+let histIdx = -1;
+input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        const v = input.value;
+        if (v.trim()) {
+            cmdHistory.push(v.trim());
+            if (cmdHistory.length > 30) cmdHistory.shift();
+            histIdx = cmdHistory.length;
+        }
+        input.value = '';
+        sendCmd(v);
+    }
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (cmdHistory.length) {
+            histIdx = Math.max(0, histIdx - 1);
+            input.value = cmdHistory[histIdx];
+        }
+    }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (cmdHistory.length) {
+            histIdx = Math.min(cmdHistory.length, histIdx + 1);
+            input.value = histIdx === cmdHistory.length ? '' : cmdHistory[histIdx];
+        }
+    }
+});
+
+input.addEventListener('beforeinput', () => {
+    sessionStorage.setItem('lastCmd', input.value);
+});
+
+mapToggle.addEventListener('click', () => {
+    showFullMap = !showFullMap;
+    if (showFullMap) {
+        VW = 96; VH = 64; S = 2;
+        mapCv.style.width = '100%';
+    } else {
+        VW = 27; VH = 17; S = 5;
+        mapCv.style.width = '100%';
+    }
+    mapCv.width = VW * S;
+    mapCv.height = VH * S;
+    mapToggle.textContent = showFullMap ? 'Viewport' : 'Full Map';
+    if (tileMap) pollStatus();
+});
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
