@@ -1086,10 +1086,10 @@ const MapRenderer = {
         ctx.ellipse(cx, top + s * 0.92, s * 0.36, s * 0.11, 0, 0, Math.PI * 2);
         ctx.fill();
       }
-      const size = (o === 1 || o === 9) ? s * 1.25   // trees
-                 : o === 2 ? s * 0.95               // rocks
-                 : o === 11 ? s * 0.85               // mushrooms
-                 : s * 0.95;
+      const size = (o === 1 || o === 9) ? Math.max(16, s * 1.25)   // trees
+                 : o === 2 ? Math.max(13, s * 0.95)               // rocks
+                 : o === 11 ? Math.max(12, s * 0.85)              // mushrooms
+                 : Math.max(12, s * 0.95);
       this.emoji(ctx, g, cx, cy, size);
       // ore rock: colored mineral sparkle in the corner
       if (o === 2 && c.ore) {
@@ -1147,9 +1147,11 @@ const MapRenderer = {
     ctx.beginPath();
     ctx.ellipse(pxTop + wpx / 2, pyTop + hpx + 2, wpx * 0.55, hpx * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
-    // building emoji — large, centered over the footprint
+    // building emoji — large, centered over the footprint; minimum 22px
+    // so buildings stay solid/legible even when tiles are tiny (a
+    // downscaled color emoji at ~5px is nothing but translucent AA edges)
     if (s >= 4) {
-      const esz = Math.min(wpx * 0.92, Math.max(s * 1.1, hpx * 1.05));
+      const esz = Math.max(22, Math.min(wpx * 1.15, Math.max(s * 1.4, hpx * 1.05)));
       // warm glow behind the emoji at night
       if (dayF < 0.5) {
         ctx.fillStyle = 'rgba(255,190,110,0.16)';
