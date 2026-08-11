@@ -1567,10 +1567,11 @@ const MapView = {
     const glyph = OBJ_GLYPH[o];
     if (!glyph) return;
     if (s >= 6) {
+      // Tree/object shadow for depth
       if (o === 1 || o === 9 || o === 6 || o === 2) {
         const sh = new PIXI.Graphics();
-        sh.beginFill(0x000000, 0.25);
-        sh.drawEllipse(cx, this.wy(c.y) + s * 0.92, s * 0.36, s * 0.11);
+        sh.beginFill(0x000000, 0.28);
+        sh.drawEllipse(cx + s * 0.1, this.wy(c.y) + s * 0.95, s * 0.38, s * 0.12);
         sh.endFill();
         this.objects.addChild(sh);
       }
@@ -1641,6 +1642,13 @@ const MapView = {
     if (s >= 4) {
       const padR = Math.max(wpx, hpx) * 0.62;
       const cx = pxTop + wpx / 2, cy = pyTop + hpx / 2;
+      // Offset shadow for depth
+      const sh = new PIXI.Graphics();
+      sh.beginFill(0x000000, 0.22);
+      sh.drawEllipse(cx + s * 0.15, cy + s * 0.1, padR, padR * 0.85);
+      sh.endFill();
+      this.buildings.addChild(sh);
+      // Ground shadow
       const rim = new PIXI.Graphics();
       rim.beginFill(0x000000, 0.32);
       rim.drawEllipse(cx, cy, padR, padR * 0.85);
@@ -1737,13 +1745,82 @@ const MapView = {
   loop() {
     if (this.dirty) { this.paint(); this.dirty = false; }
     const now = performance.now();
-    // Animate water shimmer on existing ground tiles (grass is static for clean look)
+    // Animate water shimmer + ripples on existing ground tiles (grass is static)
     for (const ch of this.ground.children) {
       if (ch.isWater && ch.baseY !== undefined) {
         ch.y = ch.baseY + Math.sin((now + ch.baseX) * 0.003) * 1.5;
       }
     }
+    // Animate chimney smoke, water ripples, player trail
+    this.paintAmbientEffects(now);
     this.paintLive(performance.now() - this.t0);
+  },
+
+  paintAmbientEffects(now) {
+    const w = State.world;
+    if (!w) return;
+
+    // Chimney smoke on buildings
+    if (!this.smokeG) { this.smokeG = new PIXI.Graphics(); this.overlay.addChild(this.smokeG); }
+    this.smokeG.clear();
+    const allBldg = [...(State.join ? State.join.buildings || [] : [])];
+    if (w.house) allBldg.push({ name: 'Farmhouse', x: w.house.x, y: w.house.y, w: 3, h: 4 });
+    const s = this.scale();
+    for (const b of allBldg) {
+      if (!/House|Farmhouse|Cottage|Barn|Inn/i.test(b.name)) continue;
+      const cx = this.wx(b.x + (b.w || 1) / 2);
+      const cy = this.wy(b.y) - s * 0.3;
+      for (let i = 0; i < 3; i++) {
+        const t = (now * 0.0003 + i * 0.33) % 1;
+        const px = cx + Math.sin(now * 0.001 + i) * s * 0.4;
+        const py = cy - t * s * 2;
+        const a = (1 - t) * 0.35;
+        this.smokeG.beginFill(0xc8c8c8, a);
+        this.smokeG.drawCircle(px, py, s * 0.15 * (0.5 + t));
+        this.smokeG.endFill();
+      }
+    }
+
+    // Water ripples — concentric circles emanating from random water tiles
+    if (!this.rippleG) { this.rippleG = new PIXI.Graphics(); this.overlay.addChild(this.rippleG); }
+    this.rippleG.clear();
+    if (State.cellMap) {
+      const halfW = Math.ceil(this.CSS_W / 2 / s) + 1;
+      const halfH = Math.ceil(this.CSS_H / 2 / s) + 1;
+      const x0 = clamp(Math.floor(State.cam.x - halfW), 0, MAP_W);
+      const x1 = clamp(Math.ceil(State.cam.x + halfW), 0, MAP_W);
+      const y0 = clamp(Math.floor(State.cam.y - halfH), 0, MAP_H);
+      const y1 = clamp(Math.ceil(State.cam.y + halfH), 0, MAP_H);
+      const rippleTime = (now * 0.001) % 3;
+      for (let ty = y0; ty < y1; ty++) {
+        for (let tx = x0; tx < x1; tx++) {
+          const h = worldHash(tx * 11, ty * 17);
+          if (h > 0.997) {
+            const cell = State.cellMap.get(ty * MAP_W + tx);
+            const tile = cell && typeof cell.tile === 'number' ? cell.tile : State.tileMap[ty * MAP_W + tx];
+            if (tile < 2 || tile > 6) continue;
+            const cx = this.wx(tx) + s / 2;
+            const cy = this.wy(ty) + s / 2;
+            const r = rippleTime * s * 0.6;
+            this.rippleG.lineStyle(1, 0xe8f4f8, 0.4 * (1 - rippleTime / 3));
+            this.rippleG.drawCircle(cx, cy, r);
+          }
+        }
+      }
+    }
+
+    // Player trail (footprints that fade)
+    if (!this.trailG) { this.trailG = new PIXI.Graphics(); this.deco.addChild(this.trailG); }
+    this.trailG.clear();
+    const me = State.me();
+    if (me && !me.inside) {
+      const cx = this.wx(me.x) + s / 2;
+      const cy = this.wy(me.y) + s * 0.75;
+      this.trailG.beginFill(0x8a6a44, 0.35);
+      this.trailG.drawEllipse(cx - 2, cy, 4, 2);
+      this.trailG.drawEllipse(cx + 2, cy + 2, 4, 2);
+      this.trailG.endFill();
+    }
   },
 
   paintLive(now) {
