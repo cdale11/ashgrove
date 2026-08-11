@@ -34,16 +34,25 @@ static bool save_world(const World& w, const std::string& path) {
     return true;
 }
 
-static bool load_or_generate(World& w) {
-    std::ifstream f("save.json");
-    if (f) {
-        std::string s((std::istreambuf_iterator<char>(f)), {});
-        bool ok = deserialize_world(w, s);
-        if (ok) clear_paths(w);   // fix bridges/doors blocked by pre-fix saves
-        return ok;
+// Deserialize a save into an already-generated world (buildings, interiors and
+// the house come from generation; saves store cells, players and the clock).
+// Resets NPC schedule state so villagers re-route to their current time slot.
+static bool load_world(World& w, const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return false;
+    std::string s((std::istreambuf_iterator<char>(f)), {});
+    if (!deserialize_world(w, s)) return false;
+    clear_paths(w);   // fix bridges/doors blocked by pre-fix saves
+    for (auto& n : w.npcs) {
+        n.sched_slot = -1;
+        n.path.clear();
+        n.path_i = 0;
+        n.next_move_ms = 0;
     }
-    return false;
+    return true;
 }
+
+static bool load_or_generate(World& w) { return load_world(w, "save.json"); }
 
 // Advance to the next day: crops that were watered grow, rain waters everything,
 // all farmers get their energy back. Saves immediately.
@@ -376,6 +385,24 @@ static std::string furniture_name(char c) {
     }
 }
 
+// Starter kit for a brand-new farmer (mirrors the /join handler).
+static Player make_fresh_player(uint32_t id, const std::string& name, Vec2 pos) {
+    Player p;
+    p.id = id;
+    p.name = name;
+    p.pos = pos;
+    p.target = pos;
+    p.inv[0] = {Item::Hoe, 1};
+    p.inv[1] = {Item::WateringCan, 40};
+    p.inv[2] = {Item::Axe, 1};
+    p.inv[3] = {Item::Pickaxe, 1};
+    p.inv[4] = {Item::Scythe, 1};
+    p.inv[5] = {Item::ParsnipSeeds, 15};
+    p.inv[6] = {Item::PotatoSeeds, 15};
+    p.inv[7] = {Item::CauliflowerSeeds, 10};
+    return p;
+}
+
 static std::vector<std::string> handle_cmd(World& w, Player& p, const std::string& raw) {
     std::vector<std::string> out;
     auto say = [&](const std::string& s) { out.push_back(s); };
@@ -416,6 +443,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  hearts         check friendship with the villagers");
         say("  festival       join in (Spring 13)  |  search <patch> find eggs");
         say("  sleep          rest until morning (near the house door)");
+        say("  save [<name>]  write the whole game state (default: save.json)");
+        say("  load [<name>]  restore a save file (list with 'saves')");
+        say("  newgame        start a fresh farm — the old save is kept as a backup");
+        say("  saves          list save files on the server");
         say("  tv             watch the valley news (in the farmhouse)");
         return out;
     }
@@ -1333,11 +1364,98 @@ if (cmd == "buy") {
         return out;
     }
 
+    // ---------- save / load / newgame ----------
+    auto name_ok = [](const std::string& n) {
+        if (n.empty() || n.size() > 32) return false;
+        for (char c : n)
+            if (!std::isalnum((unsigned char)c) && c != '_' && c != '-') return false;
+        return true;
+    };
+    if (cmd == "save") {
+        if (!arg.empty() && !name_ok(arg)) {
+            say("Save names: letters, digits, '_' or '-' only (max 32).");
+            return out;
+        }
+        std::string f = arg.empty() ? "save.json" : "save_" + arg + ".json";
+        if (save_world(w, f))
+            say("Saved to " + f + " — " + std::string(clock_str(w)) + ".");
+        else say("Could not write " + f + ".");
+        return out;
+    }
+    if (cmd == "load") {
+        if (!arg.empty() && !name_ok(arg)) {
+            say("Save names: letters, digits, '_' or '-' only (max 32).");
+            return out;
+        }
+        std::string f = arg.empty() ? "save.json" : "save_" + arg + ".json";
+        World fresh;
+        generate_world(fresh);           // buildings/interiors/house base
+        init_npcs(fresh);
+        if (!load_world(fresh, f)) {
+            say("No save file '" + f + "'. Type 'saves' to list them.");
+            return out;
+        }
+        uint32_t pid = p.id;
+        std::string pname = p.name;
+        bool kept = fresh.players.count(pid) > 0;
+        w = std::move(fresh);
+        if (!kept)   // save belongs to another farmer: rejoin with a fresh kit
+            w.players[pid] = make_fresh_player(pid, pname,
+                {int16_t(w.door().x), int16_t(w.door().y + 1)});
+        say("Loaded " + f + " — " + std::string(clock_str(w)) + ", " +
+            std::string(season_name(season_index(w.day))) + " " +
+            std::to_string(season_day(w.day)) + ".");
+        return out;
+    }
+    if (cmd == "newgame") {
+        std::time_t t = std::time(nullptr);
+        std::tm lt;
+        localtime_r(&t, &lt);
+        char ts[32];
+        std::snprintf(ts, sizeof ts, "%04d%02d%02d_%02d%02d%02d",
+                      lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                      lt.tm_hour, lt.tm_min, lt.tm_sec);
+        std::string backup = "save_" + std::string(ts) + ".json";
+        if (fs::exists("save.json")) {
+            fs::copy_file("save.json", backup, fs::copy_options::overwrite_existing);
+            say("Previous save kept as " + backup + ".");
+        }
+        uint32_t pid = p.id;
+        std::string pname = p.name;
+        World fresh;
+        generate_world(fresh);
+        init_npcs(fresh);
+        fresh.players[pid] = make_fresh_player(pid, pname,
+            {int16_t(fresh.door().x), int16_t(fresh.door().y + 1)});
+        w = std::move(fresh);
+        save_world(w, "save.json");
+        say("New game — Spring 1, Day 1. A rundown farm is yours again.");
+        return out;
+    }
+    if (cmd == "saves") {
+        std::error_code ec;
+        int n = 0;
+        for (auto& e : fs::directory_iterator(".", ec)) {
+            if (ec) break;
+            if (!e.is_regular_file()) continue;
+            std::string fn = e.path().filename().string();
+            if (fn.rfind("save", 0) == 0 && fn.size() > 5 &&
+                fn.compare(fn.size() - 5, 5, ".json") == 0) {
+                say("  " + fn);
+                ++n;
+            }
+        }
+        if (!n) say("No save files found.");
+        else say(std::to_string(n) + " save file(s). 'load <name>' restores one.");
+        return out;
+    }
+
     say("I don't understand '" + cmd + "'. Type 'help' for commands.");
     return out;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    int port = argc > 1 ? std::atoi(argv[1]) : 8080;
     std::srand((unsigned)std::time(nullptr));
     World world;
     {
@@ -1376,20 +1494,8 @@ int main() {
             // update only the name; keep saved inventory, money, energy, hearts, etc.
         } else {
             pid = world.next_player_id++;
-            Player p;
-            p.id = pid;
-            p.name = name;
-            p.pos = {int16_t(world.door().x), int16_t(world.door().y + 1)};
-            p.target = p.pos;
-            p.inv[0] = {Item::Hoe, 1};
-            p.inv[1] = {Item::WateringCan, 40};
-            p.inv[2] = {Item::Axe, 1};
-            p.inv[3] = {Item::Pickaxe, 1};
-            p.inv[4] = {Item::Scythe, 1};
-            p.inv[5] = {Item::ParsnipSeeds, 15};
-            p.inv[6] = {Item::PotatoSeeds, 15};
-            p.inv[7] = {Item::CauliflowerSeeds, 10};
-            world.players[pid] = p;
+            world.players[pid] = make_fresh_player(
+                pid, name, {int16_t(world.door().x), int16_t(world.door().y + 1)});
         }
         json resp = make_join_ack(pid, tile_map);
         resp["spawn"] = {{"x", world.players[pid].pos.x}, {"y", world.players[pid].pos.y}};
@@ -1652,7 +1758,7 @@ json cells = json::array();
     });
 
     svr.set_logger([](const auto& req, const auto& res) { std::cerr << req.method << " " << req.path << " -> " << res.status << std::endl; });
-    std::cout << "Ashgrove ~ Stardew-ish farm. Listen on 0.0.0.0:8080" << std::endl;
-    svr.listen("0.0.0.0", 8080);
+    std::cout << "Ashgrove ~ Stardew-ish farm. Listen on 0.0.0.0:" << port << std::endl;
+    svr.listen("0.0.0.0", port);
     return 0;
 }
