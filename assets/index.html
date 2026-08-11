@@ -1821,6 +1821,63 @@ const MapView = {
       this.trailG.drawEllipse(cx + 2, cy + 2, 4, 2);
       this.trailG.endFill();
     }
+
+// Compass indicator (top-right of viewport)
+    if (!this.compassG) { this.compassG = new PIXI.Graphics(); this.overlay.addChild(this.compassG); }
+    this.compassG.clear();
+    const ccx = this.CSS_W - 30, ccy = 30;
+    this.compassG.lineStyle(1, 0xf4ead0, 0.6);
+    this.compassG.beginFill(0x1a1e25, 0.7);
+    this.compassG.drawCircle(ccx, ccy, 18);
+    this.compassG.endFill();
+    // N/S/E/W markers
+    this.compassG.beginFill(0xe8a33d);
+    this.compassG.moveTo(ccx, ccy - 12);
+    this.compassG.lineTo(ccx - 4, ccy + 2);
+    this.compassG.lineTo(ccx + 4, ccy + 2);
+    this.compassG.closePath();
+    this.compassG.endFill();
+    this.compassG.beginFill(0xc8c8c8, 0.5);
+    this.compassG.moveTo(ccx, ccy + 12);
+    this.compassG.lineTo(ccx - 4, ccy - 2);
+    this.compassG.lineTo(ccx + 4, ccy - 2);
+    this.compassG.closePath();
+    this.compassG.endFill();
+    // N label
+    const compassText = new PIXI.Text('N', {
+      fontFamily: 'system-ui', fontSize: 8, fill: 0xf4ead0, fontWeight: 'bold',
+    });
+    compassText.anchor.set(0.5);
+    compassText.x = ccx;
+    compassText.y = ccy - 5;
+    if (this.compassText) this.overlay.removeChild(this.compassText);
+    this.compassText = compassText;
+    this.overlay.addChild(compassText);
+
+    // Coordinate display (bottom-left)
+    if (!this.coordText) {
+      this.coordText = new PIXI.Text('', {
+        fontFamily: 'system-ui', fontSize: 9, fill: 0xc8c8c8,
+      });
+      this.coordText.anchor.set(0, 1);
+      this.coordText.x = 10;
+      this.coordText.y = this.CSS_H - 10;
+      this.overlay.addChild(this.coordText);
+    }
+    this.coordText.text = `(${State.cam.x.toFixed(1)}, ${State.cam.y.toFixed(1)})  zoom ${State.zoom.toFixed(2)}`;
+
+    // Season indicator
+    const seasonNames = { Spring: '🌱', Summer: '☀️', Fall: '🍂', Winter: '❄️' };
+    if (!this.seasonText) {
+      this.seasonText = new PIXI.Text('', {
+        fontFamily: 'system-ui', fontSize: 9, fill: 0xf4ead0,
+      });
+      this.seasonText.anchor.set(1, 0);
+      this.seasonText.x = this.CSS_W - 10;
+      this.seasonText.y = this.CSS_H - 10;
+      this.overlay.addChild(this.seasonText);
+    }
+    this.seasonText.text = `${seasonNames[w.season] || '🌱'} ${w.season}`;
   },
 
   paintLive(now) {
