@@ -387,6 +387,43 @@ void generate_world(World& world) {
             if (world.in_bounds(x, y) && (is_water(world.at(x, y).tile) ||
                 world.at(x, y).tile == Tile::Dirt))
                 world.at(x, y).tile = Tile::Grass;
+
+    clear_paths(world);
+}
+
+// The scatter/ore passes run late and can drop rocks, stumps and fence posts on
+// bridge tiles, building doors and the land right around them — which silently
+// breaks crossings and NPC schedule paths. Clear blocking objects there after
+// generation (and again after loading a save, since saves predate this fix).
+void clear_paths(World& world) {
+    auto blocking = [](ObjType o) {
+        return o == ObjType::Tree || o == ObjType::Rock || o == ObjType::Stump ||
+               o == ObjType::FencePost || o == ObjType::FenceRail ||
+               o == ObjType::Pine;
+    };
+    auto clear_cell = [&](int x, int y) {
+        if (!world.in_bounds(x, y)) return;
+        Cell& c = world.at(x, y);
+        if (c.obj.type == ObjType::Building || c.obj.type == ObjType::Sprinkler)
+            return;
+        if (c.crop.is_crop()) return;   // never erase the player's crops
+        if (blocking(c.obj.type)) c.obj = FarmObj{};
+    };
+    // every bridge tile must stay open, and so must the land beside it
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x)
+            if (world.at(x, y).tile == Tile::Bridge) {
+                clear_cell(x, y);
+                clear_cell(x - 1, y); clear_cell(x + 1, y);
+                clear_cell(x, y - 1); clear_cell(x, y + 1);
+            }
+    // keep the doorstep and the 3x3 around every door open for NPC arrivals
+    for (auto& b : world.buildings) {
+        int dx = b.x + (b.w - 1) / 2, dy = b.y + b.h;
+        for (int yy = dy - 1; yy <= dy + 1; ++yy)
+            for (int xx = dx - 1; xx <= dx + 1; ++xx)
+                clear_cell(xx, yy);
+    }
 }
 
 void resolve_water_edges(World& world) {
@@ -666,6 +703,80 @@ void init_npcs(World& world) {
     add_npc("Evelyn", 5, {77, 46}, {78, 45});        // mirror lake shore
 }
 
+// ---- NPC daily schedules ----
+// Each slot covers [start_hour, end_hour). The villager walks to the anchor
+// when the slot becomes active and stays there until the next one. Hours are
+// game hours (6 AM .. ~30). Festival days override the morning/afternoon
+// schedule: everyone gathers at the Town Center.
+struct SchedSlot { int8_t start_hour; int8_t end_hour; int16_t x, y; };
+
+static const SchedSlot* npc_schedule(const std::string& name, int& n) {
+    static const SchedSlot leah[] = {
+        {6, 9, 33, 14},    // home (Willow House door)
+        {9, 16, 46, 17},   // Stardrop Plaza
+        {16, 21, 30, 10},  // the river bridge (sketching)
+        {21, 30, 33, 14},  // home
+    };
+    static const SchedSlot abigail[] = {
+        {6, 9, 63, 15},    // home (Maple House door)
+        {9, 17, 73, 20},   // farm gate
+        {17, 21, 49, 16},  // Stardrop Saloon
+        {21, 30, 63, 15},  // home
+    };
+    static const SchedSlot elliot[] = {
+        {6, 9, 67, 14},    // home (Rowan Cottage door)
+        {9, 13, 30, 10},   // the river bridge (writing)
+        {13, 17, 46, 17},  // Stardrop Plaza
+        {17, 21, 49, 16},  // Stardrop Saloon
+        {21, 30, 67, 14},  // home
+    };
+    static const SchedSlot robin[] = {
+        {6, 9, 12, 11},    // home field
+        {9, 13, 45, 22},   // the market
+        {13, 17, 12, 11},  // home field (workshop)
+        {17, 21, 49, 16},  // Stardrop Saloon
+        {21, 30, 12, 11},  // home field
+    };
+    static const SchedSlot evelyn[] = {
+        {6, 10, 77, 46},   // mirror lake shore
+        {10, 16, 46, 17},  // Stardrop Plaza
+        {16, 21, 77, 46},  // mirror lake shore
+        {21, 30, 77, 46},  // home (the shore)
+    };
+    struct Table { const char* who; const SchedSlot* slots; int n; };
+    static const Table tables[] = {
+        {"Leah", leah, 4}, {"Abigail", abigail, 4}, {"Elliot", elliot, 5},
+        {"Robin", robin, 5}, {"Evelyn", evelyn, 4},
+    };
+    for (auto& t : tables)
+        if (name == t.who) { n = t.n; return t.slots; }
+    n = 0;
+    return nullptr;
+}
+
+// Egg Festival — Spring 13. Everyone gathers at the Town Center.
+bool is_festival_day(uint32_t day) {
+    return season_index(day) == 0 && season_day(day) == 13;
+}
+
+// Current schedule slot for this hour; writes the anchor to walk to.
+// Returns -1 when the villager has no schedule (keeps free-roaming).
+int schedule_slot(const std::string& name, uint32_t day, int hour,
+                  Vec2& anchor) {
+    if (is_festival_day(day) && hour >= 8 && hour < 20) {
+        anchor = {43, 16};   // Town Center door
+        return 100;          // festival overrides everything
+    }
+    int n = 0;
+    const SchedSlot* slots = npc_schedule(name, n);
+    for (int i = 0; i < n; ++i)
+        if (hour >= slots[i].start_hour && hour < slots[i].end_hour) {
+            anchor = {slots[i].x, slots[i].y};
+            return i;
+        }
+    return -1;
+}
+
 static const char* npc_greeting(const char* name, int season) {
     struct Line { const char* who; const char* l[4]; };
     static const Line lines[] = {
@@ -802,6 +913,8 @@ std::string serialize_world(const World& w) {
         for (auto& n : p.gifted_today) gd.push_back(n);
         pl["gifted_today"] = gd;
         pl["max_energy"] = p.max_energy;
+        pl["fest_eggs"] = p.fest_eggs;
+        pl["fest_tries"] = p.fest_tries;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -838,6 +951,8 @@ bool deserialize_world(World& w, const std::string& json_str) {
             p.sel = pl.value("sel", 0);
             p.name = pl.value("name", "Player");
             p.max_energy = pl.value("max_energy", 270);
+            p.fest_eggs = pl.value("fest_eggs", 0);
+            p.fest_tries = pl.value("fest_tries", 8);
             p.inside = pl.value("inside", "");
             p.inx = pl.value("inx", 0);
             p.iny = pl.value("iny", 0);

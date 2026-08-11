@@ -177,6 +177,36 @@ body {
   font-family: 'JetBrains Mono','Courier New',ui-monospace,monospace;
 }
 
+/* Interior room panel (ASCII-style view shown while inside a building) */
+.room-wrap { display: none; }
+.room-wrap.show { display: block; }
+.room-panel {
+  background: #17110b;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 12px 10px;
+  font-family: 'JetBrains Mono','Courier New',ui-monospace,monospace;
+}
+.room-title {
+  text-align: center; font-size: 11px; letter-spacing: 1.5px;
+  color: var(--accent-bright); text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.room-row { display: flex; justify-content: center; }
+.room-row .cell {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; font-size: 15px; line-height: 1;
+}
+.room-row .cell.wall { color: #8a6a3a; }
+.room-row .cell.floor { color: #3a2c1c; }
+.room-row .cell.door { color: #ffce76; text-shadow: 0 0 6px rgba(255,206,118,0.45); }
+.room-row .cell.furn { color: var(--text); }
+.room-row .cell.me { font-size: 17px; filter: drop-shadow(0 0 4px rgba(91,141,255,0.9)); }
+.room-hint {
+  text-align: center; font-size: 10px; color: var(--text-dim);
+  margin-top: 8px; font-family: inherit;
+}
+
 /* Legend (NPCs only) ------------------------------------------------- */
 .legend {
   padding: 4px 10px 6px; font-size: 11px; color: var(--text-dim);
@@ -275,6 +305,9 @@ body {
           </div>
         </div>
         <canvas id="map" class="map-canvas" width="700" height="500"></canvas>
+        <div class="room-wrap" id="room-wrap">
+          <div class="room-panel" id="room"></div>
+        </div>
         <div class="map-region" id="map-region">-</div>
       </div>
       <div class="legend" id="legend"></div>
@@ -312,9 +345,9 @@ body {
 //
 // Server endpoints (current src/main.cpp):
 //   POST /join   {name}        -> {player_id, tile_map, buildings, house, ...}
-//   GET  /state                -> live snapshot {players, cells, npcs, ...}
+//   GET  /state                -> live snapshot {players, cells, npcs, interiors, ...}
 //   POST /cmd    {player_id,cmd} -> {lines: [...]}
-//   POST /move   {player_id,target_x,target_y}  (for click-to-walk)
+//   (Gameplay is text-only MUD commands; the map is a visual reference.)
 // =====================================================================
 'use strict';
 
@@ -414,9 +447,17 @@ const SUGGESTIONS = [
   'go north', 'look', 'inv', 'stats', 'time', 'shop',
   'hoe', 'water', 'plant parsnip', 'harvest',
   'fish', 'forage', 'axe', 'pick', 'scythe',
-  'eat parsnip', 'gift Leah parsnip', 'talk Leah',
-  'enter', 'exit', 'interact', 'sleep', 'help',
+  'eat parsnip', 'gift Leah parsnip', 'talk Leah', 'hearts',
+  'enter', 'exit', 'interact', 'festival', 'search 1', 'sleep', 'help',
 ];
+
+// Interior furniture glyphs (matches furniture_name in src/main.cpp:357).
+// '#' wall, '.' floor, ' ' doorway, letters = furnishings.
+const FURN_GLYPH = {
+  'B': '🛏️', 'T': '🪑', 'S': '🍳', 'C': '🗄️', 'M': '🛒', 'D': '🗄️',
+  'E': '🪟', 'A': '🔨', 'F': '🔥', 'X': '🫙', 'G': '🪑', 'N': '🪑',
+  'P': '🚧', 'H': '🌾',
+};
 
 // ----- 2. helpers -----------------------------------------------------
 const $ = id => document.getElementById(id);
@@ -562,7 +603,7 @@ const UI = {
     const season = w.season || 'Spring';
     const pill = SEASON_PILL[season] || ['#cfd4dc', '#666'];
     const sel = $('st-season');
-    sel.textContent = season;
+    sel.textContent = w.festival ? season + ' · ' + w.festival : season;
     sel.style.background = pill[1]; sel.style.color = '#0a0d0b';
     $('st-weather').textContent = WEATHER_GLYPH[w.weather] || '-';
     const stE = $('st-energy');
@@ -621,6 +662,59 @@ const UI = {
       c.onclick = () => { $('input').value = c.dataset.cmd; $('input').focus(); };
     });
   },
+
+  // ASCII room view: shown instead of the map while inside a building.
+  renderRoom() {
+    const me = State.me();
+    const wrap = $('room-wrap'), room = $('room'), map = $('map');
+    const inside = me && me.inside ? me.inside : '';
+    if (!inside) {
+      wrap.classList.remove('show');
+      map.style.display = 'block';
+      return;
+    }
+    wrap.classList.add('show');
+    map.style.display = 'none';
+    const rows = (State.world && State.world.interiors &&
+                  State.world.interiors[inside]) || [];
+    room.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 'room-title';
+    title.textContent = 'Inside: ' + inside;
+    room.appendChild(title);
+    for (let y = 0; y < rows.length; y++) {
+      const row = rows[y];
+      const line = document.createElement('div');
+      line.className = 'room-row';
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        const cell = document.createElement('span');
+        cell.className = 'cell';
+        if (me && x === me.inx && y === me.iny) {
+          cell.textContent = '🧭';
+          cell.classList.add('me');
+        } else if (ch === '#') {
+          cell.textContent = '█';
+          cell.classList.add('wall');
+        } else if (ch === '.') {
+          cell.textContent = '·';
+          cell.classList.add('floor');
+        } else if (ch === ' ') {
+          cell.textContent = '▢';
+          cell.classList.add('door');
+        } else {
+          cell.textContent = FURN_GLYPH[ch] || ch;
+          cell.classList.add('furn');
+        }
+        line.appendChild(cell);
+      }
+      room.appendChild(line);
+    }
+    const hint = document.createElement('div');
+    hint.className = 'room-hint';
+    hint.textContent = "Type 'look', 'interact', or 'exit' to leave.";
+    room.appendChild(hint);
+  },
 };
 
 async function selectSlot(i) {
@@ -654,7 +748,7 @@ const MapRenderer = {
     this.offCtx = this.off.getContext('2d');
     this.resize();
     window.addEventListener('resize', () => this.resize());
-    // Hover for click-to-walk
+    // Hover highlight (visual reference only — gameplay is text commands)
     this.cv.addEventListener('mousemove', e => {
       const r = this.cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -662,12 +756,6 @@ const MapRenderer = {
       this.hoverX = w.x; this.hoverY = w.y;
     });
     this.cv.addEventListener('mouseleave', () => { this.hoverX = this.hoverY = null; });
-    this.cv.addEventListener('click', e => {
-      const r = this.cv.getBoundingClientRect();
-      const mx = e.clientX - r.left, my = e.clientY - r.top;
-      const w = this.screenToWorld(mx, my);
-      handleMapClick(w.x, w.y);
-    });
     this.cv.addEventListener('wheel', e => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
@@ -1112,26 +1200,8 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// wired click action (will be expanded in actions iteration)
-async function handleMapClick(wx, wy) {
-  // Click on NPC nearby -> talk; click on building door -> enter; click ground -> move.
-  if (!State.world || !State.myId) return;
-  const me = State.me();
-  if (!me) return;
-  const tx = Math.floor(wx), ty = Math.floor(wy);
-  // NPC?
-  const n = State.world.npcs && State.world.npcs.find(n => Math.abs(n.x - tx) <= 1 && Math.abs(n.y - ty) <= 1);
-  if (n) { Cmd.send('talk ' + n.name); return; }
-  // Building door?
-  const b = State.buildingAt(tx, ty + 1); // door is one tile below the building footprint
-  if (b && Math.abs(me.x - tx) <= 1 && Math.abs(me.y - ty) <= 1) { Cmd.send('enter ' + b.name); return; }
-  // Otherwise move
-  try {
-    await postJSON('/move', { player_id: State.myId, target_x: tx, target_y: ty });
-    pollState();
-  } catch (e) { /* ignore */ }
-  MapRenderer.markDirty();
-}
+// The map is a visual reference only. All gameplay happens through text
+// commands typed in the terminal (go/look/hoe/plant/enter/exit/...).
 
 function startMapLoop() {
   MapRenderer.init();
@@ -1180,6 +1250,7 @@ async function pollState() {
     State.world = s;
     UI.renderStatus();
     UI.renderInventory();
+    UI.renderRoom();
     // smooth camera: only recenter if player walked >2 tiles away from cam
     const me = State.me();
     if (me) {

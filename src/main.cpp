@@ -38,7 +38,9 @@ static bool load_or_generate(World& w) {
     std::ifstream f("save.json");
     if (f) {
         std::string s((std::istreambuf_iterator<char>(f)), {});
-        return deserialize_world(w, s);
+        bool ok = deserialize_world(w, s);
+        if (ok) clear_paths(w);   // fix bridges/doors blocked by pre-fix saves
+        return ok;
     }
     return false;
 }
@@ -411,7 +413,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  train          ride the Zuzu City Express from the station");
         say("  bus            take the town bus to the plaza");
         say("  tv             watch valley news in the farmhouse");
-        say("  gift <n> <it>  give a present to an adjacent villager");
+        say("  hearts         check friendship with the villagers");
+        say("  festival       join in (Spring 13)  |  search <patch> find eggs");
         say("  sleep          rest until morning (near the house door)");
         say("  tv             watch the valley news (in the farmhouse)");
         return out;
@@ -1010,6 +1013,18 @@ if (cmd == "buy") {
         if (h == 10 && taste >= 1) say("(You're really hitting it off with " + found->name + "!)");
         return out;
     }
+    if (cmd == "hearts" || cmd == "friends") {
+        if (p.hearts.empty()) {
+            say("You haven't befriended anyone yet. Gift things to villagers to earn hearts!");
+            return out;
+        }
+        for (auto& [nm, h] : p.hearts) {
+            std::string bar;
+            for (int i = 0; i < 5; ++i) bar += (i < h / 2 ? "\xE2\x99\xA5" : "\xC2\xB7");
+            say(nm + ": " + bar + "  (" + std::to_string(h) + "/10)");
+        }
+        return out;
+    }
     if (cmd == "talk") {
         // locate nearest npc by name (if given) or by distance
         NPC* found = nullptr;
@@ -1260,6 +1275,64 @@ if (cmd == "buy") {
         return out;
     }
 
+    // ---------- festival (Egg Festival, Spring 13) ----------
+    if (cmd == "festival" || cmd == "fest") {
+        if (!is_festival_day(w.day)) {
+            say("There's no festival today. The Egg Festival comes every Spring 13.");
+            return out;
+        }
+        if (p.fest_eggs >= 8) {
+            say("The festival meadow is picked clean — you found all 8 eggs!");
+            return out;
+        }
+        say("It's the Egg Festival! The whole town has gathered at the Town Center.");
+        say("Eight decorated eggs are hidden in the 36 meadow patches.");
+        say("Type 'search <patch 1-36>' to peek under one. You have " +
+            std::to_string(p.fest_tries) + " searches left (" +
+            std::to_string(p.fest_eggs) + "/8 eggs found).");
+        return out;
+    }
+    if (cmd == "search") {
+        if (!is_festival_day(w.day)) {
+            say("There's nothing to search for today. (Egg Festival: Spring 13)");
+            return out;
+        }
+        if (p.fest_eggs >= 8) { say("You already found all 8 eggs!"); return out; }
+        int patch = 0;
+        try { patch = std::stoi(arg); } catch (...) {}
+        if (patch < 1 || patch > 36) { say("Pick a patch 1-36. e.g. 'search 12'"); return out; }
+        if (p.fest_tries <= 0) {
+            say("You're out of searches. The festival is over for you.");
+            return out;
+        }
+        p.fest_tries--;
+        // deterministic layout for this festival day
+        unsigned seed = w.day * 2654435761u;
+        auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 16) & 0x7FFF; };
+        bool egg[37] = {};
+        int placed = 0;
+        while (placed < 8) {
+            int n = 1 + rnd() % 36;
+            if (!egg[n]) { egg[n] = true; ++placed; }
+        }
+        if (egg[patch]) {
+            p.fest_eggs++;
+            int reward = 25;
+            std::string line = "You lift a tuft of grass... a decorated egg! +" + std::to_string(reward) + "g (" +
+                               std::to_string(p.fest_eggs) + "/8).";
+            if (p.fest_eggs == 8) {
+                reward += 200;
+                line += " ALL EIGHT FOUND! The mayor cheers and hands you a bonus +200g!";
+            }
+            p.money += reward;
+            say(line);
+        } else {
+            say("Just grass. (" + std::to_string(p.fest_eggs) + "/8 eggs so far, " +
+                std::to_string(p.fest_tries) + " searches left)");
+        }
+        return out;
+    }
+
     say("I don't understand '" + cmd + "'. Type 'help' for commands.");
     return out;
 }
@@ -1383,6 +1456,7 @@ json cells = json::array();
         resp["season"] = season_name(season_index(world.day));
         resp["season_i"] = season_index(world.day);
         resp["weather"] = weather_of_day(world.day);
+        resp["festival"] = is_festival_day(world.day) ? "Egg Festival" : "";
         resp["cells"] = cells;
         json npc_list = json::array();
         for (auto& n : world.npcs)
@@ -1545,7 +1619,32 @@ json cells = json::array();
                 for (auto& n : world.npcs) {
                     if (now_ms() < n.next_move_ms) continue;
                     n.next_move_ms = now_ms() + 400 + rand() % 300;
-                    if (hour_of_day(world) < 21) step_npc(world, n);   // villagers turn in at night
+                    if (hour_of_day(world) >= 21) continue;   // villagers turn in at night
+                    Vec2 anchor;
+                    int slot = schedule_slot(n.name, world.day, hour_of_day(world), anchor);
+                    if (slot == -1) { step_npc(world, n); continue; }
+                    if (slot != n.sched_slot) {
+                        n.sched_slot = (int8_t)slot;
+                        n.path.clear();
+                        n.path_i = 0;
+                        if (anchor != n.pos) bfs_path(world, n.pos, anchor, n.path, 512);
+                    }
+                    if (!n.path.empty()) {
+                        if (n.path_i < n.path.size()) {
+                            Vec2 next = n.path[n.path_i];
+                            if (world.walkable(next) && npc_at(world, next.x, next.y) < 0) {
+                                n.dir = next.x > n.pos.x ? 2 : next.x < n.pos.x ? 1
+                                     : next.y > n.pos.y ? 0 : 3;
+                                n.pos = next;
+                                ++n.path_i;
+                            } else {
+                                // blocked (e.g. by another villager): recompute
+                                n.path.clear();
+                                n.path_i = 0;
+                                if (anchor != n.pos) bfs_path(world, n.pos, anchor, n.path, 512);
+                            }
+                        } else n.path.clear();
+                    }
                 }
             }
             std::this_thread::sleep_for(milliseconds(16));

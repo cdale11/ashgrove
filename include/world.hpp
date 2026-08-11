@@ -140,6 +140,10 @@ struct NPC {
     uint8_t way_idx = 0;
     uint64_t next_move_ms = 0;
     uint8_t dir = 0;
+    // daily schedule: current time slot + BFS path toward its anchor
+    int8_t sched_slot = -1;
+    std::vector<Vec2> path;
+    size_t path_i = 0;
 };
 
 // ---- world objects ----
@@ -202,6 +206,9 @@ struct Player {
     // friendship: npc name -> hearts (0..10). one gift per NPC per day.
     std::map<std::string, uint8_t> hearts;
     std::set<std::string> gifted_today;
+    // Egg Festival (Spring 13): eggs found this festival, searches remaining.
+    uint8_t fest_eggs = 0;
+    uint8_t fest_tries = 8;
 };
 
 // ---- world ----
@@ -248,6 +255,7 @@ void generate_world(World& world);
 void resolve_water_edges(World& world);
 void init_npcs(World& world);
 void place_buildings(World& world);
+void clear_paths(World& world);   // keep bridges + doorways passable (post-scatter)
 void init_interiors(World& world);
 int  hour_of_day(const World& w);      // 6..26 (26 == 2:00 AM)
 const char* clock_str(const World& w); // "Day 3 · 10:40 AM"
@@ -259,6 +267,9 @@ const char* weather_of_day_name(uint32_t day);
 const char* region_at(const World& w, int x, int y);
 const char* npc_line(const char* name, int season);
 int  npc_at(const World& w, int x, int y);   // index into world.npcs or -1
+bool is_festival_day(uint32_t day);          // Egg Festival: Spring 13
+// daily schedule slot for hour; writes the anchor to walk to (-1 = free-roam)
+int  schedule_slot(const std::string& name, uint32_t day, int hour, Vec2& anchor);
 std::string forage_table(int season, int& count);       // fills count
 std::string fish_table(int season, int& count);         // fills count
 bool bfs_path(World& world, Vec2 from, Vec2 to, std::vector<Vec2>& out, size_t max_len = 64);
