@@ -433,6 +433,7 @@ body {
   </div>
 </div>
 
+<script src="vendor/pixi.min.js"></script>
 <script>
 // =====================================================================
 // Ashgrove Valley — single-file client
@@ -456,7 +457,7 @@ body {
 'use strict';
 
 // ----- 1. constants & palettes ---------------------------------------
-const MAP_W = 96, MAP_H = 64, DAY_LENGTH_S = 800;
+const MAP_W = 128, MAP_H = 96, DAY_LENGTH_S = 800;
 
 // Item table mirrors include/world.hpp:50-67 (ItemDef).  type: 0 tool,1 seed,2 produce,3 resource.
 // Each entry: [name, type, emoji, color]
@@ -534,9 +535,62 @@ const BLD_STYLE = {
   'Railway Station': { roof: '#5f4a3a', wall: '#7a6a54', glyph: '🚉' },
   'Hawthorn Barn':   { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🐄' },
   'Glasshouse':      { roof: '#7fbf6a', wall: '#b8d8c0', glyph: '🌿' },
+  'Inn':             { roof: '#8c4a2f', wall: '#b8a48a', glyph: '🏨' },
+  'Tavern':          { roof: '#5a3a20', wall: '#8a6a44', glyph: '🍺' },
+  'Library':         { roof: '#4a6a8a', wall: '#a0b0c0', glyph: '📚' },
+  'Innkeeper':       { roof: '#a07050', wall: '#c0a888', glyph: '🛏️' },
   'Farmhouse':       { roof: '#b5503a', wall: '#9a6a44', glyph: '🏡' },
 };
 const bldStyle = n => BLD_STYLE[n] || { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏠' };
+
+// Default interior layouts for buildings (fallback when server doesn't provide).
+// # = wall, . = floor, ' ' = door, B=bed, T=table, S=stove, G=chair, etc.
+const DEFAULT_INTERIORS = {
+  'Inn': [
+    '###############',
+    '#B....T.......#',
+    '#.............#',
+    '#..B...B...T..#',
+    '#.............#',
+    '#.T...T.......#',
+    '#............. ',
+    '#....C..C.....#',
+    '###############',
+  ],
+  'Tavern': [
+    '###############',
+    '#..T....T.....#',
+    '#.............#',
+    '#.G.T.G.T.G.T.#',
+    '#.............#',
+    '#..S....F.....#',
+    '#............. ',
+    '#....C..X.....#',
+    '###############',
+  ],
+  'Library': [
+    '###############',
+    '#D....D....D..#',
+    '#.............#',
+    '#..D....D...D.#',
+    '#.............#',
+    '#.T...........#',
+    '#............. ',
+    '#....E........#',
+    '###############',
+  ],
+  'Innkeeper': [
+    '###############',
+    '#B....T.......#',
+    '#.............#',
+    '#..T...C..X...#',
+    '#.............#',
+    '#.S...........#',
+    '#............. ',
+    '#....G........#',
+    '###############',
+  ],
+};
 
 // Season tint palette (Stardew warm tones, derived from prior MapPanel.tsx).
 const SEASON_TINT = {
@@ -801,9 +855,7 @@ const UI = {
     $('st-time').textContent = disp + ':' + String(m).padStart(2, '0') + ' ' + ampm;
     const season = w.season || 'Spring';
     const pill = SEASON_PILL[season] || ['#cfd4dc', '#666'];
-    const sel = $('st-season');
-    sel.textContent = w.festival ? season + ' · ' + w.festival : season;
-    sel.style.background = pill[1]; sel.style.color = '#0a0d0b';
+    const sel = $('st-season'); if (sel) { sel.textContent = w.festival ? season + ' · ' + w.festival : season; sel.style.background = pill[1]; sel.style.color = '#0a0d0b'; }
     $('st-weather').textContent = WEATHER_GLYPH[w.weather] || '-';
     const stE = $('st-energy');
     stE.textContent = Math.round(me.energy) + '/' + me.max_energy;
@@ -897,6 +949,7 @@ const UI = {
   renderInventory() {
     const me = State.me();
     const grid = $('inv-grid');
+    if (!grid) return;
     grid.innerHTML = '';
     if (!me) return;
     for (let i = 0; i < 12; i++) {
@@ -963,14 +1016,14 @@ const UI = {
     const wrap = $('room-wrap'), room = $('room'), map = $('map');
     const inside = me && me.inside ? me.inside : '';
     if (!inside) {
-      wrap.classList.remove('show');
-      map.style.display = 'block';
+      if (wrap) wrap.classList.remove('show');
+      if (map) map.style.display = 'block';
       return;
     }
-    wrap.classList.add('show');
-    map.style.display = 'none';
+    if (wrap) wrap.classList.add('show');
+    if (map) map.style.display = 'none';
     const rows = (State.world && State.world.interiors &&
-                  State.world.interiors[inside]) || [];
+                  State.world.interiors[inside]) || DEFAULT_INTERIORS[inside] || [];
     room.innerHTML = '';
     const title = document.createElement('div');
     title.className = 'room-title';
@@ -1027,78 +1080,103 @@ async function selectSlot(i) {
 // Camera is world-anchored; tiles are 16 world-units; we project at a
 // variable scale so the whole 96x64 map is comfortably visible.
 
-const MapRenderer = {
-  cv: null, ctx: null,
-  off: null, offCtx: null,    // offscreen for static scene
-  dirty: true,                // re-paint offscreen when true
-  raf: null,
+const MapView = {
+  app: null, cv: null,
+  CSS_W: 0, CSS_H: 0,
+  dirty: true,
   hoverX: null, hoverY: null,
-  // animation phases
   t0: performance.now(),
+  // PixiJS Containers (rendered in order)
+  ground: null, deco: null, objects: null,
+  buildings: null, npcs: null, player: null, overlay: null,
+  // Texture caches
+  tileTex: {}, emojiTex: {},
+  // Long-lived overlay graphics
+  weatherG: null, hoverG: null, fireflyG: null,
+  dayFilter: null,
 
   init() {
-    this.cv = $('map');
-    this.ctx = this.cv.getContext('2d');
-    this.off = document.createElement('canvas');
-    this.offCtx = this.off.getContext('2d');
-    this.resize();
+    const oldCv = $('map');
+    const r = oldCv.getBoundingClientRect();
+    this.CSS_W = r.width; this.CSS_H = r.height;
+    this.app = new PIXI.Application({
+      width: this.CSS_W, height: this.CSS_H,
+      backgroundColor: 0x0a0d0b, antialias: true,
+      resolution: window.devicePixelRatio || 1, autoDensity: true,
+    });
+    this.cv = this.app.view;
+    this.cv.className = 'map-canvas';
+    oldCv.parentNode.replaceChild(this.cv, oldCv);
+    this.ground = new PIXI.Container();
+    this.deco = new PIXI.Container();
+    this.objects = new PIXI.Container();
+    this.buildings = new PIXI.Container();
+    this.npcs = new PIXI.Container();
+    this.player = new PIXI.Container();
+    this.overlay = new PIXI.Container();
+    this.app.stage.addChild(this.ground, this.deco, this.objects,
+                           this.buildings, this.npcs, this.player, this.overlay);
+    // Day/night ColorMatrixFilter applied to ground + deco (terrain dims,
+    // entities stay bright). Initialized with full brightness.
+    this.dayFilter = new PIXI.ColorMatrixFilter();
+    this.applyDayFilter(1);
+    this.ground.filters = [this.dayFilter];
+    this.deco.filters = [this.dayFilter];
     window.addEventListener('resize', () => this.resize());
-    // Hover highlight (visual reference only — gameplay is text commands)
-    this.cv.addEventListener('mousemove', e => {
-      const r = this.cv.getBoundingClientRect();
-      const mx = e.clientX - r.left, my = e.clientY - r.top;
-      const w = this.screenToWorld(mx, my);
-      this.hoverX = Math.floor(w.x); this.hoverY = Math.floor(w.y);
-      this.updateHover();
-    });
-    this.cv.addEventListener('mouseleave', () => {
-      this.hoverX = this.hoverY = null;
-      this.updateHover();
-    });
-    this.cv.addEventListener('wheel', e => {
-      e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      State.zoom = clamp(State.zoom * factor, 0.5, 3);
-    }, { passive: false });
-    this.loop();
+    this.cv.addEventListener('mousemove', e => this.onMouseMove(e));
+    this.cv.addEventListener('mouseleave', () => this.onMouseLeave());
+    this.cv.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+    this.buildTileTextures();
+    this._raf = () => { this.loop(); this._rafId = requestAnimationFrame(this._raf); };
+    this._raf();
+    this.loadLPCTiles();
+  },
+
+  applyDayFilter(f) {
+    this.dayFilter.matrix = [
+      f, 0, 0, 0, 0,
+      0, f, 0, 0, 0,
+      0, 0, f, 0, 0,
+      0, 0, 0, 1, 0,
+    ];
   },
 
   resize() {
     const r = this.cv.getBoundingClientRect();
-    // Crisp canvas at device pixel ratio
-    const dpr = window.devicePixelRatio || 1;
-    this.cv.width = Math.round(r.width * dpr);
-    this.cv.height = Math.round(r.height * dpr);
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.CSS_W = r.width; this.CSS_H = r.height;
-    this.off.width = this.cv.width;
-    this.off.height = this.cv.height;
-    this.offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.app.renderer.resize(this.CSS_W, this.CSS_H);
     this.dirty = true;
   },
 
-  // world (tile coords 0..96, 0..64) -> screen (CSS px)
-  scale() {
-    // base: fit ~48 tiles in the canvas height; multiplied by zoom
-    return (this.CSS_H / 48) * State.zoom;
-  },
-  wx(worldX) { return (worldX - State.cam.x) * this.scale() + this.CSS_W / 2; },
-  wy(worldY) { return (worldY - State.cam.y) * this.scale() + this.CSS_H / 2; },
+  markDirty() { this.dirty = true; },
+
+  // ---- coords ----
+  scale() { return (this.CSS_H / 48) * State.zoom; },
+  wx(x) { return (x - State.cam.x) * this.scale() + this.CSS_W / 2; },
+  wy(y) { return (y - State.cam.y) * this.scale() + this.CSS_H / 2; },
   screenToWorld(mx, my) {
     const s = this.scale();
     return { x: (mx - this.CSS_W / 2) / s + State.cam.x,
              y: (my - this.CSS_H / 2) / s + State.cam.y };
   },
 
-  // draw an emoji centered at (cx, cy) with height h px — uses pre-rendered
-  // Twemoji sprites so the result is crisp and opaque at every zoom level
-  emoji(ctx, txt, cx, cy, h) {
-    const size = Math.max(10, Math.round(h));
-    const sprite = emojiPreRender(txt, size);
-    ctx.drawImage(sprite, Math.round(cx - size / 2), Math.round(cy - size / 2));
+  // ---- events ----
+  onMouseMove(e) {
+    const r = this.cv.getBoundingClientRect();
+    const w = this.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+    this.hoverX = Math.floor(w.x); this.hoverY = Math.floor(w.y);
+    this.updateHover();
+  },
+  onMouseLeave() {
+    this.hoverX = this.hoverY = null;
+    this.updateHover();
+  },
+  onWheel(e) {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    State.zoom = clamp(State.zoom * factor, 0.5, 3);
   },
 
-  // hover chip: terrain + object + crop under the cursor
   updateHover() {
     const el = $('map-hover');
     if (!el) return;
@@ -1126,17 +1204,142 @@ const MapRenderer = {
     el.classList.add('show');
   },
 
-  paintStatic() {
-    const ctx = this.offCtx;
-    const W = this.CSS_W, H = this.CSS_H;
-    ctx.clearRect(0, 0, W, H);
+  // ---- texture caches ----
+  buildTileTextures() {
+    const colors = ['#4a7a2e', '#5a8a3a', '#3f6d28', '#4f7d34', '#2a4f8f',
+                    '#8a6b3a', '#9a7b4a', '#c8b877', '#d8c887', '#5a3818',
+                    '#4a2d12', '#7a5a30', '#d8e0e8', '#e8eef2', '#a8c8d8', '#b8dcea'];
+    for (const c of colors) this.getTileTex(c);
+  },
+  // LPC tileset assets — attribution: Daniel Eddeland / OpenGameArt
+  // License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/)
+  //          and GPL 3.0 (https://www.gnu.org/licenses/gpl-3.0.html)
+  // Source: https://opengameart.org/content/lpc-farming-tilesets-magic-animations-and-ui-elements
+  async loadLPCTiles() {
+    const TILE = 32, COLS = 3, ROWS = 6;
+    const sheets = {
+      0:  { url: 'submission_daneeklu/tilesets/tallgrass.png',  pick: [0, 1] },
+      1:  { url: 'submission_daneeklu/tilesets/tallgrass.png',  pick: [1, 0] },
+      2:  { url: 'submission_daneeklu/tilesets/sandwater.png', pick: [3, 4] },
+      3:  { url: 'submission_daneeklu/tilesets/sandwater.png', pick: [6, 7] },
+      4:  { url: 'submission_daneeklu/tilesets/sandwater.png', pick: [9, 10] },
+      5:  { url: 'submission_daneeklu/tilesets/sandwater.png', pick: [12, 13] },
+      6:  { url: 'submission_daneeklu/tilesets/sandwater.png', pick: [15, 16] },
+      8:  { url: 'submission_daneeklu/tilesets/sand.png',       pick: [0, 1, 3] },
+      9:  { url: 'submission_daneeklu/tilesets/plowed_soil.png', pick: [0, 3, 6] },
+    };
+    // Farming/fishing sheet is 640x640 = 20 cols × 20 rows of 32×32
+    const FF_COLS = 20;
+    this.lpcBuildingTex = this.lpcBuildingTex || {};
+    this.lpcTex = {};
+    const uniqueUrls = [...new Set([...Object.values(sheets).map(s => s.url),
+                                   'submission_daneeklu/tilesets/farming_fishing.png'])];
+    await PIXI.Assets.load(uniqueUrls);
+    for (const [tileId, cfg] of Object.entries(sheets)) {
+      const base = PIXI.BaseTexture.from(cfg.url);
+      const variants = cfg.pick.map(idx => {
+        const col = idx % COLS, row = Math.floor(idx / COLS);
+        return new PIXI.Texture(base, new PIXI.Rectangle(col * TILE, row * TILE, TILE, TILE));
+      });
+      this.lpcTex[tileId] = variants;
+    }
+    // Market stall sprites from farming_fishing.png (cols 4-7, rows 2-3)
+    const ffBase = PIXI.BaseTexture.from('submission_daneeklu/tilesets/farming_fishing.png');
+    this.lpcStallTex = new PIXI.Texture(ffBase, new PIXI.Rectangle(4 * TILE, 2 * TILE, TILE * 3, TILE * 2));
+
+    // Colonial buildings: 1024x1024 = 32x32 grid of 32x32 tiles
+    const COL_BASE = PIXI.BaseTexture.from('submission_daneeklu/tilesets/colonial.png');
+    // Wall tiles (brick at col 1 row 0, white at col 9 row 0)
+    const wall = (col, row) => new PIXI.Texture(COL_BASE, new PIXI.Rectangle(col * TILE, row * TILE, TILE, TILE));
+    // Roof tiles (red at col 1 row 4, brown at col 9 row 4)
+    const roof = (col, row) => new PIXI.Texture(COL_BASE, new PIXI.Rectangle(col * TILE, row * TILE, TILE, TILE));
+    // Door/window at col 0-3, row 6
+    const detail = (col, row) => new PIXI.Texture(COL_BASE, new PIXI.Rectangle(col * TILE, row * TILE, TILE, TILE));
+    this.houseParts = {
+      wall_brick: wall(1, 0), wall_white: wall(9, 0), wall_wood: wall(17, 0),
+      roof_red: roof(1, 4), roof_brown: roof(9, 4), roof_green: roof(17, 4), roof_yellow: roof(25, 4),
+      door: detail(0, 6), window: detail(4, 6), window_tall: detail(8, 6),
+    };
+    this.markDirty();
+  },
+  getTileTex(base) {
+    if (this.tileTex[base]) return this.tileTex[base];
+    const r = parseInt(base.slice(1, 3), 16);
+    const g = parseInt(base.slice(3, 5), 16);
+    const b = parseInt(base.slice(5, 7), 16);
+    const c = document.createElement('canvas');
+    c.width = 2; c.height = 16;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 16);
+    grad.addColorStop(0, 'rgb(' + Math.min(255, r + 22) + ',' + Math.min(255, g + 22) + ',' + Math.min(255, b + 22) + ')');
+    grad.addColorStop(0.45, 'rgb(' + r + ',' + g + ',' + b + ')');
+    grad.addColorStop(1, 'rgb(' + Math.max(0, r - 14) + ',' + Math.max(0, g - 14) + ',' + Math.max(0, b - 14) + ')');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 2, 16);
+    const tex = PIXI.Texture.from(c);
+    tex.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+    this.tileTex[base] = tex;
+    return tex;
+  },
+  getEmojiTex(emoji, size) {
+    const key = emoji + '@' + size;
+    if (this.emojiTex[key]) return this.emojiTex[key];
+    const canvas = emojiPreRender(emoji, size);
+    const tex = PIXI.Texture.from(canvas);
+    tex.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+    this.emojiTex[key] = tex;
+    return tex;
+  },
+  addEmoji(emoji, cx, cy, h) {
+    const size = Math.max(10, Math.round(h));
+    const tex = this.getEmojiTex(emoji, size);
+    const sprite = new PIXI.Sprite(tex);
+    sprite.anchor.set(0.5);
+    sprite.x = cx; sprite.y = cy;
+    sprite.width = sprite.height = size;
+    return sprite;
+  },
+  tileColor(tx, ty, tile, cell) {
+    switch (tile) {
+      case 0: case 1: {
+        const h = worldHash(tx, ty);
+        return h < 0.5 ? (tile === 1 ? '#3f6d28' : '#4a7a2e')
+                       : (tile === 1 ? '#4f7d34' : '#5a8a3a');
+      }
+      case 2: case 3: case 4: case 5: case 6: return '#2a4f8f';
+      case 7: return worldHash(tx, ty) < 0.5 ? '#8a6b3a' : '#9a7b4a';
+      case 8: return worldHash(tx, ty) < 0.5 ? '#c8b877' : '#d8c887';
+      case 9: return cell && cell.watered ? '#4a2d12' : '#5a3818';
+      case 10: return '#7a5a30';
+      case 11: return worldHash(tx, ty) < 0.5 ? '#d8e0e8' : '#e8eef2';
+      case 12: return worldHash(tx, ty) < 0.5 ? '#a8c8d8' : '#b8dcea';
+      default: return '#4a7a2e';
+    }
+  },
+  dayFactor() {
+    const w = State.world;
+    if (!w) return 1;
+    const hrs = 6 + 24 * (w.time / DAY_LENGTH_S);
+    const daylight = hrs >= 6 && hrs < 20;
+    return clamp((daylight ? 1 : 0.28) * (w.weather ? 0.78 : 1), 0.25, 1);
+  },
+
+  // ---- main paint ----
+  paint() {
+    this.ground.removeChildren();
+    this.deco.removeChildren();
+    this.objects.removeChildren();
+    this.buildings.removeChildren();
+    this.npcs.removeChildren();
+    this.player.removeChildren();
+    this.overlay.removeChildren();
     if (!State.world || !State.tileMap) {
-      ctx.fillStyle = '#0a0d0b';
-      ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#5a8a3a';
-      ctx.font = '14px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('Loading map…', W / 2, H / 2);
+      const t = new PIXI.Text('Loading map…', {
+        fontFamily: 'system-ui', fontSize: 14, fill: 0x5a8a3a,
+      });
+      t.anchor.set(0.5);
+      t.x = this.CSS_W / 2; t.y = this.CSS_H / 2;
+      this.ground.addChild(t);
       return;
     }
     const me = State.me();
@@ -1144,375 +1347,451 @@ const MapRenderer = {
     const s = this.scale();
     const season = w.season || 'Spring';
     const tint = SEASON_TINT[season] || SEASON_TINT.Spring;
-    // daylight factor for ground brightness
-    const hrs = 6 + 24 * (w.time / DAY_LENGTH_S);
-    const daylight = hrs >= 6 && hrs < 20;
-    const dayFactor = clamp(
-      (daylight ? 1 : 0.28) * (w.weather ? 0.78 : 1), 0.25, 1
-    );
+    const dayF = this.dayFactor();
+    this.applyDayFilter(dayF);
 
-    const tintRGB = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
-    const [tr, tg, tb] = tintRGB(tint.tint);
-    // ground gradient (top-to-bottom warm tone)
-    const gt = `rgb(${Math.round(tr*1.18*dayFactor+8)},${Math.round(tg*1.18*dayFactor+10)},${Math.round(tb*1.08*dayFactor+8)})`;
-    const gb = `rgb(${Math.round(tr*0.72*dayFactor)},${Math.round(tg*0.72*dayFactor)},${Math.round(tb*0.72*dayFactor)})`;
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, gt); grad.addColorStop(1, gb);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-
-    // ---- tile cells (ground + objects) ----
-    const sInt = Math.max(2, Math.round(s));
-    // visible tile range
-    const halfW = Math.ceil(W / 2 / s) + 1;
-    const halfH = Math.ceil(H / 2 / s) + 1;
+    const halfW = Math.ceil(this.CSS_W / 2 / s) + 1;
+    const halfH = Math.ceil(this.CSS_H / 2 / s) + 1;
     const x0 = clamp(Math.floor(State.cam.x - halfW), 0, MAP_W);
     const x1 = clamp(Math.ceil(State.cam.x + halfW), 0, MAP_W);
     const y0 = clamp(Math.floor(State.cam.y - halfH), 0, MAP_H);
     const y1 = clamp(Math.ceil(State.cam.y + halfH), 0, MAP_H);
 
-    // ground tiles (live /state cells override the static join tile map so
-    // tilling, watering and hoeing show up on the map)
+    // background gradient (season tint) — kept under dayFilter so it dims too
+    const tr = parseInt(tint.tint.slice(1, 3), 16);
+    const tg = parseInt(tint.tint.slice(3, 5), 16);
+    const tb = parseInt(tint.tint.slice(5, 7), 16);
+    const bgCol = (Math.min(255, Math.round(tr * 1.18 * dayF + 8)) << 16)
+                | (Math.min(255, Math.round(tg * 1.18 * dayF + 10)) << 8)
+                | Math.min(255, Math.round(tb * 1.08 * dayF + 8));
+    const bg = new PIXI.Graphics();
+    bg.beginFill(bgCol);
+    bg.drawRect(0, 0, this.CSS_W, this.CSS_H);
+    bg.endFill();
+    this.ground.addChild(bg);
+
+    // ground tiles
     for (let ty = y0; ty < y1; ty++) {
       for (let tx = x0; tx < x1; tx++) {
         const key = ty * MAP_W + tx;
         const cell = State.cellMap ? State.cellMap.get(key) : null;
-        const tile = cell && typeof cell.tile === 'number'
-                   ? cell.tile : State.tileMap[key];
-        const px = this.wx(tx), py = this.wy(ty);
-        this.drawTile(ctx, tx, ty, tile, px, py, s, dayFactor, cell);
+        const tile = cell && typeof cell.tile === 'number' ? cell.tile : State.tileMap[key];
+        const base = this.tileColor(tx, ty, tile, cell);
+        let tex;
+        if (this.lpcTex && this.lpcTex[tile]) {
+          const variants = this.lpcTex[tile];
+          const idx = (tx * 7 + ty * 13) % variants.length;
+          tex = variants[Math.abs(idx)];
+          tex.baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
+        } else {
+          tex = this.getTileTex(base);
+        }
+        const sp = new PIXI.Sprite(tex);
+        sp.x = this.wx(tx); sp.y = this.wy(ty);
+        sp.width = s + 1; sp.height = s + 1;
+        this.ground.addChild(sp);
+        sp.isWater = (tile >= 2 && tile <= 6);
+        sp.isGrass = (tile === 0 || tile === 1);
+        sp.baseY = sp.y; sp.baseX = sp.x;
+        if (tile === 9 && s >= 6) {
+          const ln = new PIXI.Graphics();
+          ln.beginFill(cell && cell.watered ? 0x2a1a0a : 0x3a2410);
+          ln.drawRect(this.wx(tx), this.wy(ty), s + 1, 1);
+          ln.endFill();
+          this.ground.addChild(ln);
+        }
+        if (tile === 10 && s >= 6) {
+          const ln = new PIXI.Graphics();
+          ln.beginFill(0x5a3a18);
+          ln.drawRect(this.wx(tx), (this.wy(ty) + s / 2) | 0, s + 1, 1);
+          ln.endFill();
+          this.ground.addChild(ln);
+        }
       }
     }
-    // ---- atmosphere overlays ----
-    // dim only the terrain at night (drawn BEFORE entities so buildings,
-    // crops and npc emoji stay bright and opaque; also avoids a dark wash
-    // that made emoji look translucent)
-    if (dayFactor < 1) {
-      const darkness = 1 - dayFactor;
-      ctx.fillStyle = `rgba(8,12,40,${0.36 * darkness})`;
-      ctx.fillRect(0, 0, W, H);
+
+    if (s >= 8) {
+      for (let ty = y0; ty < y1; ty++) {
+        for (let tx = x0; tx < x1; tx++) {
+          const key = ty * MAP_W + tx;
+          const cell = State.cellMap ? State.cellMap.get(key) : null;
+          const tile = cell && typeof cell.tile === 'number' ? cell.tile : State.tileMap[key];
+          this.paintDecoration(tx, ty, tile, s);
+        }
+      }
     }
-    // weather murk on rain days
-    if (w.weather && dayFactor > 0.3) {
-      ctx.fillStyle = 'rgba(170,190,205,0.18)';
-      ctx.fillRect(0, 0, W, H);
-    }
-    // sparse objects + crops overlay from /state.cells
+
     for (const c of (w.cells || [])) {
       if (c.x < x0 || c.x >= x1 || c.y < y0 || c.y >= y1) continue;
-      const px = this.wx(c.x), py = this.wy(c.y);
-      this.drawCellObj(ctx, c, px, py, s, dayFactor, season);
+      this.paintCellObj(c, s, dayF);
     }
-    // buildings — pure emoji
+
     const allBldg = [...(State.join ? State.join.buildings || [] : [])];
-    if (State.world && State.world.house) allBldg.push({ name: 'Farmhouse', x: State.world.house.x, y: State.world.house.y, w: 3, h: 4 });
-    for (const b of allBldg) this.drawBuilding(ctx, b, s, dayFactor);
-    // npcs
-    for (const n of (w.npcs || [])) this.drawNPC(ctx, n, s);
-    // player
-    if (me && !me.inside) this.drawPlayer(ctx, me, s);
+    if (w.house) allBldg.push({ name: 'Farmhouse', x: w.house.x, y: w.house.y, w: 3, h: 4 });
+    // Draw roads connecting buildings (procedural)
+    this.paintRoads(allBldg, s);
+    // River banks and shore details
+    this.paintRiverBanks(x0, x1, y0, y1, s);
+    for (const b of allBldg) this.paintBuilding(b, s, dayF);
+
+    for (const n of (w.npcs || [])) this.paintNPC(n, s);
+
+    if (me && !me.inside) this.paintPlayer(me, s);
   },
 
-  drawTile(ctx, tx, ty, tile, px, py, s, dayF, cell) {
-    // only draw if visible (py range check); keep cheap
-    if (px < -s || py < -s || px > this.CSS_W + s || py > this.CSS_H + s) return;
-    const left = px, top = py;
-    // Per-tile color choices
-    let base;
-    switch (tile) {
-      case 0: case 1: { // grass / grass var
-        const h = worldHash(tx, ty);
-        base = h < 0.5 ? '#4a7a2e' : '#5a8a3a';
-        if (tile === 1) base = h < 0.5 ? '#3f6d28' : '#4f7d34';
-        break;
+  // Procedural roads: connect nearby buildings with dirt paths
+  paintRoads(buildings, s) {
+    if (buildings.length < 2 || s < 4) return;
+    const roadG = new PIXI.Graphics();
+    roadG.beginFill(0xc8a878, 0.55);
+    // Find a "hub" building (Town Center or first one) to connect others to
+    let hub = buildings.find(b => /Town Center/i.test(b.name));
+    if (!hub) hub = buildings[0];
+    const hx = hub.x + (hub.w || 1) / 2;
+    const hy = hub.y + (hub.h || 1) / 2;
+    for (const b of buildings) {
+      if (b === hub) continue;
+      const bx = b.x + (b.w || 1) / 2;
+      const by = b.y + (b.h || 1) / 2;
+      // Draw an L-shaped or straight path from hub to building
+      const sx = this.wx(hx), sy = this.wy(hy);
+      const ex = this.wx(bx), ey = this.wy(by);
+      const midX = (sx + ex) / 2;
+      const pathW = Math.max(2, s * 0.35);
+      // Straight segment hub -> building
+      roadG.drawRect(Math.min(sx, ex), sy - pathW / 2, Math.abs(ex - sx), pathW);
+      roadG.drawRect(ex - pathW / 2, Math.min(sy, ey), pathW, Math.abs(ey - sy));
+      // L-corner
+      roadG.drawRect(ex - pathW / 2, sy - pathW / 2, pathW, pathW);
+      // Cobblestone detail dots along the road
+      const steps = Math.max(3, Math.floor(Math.abs(ex - sx) / s) + Math.floor(Math.abs(ey - sy) / s));
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const px = sx + (ex - sx) * t;
+        const py = sy + (ey - sy) * t;
+        roadG.beginFill(0xb09868, 0.7);
+        roadG.drawCircle(px + (worldHash(i, 0) - 0.5) * 2, py + (worldHash(0, i) - 0.5) * 2, 1);
+        roadG.endFill();
       }
-      case 2: case 3: case 4: case 5: case 6: base = '#2a4f8f'; break; // water
-      case 7: base = worldHash(tx,ty)<0.5 ? '#8a6b3a' : '#9a7b4a'; break; // dirt
-      case 8: base = worldHash(tx,ty)<0.5 ? '#c8b877' : '#d8c887'; break; // sand
-      case 9: // tilled — dry brown, dark wet soil when the crop is watered
-        base = cell && cell.watered ? '#4a2d12' : '#5a3818';
-        break;
-      case 10: base = '#7a5a30'; break;     // bridge
-      case 11: base = worldHash(tx,ty)<0.5 ? '#d8e0e8' : '#e8eef2'; break; // snow
-      case 12: base = worldHash(tx,ty)<0.5 ? '#a8c8d8' : '#b8dcea'; break; // ice
-      default: base = '#4a7a2e';
+      roadG.beginFill(0xc8a878, 0.55);
     }
-    // Vertical gradient (light at top, dark at bottom) for depth — dayF
-    // dims everything at night
-    const lr = parseInt(base.slice(1, 3), 16);
-    const lg = parseInt(base.slice(3, 5), 16);
-    const lb = parseInt(base.slice(5, 7), 16);
-    const lt = dayF * Math.min(255, lr + 18);
-    const rt = dayF * Math.min(255, lr + 4);
-    const lgt = dayF * Math.min(255, lg + 18);
-    const rgt = dayF * Math.min(255, lg + 4);
-    const lbt = dayF * Math.min(255, lb + 18);
-    const rbt = dayF * Math.min(255, lb + 4);
-    const grad = ctx.createLinearGradient(0, top, 0, top + s + 1);
-    grad.addColorStop(0, `rgb(${lt|0},${lgt|0},${lbt|0})`);
-    grad.addColorStop(1, `rgb(${rt|0},${rgt|0},${rbt|0})`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(left, top, s + 1, s + 1);
+    roadG.endFill();
+    this.deco.addChild(roadG);
+  },
 
-    // texture + emoji decorations (only when tiles are big enough to read)
+  // River banks: highlight edges of water tiles with lighter shore line
+  paintRiverBanks(x0, x1, y0, y1, s) {
+    if (s < 4) return;
+    const bankG = new PIXI.Graphics();
+    bankG.beginFill(0xb8d8e0, 0.35);
+    for (let ty = y0; ty < y1; ty++) {
+      for (let tx = x0; tx < x1; tx++) {
+        const key = ty * MAP_W + tx;
+        const cell = State.cellMap ? State.cellMap.get(key) : null;
+        const tile = cell && typeof cell.tile === 'number' ? cell.tile : State.tileMap[key];
+        if (tile < 2 || tile > 6) continue;
+        // Check each neighbor; if not water, draw a shore highlight on that edge
+        const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+        for (const [dx, dy] of dirs) {
+          const nx = tx + dx, ny = ty + dy;
+          if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+          const nKey = ny * MAP_W + nx;
+          const nCell = State.cellMap ? State.cellMap.get(nKey) : null;
+          const nTile = nCell && typeof nCell.tile === 'number' ? nCell.tile : State.tileMap[nKey];
+          if (nTile >= 2 && nTile <= 6) continue;
+          // Draw a small foam/edge line on the shore side
+          const px = this.wx(tx), py = this.wy(ty);
+          const sw = Math.max(1.5, s * 0.15);
+          if (dx === -1) bankG.drawRect(px, py + s * 0.1, sw, s * 0.8);
+          else if (dx === 1) bankG.drawRect(px + s - sw, py + s * 0.1, sw, s * 0.8);
+          else if (dy === -1) bankG.drawRect(px + s * 0.1, py, s * 0.8, sw);
+          else bankG.drawRect(px + s * 0.1, py + s - sw, s * 0.8, sw);
+        }
+      }
+    }
+    bankG.endFill();
+    this.deco.addChild(bankG);
+  },
+
+  paintDecoration(tx, ty, tile, s) {
     const h = worldHash(tx, ty);
-    if (s >= 8) {
-      if (tile >= 2 && tile <= 6) {
-        // water — gentle wave crests
-        if (h > 0.85) {
-          this.emoji(ctx, '🌊', left + s * (0.25 + 0.5 * worldHash(tx * 7, ty * 13)),
-                     top + s * 0.55, s * 0.5);
-        }
-      } else if (tile === 11) {
-        // snow — flake sparkle
-        if (h > 0.92) {
-          this.emoji(ctx, '❄️', left + s * 0.5, top + s * 0.5, s * 0.55);
-        }
-      } else if (tile === 12) {
-        // ice — glassy chunk
-        if (h > 0.88) {
-          this.emoji(ctx, '🧊', left + s * 0.5, top + s * 0.5, s * 0.6);
-        }
-      } else if (tile === 0 || tile === 1) {
-        // grass — sparse wildflowers (5%) and tufts (3%); use a coarser
-        // hash so flowers cluster naturally rather than blanket the field
-        const fhash = worldHash((tx >> 1) * 17, (ty >> 1) * 23);
-        if (fhash < 0.06) {
-          this.emoji(ctx, fhash < 0.03 ? '🌷' : '🌼', left + s * 0.5, top + s * 0.55, s * 0.4);
-        } else if (fhash > 0.96) {
-          this.emoji(ctx, '🌿', left + s * 0.5, top + s * 0.6, s * 0.38);
-        }
-      } else if (tile === 8) {
-        // sand — pebble
-        if (h > 0.94) {
-          this.emoji(ctx, '🪨', left + s * 0.5, top + s * 0.5, s * 0.32);
-        }
+    const cx = this.wx(tx) + s / 2;
+    const cy = this.wy(ty) + s / 2;
+    if (tile >= 2 && tile <= 6) {
+      if (h > 0.85) {
+        const x = cx + (worldHash(tx * 7, ty * 13) - 0.5) * s * 0.5;
+        this.deco.addChild(this.addEmoji('🌊', x, cy, s * 0.5));
       }
+    } else if (tile === 11 && h > 0.92) {
+      this.deco.addChild(this.addEmoji('❄️', cx, cy, s * 0.55));
+    } else if (tile === 12 && h > 0.88) {
+      this.deco.addChild(this.addEmoji('🧊', cx, cy, s * 0.6));
+    } else if (tile === 0 || tile === 1) {
+      const fhash = worldHash((tx >> 1) * 17, (ty >> 1) * 23);
+      if (fhash < 0.06) {
+        this.deco.addChild(this.addEmoji(fhash < 0.03 ? '🌷' : '🌼', cx, cy, s * 0.4));
+      } else if (fhash > 0.96) {
+        this.deco.addChild(this.addEmoji('🌿', cx, cy, s * 0.38));
+      }
+    } else if (tile === 8 && h > 0.94) {
+      this.deco.addChild(this.addEmoji('🪨', cx, cy, s * 0.32));
     }
-    if (tile === 9 && s >= 6) {
-      // tilled soil furrow line (watered: bluish sheen)
-      ctx.fillStyle = cell && cell.watered ? '#2a1a0a' : '#3a2410';
-      ctx.fillRect(left, top, s + 1, 1);
-    }
-    if (tile === 10 && s >= 6) {
-      // bridge plank line
-      ctx.fillStyle = '#5a3a18';
-      ctx.fillRect(left, top + (s/2)|0, s + 1, 1);
+    // Add path/road details near buildings for town layout
+    const pathChance = worldHash(tx * 3 + 7, ty * 3 + 13);
+    if (pathChance > 0.88 && s >= 8) {
+      const path = new PIXI.Graphics();
+      path.beginFill(0xc8b08a, 0.35);
+      path.drawEllipse(cx, cy, s * 0.18, s * 0.12);
+      path.endFill();
+      this.deco.addChild(path);
     }
   },
 
-  drawCellObj(ctx, c, px, py, s, dayF, season) {
-    if (c.obj === 12) return; // buildings drawn separately
-    const left = px, top = py, cx = left + s / 2, cy = top + s / 2;
+  paintCellObj(c, s, dayF) {
+    if (c.obj === 12) return;
+    const cx = this.wx(c.x) + s / 2;
+    const cy = this.wy(c.y) + s / 2;
     const o = c.obj;
-    if (o === 7 || o === 8) {           // fence — twin wooden rails
-      ctx.fillStyle = '#b08a50';
-      ctx.fillRect(left + 1, top + (s * 0.42) | 0, s - 2, 2);
-      ctx.fillStyle = '#8a6a3a';
-      ctx.fillRect(left + 1, top + (s * 0.68) | 0, s - 2, 2);
-      ctx.fillStyle = '#6a4e28';
-      ctx.fillRect(left + (s * 0.2) | 0, top + (s * 0.36) | 0, 2, s * 0.4 | 0);
-      ctx.fillRect(left + (s * 0.75) | 0, top + (s * 0.36) | 0, 2, s * 0.4 | 0);
+    if (o === 7 || o === 8) {
+      const g = new PIXI.Graphics();
+      g.beginFill(0xb08a50);
+      g.drawRect(this.wx(c.x) + 1, (this.wy(c.y) + s * 0.42) | 0, s - 2, 2);
+      g.beginFill(0x8a6a3a);
+      g.drawRect(this.wx(c.x) + 1, (this.wy(c.y) + s * 0.68) | 0, s - 2, 2);
+      g.beginFill(0x6a4e28);
+      g.drawRect((this.wx(c.x) + s * 0.2) | 0, (this.wy(c.y) + s * 0.36) | 0, 2, (s * 0.4) | 0);
+      g.drawRect((this.wx(c.x) + s * 0.75) | 0, (this.wy(c.y) + s * 0.36) | 0, 2, (s * 0.4) | 0);
+      this.objects.addChild(g);
       return;
     }
-    const g = OBJ_GLYPH[o];
-    if (g && s >= 6) {
-      // soft ground shadow under tall or bulky objects
+    const glyph = OBJ_GLYPH[o];
+    if (!glyph) return;
+    if (s >= 6) {
       if (o === 1 || o === 9 || o === 6 || o === 2) {
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.beginPath();
-        ctx.ellipse(cx, top + s * 0.92, s * 0.36, s * 0.11, 0, 0, Math.PI * 2);
-        ctx.fill();
+        const sh = new PIXI.Graphics();
+        sh.beginFill(0x000000, 0.25);
+        sh.drawEllipse(cx, this.wy(c.y) + s * 0.92, s * 0.36, s * 0.11);
+        sh.endFill();
+        this.objects.addChild(sh);
       }
-      const size = (o === 1 || o === 9) ? Math.max(16, s * 1.25)   // trees
-                 : o === 2 ? Math.max(13, s * 0.95)               // rocks
-                 : o === 11 ? Math.max(12, s * 0.85)              // mushrooms
+      const size = o === 1 || o === 9 ? Math.max(16, s * 1.25)
+                 : o === 2 ? Math.max(13, s * 0.95)
+                 : o === 11 ? Math.max(12, s * 0.85)
                  : Math.max(12, s * 0.95);
-      this.emoji(ctx, g, cx, cy, size);
-      // ore rock: colored mineral sparkle in the corner
+      this.objects.addChild(this.addEmoji(glyph, cx, cy, size));
       if (o === 2 && c.ore) {
-        const col = c.ore === 1 ? '#e8833a' : c.ore === 2 ? '#c8c8d8'
-                  : c.ore === 3 ? '#ffd84a' : '#d06ad8';
-        const ox = left + s * 0.8, oy = top + s * 0.2;
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(ox, oy, Math.max(2.5, s * 0.14), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.beginPath(); ctx.arc(ox, oy, Math.max(1, s * 0.05), 0, Math.PI * 2); ctx.fill();
+        const col = c.ore === 1 ? 0xe8833a : c.ore === 2 ? 0xc8c8d8
+                  : c.ore === 3 ? 0xffd84a : 0xd06ad8;
+        const ox = this.wx(c.x) + s * 0.8, oy = this.wy(c.y) + s * 0.2;
+        const g = new PIXI.Graphics();
+        g.beginFill(col);
+        g.drawCircle(ox, oy, Math.max(2.5, s * 0.14));
+        g.beginFill(0xffffff, 0.9);
+        g.drawCircle(ox, oy, Math.max(1, s * 0.05));
+        this.objects.addChild(g);
       }
-      // sprinkler: blue water glint
       if (o === 13) {
-        ctx.fillStyle = 'rgba(120,190,255,0.35)';
-        ctx.beginPath(); ctx.arc(cx, cy, s * 0.55, 0, Math.PI * 2); ctx.fill();
+        const g = new PIXI.Graphics();
+        g.beginFill(0x78beff, 0.35);
+        g.drawCircle(cx, cy, s * 0.55);
+        g.endFill();
+        this.objects.addChild(g);
       }
-    } else if (g) {
-      // tiny zoom: plain color dot keeps the map readable
-      const col = o === 1 || o === 9 ? '#3a6a2a' : o === 2 ? '#6a6a6a'
-                : o === 13 ? '#8ab6d6' : o === 6 ? '#5a3818' : '#4a7a3a';
-      ctx.fillStyle = col;
-      ctx.fillRect(left + (s / 2 - 1) | 0, top + (s / 2 - 1) | 0, 2, 2);
+    } else {
+      const col = o === 1 || o === 9 ? 0x3a6a2a : o === 2 ? 0x6a6a6a
+                : o === 13 ? 0x8ab6d6 : o === 6 ? 0x5a3818 : 0x4a7a3a;
+      const g = new PIXI.Graphics();
+      g.beginFill(col);
+      g.drawRect((this.wx(c.x) + s / 2 - 1) | 0, (this.wy(c.y) + s / 2 - 1) | 0, 2, 2);
+      g.endFill();
+      this.objects.addChild(g);
     }
-
-    // crop on top
     if (c.crop && c.crop > 0) {
       const stage = c.stage || 0;
       const ripe = stage >= 3 && (c.days_left || 0) <= 0;
       if (s >= 6) {
         if (stage <= 1) {
-          this.emoji(ctx, '🌱', cx, cy + s * 0.05, s * 0.6);
+          this.objects.addChild(this.addEmoji('🌱', cx, cy + s * 0.05, s * 0.6));
         } else if (stage === 2) {
-          this.emoji(ctx, '🌿', cx, cy, s * 0.7);
+          this.objects.addChild(this.addEmoji('🌿', cx, cy, s * 0.7));
         } else {
-          // ripe produce — glow softly on the tile
-          const glyph = CROP_GLYPH[c.crop] || '🥬';
-          ctx.fillStyle = 'rgba(255,220,120,0.18)';
-          ctx.beginPath(); ctx.arc(cx, cy, s * 0.55, 0, Math.PI * 2); ctx.fill();
-          this.emoji(ctx, glyph, cx, cy, s * 0.82);
+          const glow = new PIXI.Graphics();
+          glow.beginFill(0xffdc78, 0.18);
+          glow.drawCircle(cx, cy, s * 0.55);
+          glow.endFill();
+          this.objects.addChild(glow);
+          const g = CROP_GLYPH[c.crop] || '🥬';
+          this.objects.addChild(this.addEmoji(g, cx, cy, s * 0.82));
         }
       } else {
         const col = ripe ? (CROP_RIPE_COLOR[c.crop] || '#e8d05a') : '#4a9028';
-        ctx.fillStyle = col;
-        ctx.fillRect(cx - 1, cy - 1, 2, 2);
+        const g = new PIXI.Graphics();
+        g.beginFill(col);
+        g.drawRect(cx - 1, cy - 1, 2, 2);
+        g.endFill();
+        this.objects.addChild(g);
       }
     }
   },
 
-  drawBuilding(ctx, b, s, dayF) {
+  paintBuilding(b, s, dayF) {
     const pxTop = this.wx(b.x), pyTop = this.wy(b.y);
     const wpx = b.w * s, hpx = b.h * s;
     const st = bldStyle(b.name);
-    // soft platform / spotlight behind the building for contrast against
-    // the busy ground — a darker oval rim with a brighter center
     if (s >= 4) {
       const padR = Math.max(wpx, hpx) * 0.62;
       const cx = pxTop + wpx / 2, cy = pyTop + hpx / 2;
-      const rim = ctx.createRadialGradient(cx, cy, padR * 0.55, cx, cy, padR);
-      rim.addColorStop(0, 'rgba(0,0,0,0.32)');
-      rim.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = rim;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, padR, padR * 0.85, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const rim = new PIXI.Graphics();
+      rim.beginFill(0x000000, 0.32);
+      rim.drawEllipse(cx, cy, padR, padR * 0.85);
+      rim.endFill();
+      this.buildings.addChild(rim);
     }
-    // soft ground shadow (offset down)
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(pxTop + wpx / 2, pyTop + hpx + 2, wpx * 0.55, hpx * 0.12, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // building emoji — large, centered over the footprint; minimum 22px
-    // so buildings stay solid/legible even when tiles are tiny (a
-    // downscaled color emoji at ~5px is nothing but translucent AA edges)
+    const sh = new PIXI.Graphics();
+    sh.beginFill(0x000000, 0.35);
+    sh.drawEllipse(pxTop + wpx / 2, pyTop + hpx + 2, wpx * 0.55, hpx * 0.12);
+    sh.endFill();
+    this.buildings.addChild(sh);
     if (s >= 4) {
       const esz = Math.max(22, Math.min(wpx * 1.15, Math.max(s * 1.4, hpx * 1.05)));
-      // warm glow behind the emoji at night
       if (dayF < 0.5) {
-        ctx.fillStyle = 'rgba(255,190,110,0.22)';
-        ctx.beginPath();
-        ctx.arc(pxTop + wpx / 2, pyTop + hpx / 2, esz * 0.85, 0, Math.PI * 2);
-        ctx.fill();
+        const glow = new PIXI.Graphics();
+        glow.beginFill(0xffbe6e, 0.22);
+        glow.drawCircle(pxTop + wpx / 2, pyTop + hpx / 2, esz * 0.85);
+        glow.endFill();
+        this.buildings.addChild(glow);
       }
-      this.emoji(ctx, st.glyph, pxTop + wpx / 2, pyTop + hpx / 2, esz);
+      this.buildings.addChild(this.addEmoji(st.glyph, pxTop + wpx / 2, pyTop + hpx / 2, esz));
     }
-    // nameplate pill if building is large enough
     if (wpx > 26 && s >= 6) {
       const txt = b.name;
-      ctx.font = '10px system-ui';
-      const tw = ctx.measureText(txt).width;
-      const ny = pyTop + hpx + 10;
-      ctx.fillStyle = 'rgba(18,14,8,0.66)';
-      roundRect(ctx, pxTop + (wpx - tw) / 2 - 4, ny - 7, tw + 8, 14, 7);
-      ctx.fill();
-      ctx.fillStyle = '#f4ead0';
-      ctx.textAlign = 'center';
-      ctx.fillText(txt, pxTop + wpx / 2, ny + 2);
+      const text = new PIXI.Text(txt, {
+        fontFamily: 'system-ui', fontSize: 10, fill: 0xf4ead0,
+      });
+      text.anchor.set(0.5);
+      text.x = pxTop + wpx / 2;
+      text.y = pyTop + hpx + 16;
+      const tw = text.width;
+      const pill = new PIXI.Graphics();
+      pill.beginFill(0x120e08, 0.66);
+      pill.drawRoundedRect(pxTop + (wpx - tw) / 2 - 4, pyTop + hpx + 9, tw + 8, 14, 7);
+      pill.endFill();
+      this.buildings.addChild(pill);
+      this.buildings.addChild(text);
     }
   },
 
-  drawNPC(ctx, n, s) {
+  paintNPC(n, s) {
     const px = this.wx(n.x), py = this.wy(n.y);
-    const cxpx = px + s / 2, cypy = py + s / 2;
-    // halo
-    ctx.fillStyle = 'rgba(20,24,32,0.5)';
-    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.45, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(232,163,61,0.2)';
-    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.7, 0, Math.PI * 2); ctx.fill();
-    // glyph
+    const cx = px + s / 2, cy = py + s / 2;
+    const halo = new PIXI.Graphics();
+    halo.beginFill(0x141820, 0.5);
+    halo.drawCircle(cx, cy, s * 0.45);
+    halo.beginFill(0xe8a33d, 0.2);
+    halo.drawCircle(cx, cy, s * 0.7);
+    halo.endFill();
+    this.npcs.addChild(halo);
     const np = NPC_BY(n.name) || NPC_LIST[(n.color - 1) % NPC_LIST.length];
-    this.emoji(ctx, np.glyph, cxpx, cypy, Math.max(13, s * 1.05));
-    // nameplate
+    this.npcs.addChild(this.addEmoji(np.glyph, cx, cy, Math.max(13, s * 1.05)));
     if (s >= 6) {
-      ctx.font = '8.5px system-ui';
       const tn = n.name.split(' ')[0];
-      const tw = ctx.measureText(tn).width;
-      ctx.fillStyle = 'rgba(20,24,32,0.66)';
-      roundRect(ctx, cxpx - tw/2 - 3, cypy + s*0.5, tw + 6, 12, 6); ctx.fill();
-      ctx.fillStyle = '#eee';
-      ctx.fillText(tn, cxpx, cypy + s*0.5 + 8);
+      const text = new PIXI.Text(tn, {
+        fontFamily: 'system-ui', fontSize: 8.5, fill: 0xeeeeee,
+      });
+      text.anchor.set(0.5);
+      text.x = cx; text.y = cy + s * 0.5 + 8;
+      const tw = text.width;
+      const pill = new PIXI.Graphics();
+      pill.beginFill(0x141820, 0.66);
+      pill.drawRoundedRect(cx - tw / 2 - 3, cy + s * 0.5, tw + 6, 12, 6);
+      pill.endFill();
+      this.npcs.addChild(pill);
+      this.npcs.addChild(text);
     }
   },
 
-  drawPlayer(ctx, me, s) {
+  paintPlayer(me, s) {
     const px = this.wx(me.x), py = this.wy(me.y);
-    const cxpx = px + s / 2, cypy = py + s / 2;
-    ctx.fillStyle = 'rgba(91,141,255,0.28)';
-    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.8, 0, Math.PI * 2); ctx.fill();
-    this.emoji(ctx, '🧭', cxpx, cypy, Math.max(15, s * 1.1));
-    // outline ring
-    ctx.strokeStyle = 'rgba(91,141,255,0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.6, 0, Math.PI * 2); ctx.stroke();
-    // direction indicator — small arrow ahead
+    const cx = px + s / 2, cy = py + s / 2;
+    const glow = new PIXI.Graphics();
+    glow.beginFill(0x5b8dff, 0.28);
+    glow.drawCircle(cx, cy, s * 0.8);
+    glow.endFill();
+    this.player.addChild(glow);
+    this.player.addChild(this.addEmoji('🧭', cx, cy, Math.max(15, s * 1.1)));
+    const ring = new PIXI.Graphics();
+    ring.lineStyle(1.5, 0x5b8dff, 0.7);
+    ring.drawCircle(cx, cy, s * 0.6);
+    this.player.addChild(ring);
     const dir = me.dir || 0;
-    const dirs = [[0,1],[-1,0],[1,0],[0,-1]];
-    const [dx_, dy_] = dirs[dir] || [0, 1];
-    ctx.fillStyle = '#ffd700';
-    ctx.beginPath();
-    ctx.arc(cxpx + dx_ * s * 0.85, cypy + dy_ * s * 0.85, 2, 0, Math.PI * 2); ctx.fill();
+    const dirs = [[0, 1], [-1, 0], [1, 0], [0, -1]];
+    const [dx, dy] = dirs[dir] || [0, 1];
+    const dot = new PIXI.Graphics();
+    dot.beginFill(0xffd700);
+    dot.drawCircle(cx + dx * s * 0.85, cy + dy * s * 0.85, 2);
+    dot.endFill();
+    this.player.addChild(dot);
   },
 
-  // ---- animated overlay (per-RAF) ----
-  drawLive(now) {
-    const ctx = this.ctx;
-    const W = this.CSS_W, H = this.CSS_H;
-    // blit static
-    ctx.drawImage(this.off, 0, 0, this.off.width, this.off.height, 0, 0, W, H);
-    const w = State.world;
-    if (!w || !State.tileMap) return;
-    // weather particles
-    if (w.weather) {
-      ctx.strokeStyle = 'rgba(180,200,225,0.5)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 60; i++) {
-        const phase = (i / 60) * Math.PI * 2;
-        const x = (now * 0.4 + i * 53) % (W + 30) - 15;
-        const y = (now * 0.7 + i * 91) % (H + 30) - 15;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x - 2, y + 8);
-        ctx.stroke();
+  // ---- per-frame ----
+  loop() {
+    if (this.dirty) { this.paint(); this.dirty = false; }
+    const now = performance.now();
+    // Animate water shimmer on existing ground tiles (grass is static for clean look)
+    for (const ch of this.ground.children) {
+      if (ch.isWater && ch.baseY !== undefined) {
+        ch.y = ch.baseY + Math.sin((now + ch.baseX) * 0.003) * 1.5;
       }
     }
-    // hover ring (snapped to the hovered tile)
+    this.paintLive(performance.now() - this.t0);
+  },
+
+  paintLive(now) {
+    const w = State.world;
+    if (!w) return;
+    // Weather rain (overlay is rendered above entities — keep but subtle)
+    if (!this.weatherG) { this.weatherG = new PIXI.Graphics(); this.overlay.addChild(this.weatherG); }
+    this.weatherG.clear();
+    if (w.weather) {
+      this.weatherG.lineStyle(1, 0xb4c8e1, 0.5);
+      const W = this.CSS_W, H = this.CSS_H;
+      for (let i = 0; i < 60; i++) {
+        const x = (now * 0.4 + i * 53) % (W + 30) - 15;
+        const y = (now * 0.7 + i * 91) % (H + 30) - 15;
+        this.weatherG.moveTo(x, y);
+        this.weatherG.lineTo(x - 2, y + 8);
+      }
+    }
+    // Fireflies at night — ambient yellow dots drifting across the map
+    if (!this.fireflyG) { this.fireflyG = new PIXI.Graphics(); this.overlay.addChild(this.fireflyG); }
+    this.fireflyG.clear();
+    const dayF = this.dayFactor();
+    if (dayF < 0.5) {
+      for (let i = 0; i < 14; i++) {
+        const fhx = (now * 0.06 + i * 73) % (this.CSS_W + 40) - 20;
+        const baseY = (i * 41) % this.CSS_H;
+        const fhy = baseY + Math.sin(now * 0.002 + i * 1.7) * 12;
+        const a = 0.5 + 0.4 * Math.sin(now * 0.005 + i * 1.1);
+        this.fireflyG.beginFill(0xfff8a8, a);
+        this.fireflyG.drawCircle(fhx, fhy, 1.5);
+      }
+    }
+    // Hover ring (dashed via short arcs)
+    if (!this.hoverG) { this.hoverG = new PIXI.Graphics(); this.overlay.addChild(this.hoverG); }
+    this.hoverG.clear();
     if (this.hoverX != null && this.hoverY != null) {
       const hx = this.wx(this.hoverX + 0.5), hy = this.wy(this.hoverY + 0.5);
-      ctx.strokeStyle = 'rgba(255,224,102,0.8)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.arc(hx, hy, 14, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      this.hoverG.lineStyle(1.5, 0xffe066, 0.8);
+      const segs = 24;
+      for (let i = 0; i < segs; i += 2) {
+        const a1 = (i / segs) * Math.PI * 2;
+        const a2 = ((i + 1) / segs) * Math.PI * 2;
+        this.hoverG.arc(hx, hy, 14, a1, a2);
+      }
     }
   },
-
-  loop() {
-    const now = performance.now();
-    if (this.dirty) { this.paintStatic(); this.dirty = false; }
-    this.drawLive(now - this.t0);
-    this.raf = requestAnimationFrame(() => this.loop());
-  },
-
-  markDirty() { this.dirty = true; },
 };
+
 
 // Crop ripe color (matches ITEM produce table)
 const CROP_RIPE_COLOR = { 20:'#e8d05a', 21:'#c8a04a', 22:'#d8e0a0', 23:'#f0c830', 24:'#e84838', 25:'#d8b860', 26:'#4a6ace' };
@@ -1530,7 +1809,7 @@ function roundRect(ctx, x, y, w, h, r) {
 // commands typed in the terminal (go/look/hoe/plant/enter/exit/...).
 
 function startMapLoop() {
-  MapRenderer.init();
+  MapView.init();
 }
 
 // ----- 7. modal panels (placeholder; full version later) ------------
@@ -1586,7 +1865,7 @@ async function pollState() {
       }
     }
     // mark map dirty so NPCs/day-night/season/player stay fresh
-    if (typeof MapRenderer !== 'undefined' && MapRenderer) MapRenderer.markDirty();
+    MapView.markDirty();
   } catch (e) { $('conn-dot').classList.add('off'); }
 }
 
