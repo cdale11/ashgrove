@@ -170,7 +170,24 @@ body {
   border: 1px solid var(--border);
   border-radius: 3px;
   image-rendering: -webkit-optimize-contrast;
+  position: relative;
 }
+.map-hover {
+  position: absolute;
+  left: 14px; top: 14px;
+  background: rgba(12,10,6,0.78);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+  display: none;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono','Courier New',ui-monospace,monospace;
+}
+.map-hover.show { display: block; }
+.map-wrap { position: relative; }
 .map-region {
   font-size: 11px; color: var(--accent-bright); text-align: center;
   margin-top: 4px; min-height: 14px;
@@ -181,11 +198,12 @@ body {
 .room-wrap { display: none; }
 .room-wrap.show { display: block; }
 .room-panel {
-  background: #17110b;
+  background: linear-gradient(#1a130b, #241a0f);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 6px;
   padding: 12px 10px;
   font-family: 'JetBrains Mono','Courier New',ui-monospace,monospace;
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.55);
 }
 .room-title {
   text-align: center; font-size: 11px; letter-spacing: 1.5px;
@@ -195,25 +213,32 @@ body {
 .room-row { display: flex; justify-content: center; }
 .room-row .cell {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; font-size: 15px; line-height: 1;
+  width: 28px; height: 28px; font-size: 15px; line-height: 1;
 }
-.room-row .cell.wall { color: #8a6a3a; }
-.room-row .cell.floor { color: #3a2c1c; }
-.room-row .cell.door { color: #ffce76; text-shadow: 0 0 6px rgba(255,206,118,0.45); }
-.room-row .cell.furn { color: var(--text); }
-.room-row .cell.me { font-size: 17px; filter: drop-shadow(0 0 4px rgba(91,141,255,0.9)); }
+.room-row .cell.wall { filter: brightness(0.8) saturate(0.85); }
+.room-row .cell.floor { background: rgba(0,0,0,0.14); border-radius: 2px; }
+.room-row .cell.door { filter: drop-shadow(0 0 5px rgba(255,206,118,0.55)); }
+.room-row .cell.furn { font-size: 17px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
+.room-row .cell.me { font-size: 18px; filter: drop-shadow(0 0 5px rgba(91,141,255,0.95)); }
 .room-hint {
   text-align: center; font-size: 10px; color: var(--text-dim);
   margin-top: 8px; font-family: inherit;
 }
 
-/* Legend (NPCs only) ------------------------------------------------- */
+/* Legend -------------------------------------------------------------- */
 .legend {
   padding: 4px 10px 6px; font-size: 11px; color: var(--text-dim);
   display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px;
+  max-height: 190px; overflow-y: auto;
 }
 .legend .row { display: flex; align-items: center; gap: 6px; }
 .legend .glyph { font-size: 14px; width: 18px; text-align: center; }
+.legend .legend-sec {
+  grid-column: 1 / -1;
+  font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--accent-bright); opacity: 0.85;
+  margin: 4px 0 2px;
+}
 
 /* Inventory panel ---------------------------------------------------- */
 .inventory {
@@ -305,6 +330,7 @@ body {
           </div>
         </div>
         <canvas id="map" class="map-canvas" width="700" height="500"></canvas>
+        <div class="map-hover" id="map-hover"></div>
         <div class="room-wrap" id="room-wrap">
           <div class="room-panel" id="room"></div>
         </div>
@@ -394,8 +420,13 @@ const ITEM = {
 
 // ObjType -> glyph. Mirrors include/world.hpp:146-150.
 const OBJ_GLYPH = {
-  0: '', 1: '🌳', 2: '🪨', 3: '🌿', 4: '🌾', 5: '🌸', 6: '🪵', 7: '🚧',
-  8: '🚧', 9: '🌲', 10: '🟢', 11: '🍄', 12: '🏠', 13: '⛲',
+  0: '', 1: '🌳', 2: '🪨', 3: '🌿', 4: '🌾', 5: '🌸', 6: '🪵', 7: '🪵',
+  8: '🪵', 9: '🌲', 10: '🪴', 11: '🍄', 12: '🏠', 13: '💦',
+};
+const OBJ_NAME = {
+  0: 'open ground', 1: 'tree', 2: 'rock', 3: 'weeds', 4: 'tall grass',
+  5: 'flowers', 6: 'stump', 7: 'fence post', 8: 'fence rail',
+  9: 'pine', 10: 'bush', 11: 'mushroom', 12: 'building', 13: 'sprinkler',
 };
 
 // NPC list (mirrors world.cpp:651-666 init_npcs). color: 1..5 used for palette.
@@ -408,24 +439,24 @@ const NPC_LIST = [
 ];
 const NPC_BY = name => NPC_LIST.find(n => n.name.toLowerCase() === name.toLowerCase());
 
-// Buildings -> roof color + glyph (matches world.cpp:410-443 place_buildings order).
+// Buildings -> roof color + emoji (matches world.cpp:410-443 place_buildings order).
 const BLD_STYLE = {
-  'Blacksmith':      { roof: '#5f4a3a', wall: '#9a6a44', glyph: '⚒️' },
+  'Blacksmith':      { roof: '#5f4a3a', wall: '#9a6a44', glyph: '🛠️' },
   'General Store':   { roof: '#a06a3a', wall: '#9a6a44', glyph: '🏪' },
-  'Old Mill':        { roof: '#c9b47a', wall: '#9a6a44', glyph: '🏚️' },
+  'Old Mill':        { roof: '#c9b47a', wall: '#9a6a44', glyph: '🏭' },
   'Clinic':          { roof: '#d8d8e0', wall: '#b8c8d0', glyph: '🏥' },
   'Museum':          { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🏛️' },
-  'Town Center':     { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏛️' },
+  'Town Center':     { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏫' },
   'Stardrop Saloon': { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🍻' },
   'Market':          { roof: '#a06a3a', wall: '#9a6a44', glyph: '🛒' },
   'Willow House':    { roof: '#7a9a4a', wall: '#9a6a44', glyph: '🏠' },
-  'Maple House':     { roof: '#c97a3a', wall: '#9a6a44', glyph: '🏠' },
-  'Rowan Cottage':   { roof: '#8a4a3a', wall: '#9a6a44', glyph: '🏡' },
-  'Bus Stop':        { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🚌' },
+  'Maple House':     { roof: '#c97a3a', wall: '#9a6a44', glyph: '🏚️' },
+  'Rowan Cottage':   { roof: '#8a4a3a', wall: '#9a6a44', glyph: '🛖' },
+  'Bus Stop':        { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🚏' },
   'Railway Station': { roof: '#5f4a3a', wall: '#7a6a54', glyph: '🚉' },
-  'Hawthorn Barn':   { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🏚️' },
-  'Glasshouse':      { roof: '#7fbf6a', wall: '#b8d8c0', glyph: '透视' },
-  'Farmhouse':       { roof: '#b5503a', wall: '#9a6a44', glyph: '🏠' },
+  'Hawthorn Barn':   { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🐄' },
+  'Glasshouse':      { roof: '#7fbf6a', wall: '#b8d8c0', glyph: '🌿' },
+  'Farmhouse':       { roof: '#b5503a', wall: '#9a6a44', glyph: '🏡' },
 };
 const bldStyle = n => BLD_STYLE[n] || { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏠' };
 
@@ -455,9 +486,24 @@ const SUGGESTIONS = [
 // Interior furniture glyphs (matches furniture_name in src/main.cpp:357).
 // '#' wall, '.' floor, ' ' doorway, letters = furnishings.
 const FURN_GLYPH = {
-  'B': '🛏️', 'T': '🪑', 'S': '🍳', 'C': '🗄️', 'M': '🛒', 'D': '🗄️',
-  'E': '🪟', 'A': '🔨', 'F': '🔥', 'X': '🫙', 'G': '🪑', 'N': '🪑',
+  'B': '🛏️', 'T': '🪵', 'S': '🍳', 'C': '🗄️', 'M': '🛒', 'D': '📚',
+  'E': '🖼️', 'A': '🛠️', 'F': '🔥', 'X': '🫙', 'G': '🪑', 'N': '🛋️',
   'P': '🚧', 'H': '🌾',
+};
+const FURN_NAME = {
+  'B': 'bed', 'T': 'table', 'S': 'stove', 'C': 'counter', 'M': 'market stall',
+  'D': 'desk', 'E': 'exhibit case', 'A': 'anvil', 'F': 'forge', 'X': 'sacks of grain',
+  'G': 'chair', 'N': 'bench', 'P': 'platform edge', 'H': 'hay bale',
+};
+
+// Crop item -> plant emoji (Item enum 20..26; ripe look).
+const CROP_GLYPH = {
+  20: '🥕', 21: '🥔', 22: '🥦', 23: '🌽', 24: '🍅', 25: '🌾', 26: '🫐',
+};
+const TILE_NAME = {
+  0: 'grass', 1: 'grass', 2: 'water', 3: 'water', 4: 'water', 5: 'water',
+  6: 'water', 7: 'dirt path', 8: 'sand', 9: 'tilled soil', 10: 'wooden bridge',
+  11: 'snow', 12: 'ice',
 };
 
 // ----- 2. helpers -----------------------------------------------------
@@ -613,7 +659,7 @@ const UI = {
     $('st-money').textContent = me.money + 'g';
     $('st-sel').textContent = (me.sel ?? 0) + 1;
     $('conn-dot').classList.toggle('off', false);
-    $('map-region').textContent = me.region || (me.inside ? 'Inside: ' + me.inside : '-');
+    $('map-region').textContent = (me.region || (me.inside ? 'Inside: ' + me.inside : 'Valley')) + ' · (' + me.x + ', ' + me.y + ')';
   },
 
   renderInventory() {
@@ -646,12 +692,27 @@ const UI = {
   renderLegend() {
     const el = $('legend');
     el.innerHTML = '';
-    NPC_LIST.forEach(n => {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.innerHTML = '<span class="glyph">' + n.glyph + '</span><span>' + n.name + '</span>';
-      el.appendChild(row);
-    });
+    const section = (title) => {
+      const h = document.createElement('div');
+      h.className = 'legend-sec';
+      h.textContent = title;
+      el.appendChild(h);
+    };
+    const row = (glyph, label) => {
+      const r = document.createElement('div');
+      r.className = 'row';
+      r.innerHTML = '<span class="glyph">' + glyph + '</span><span>' + label + '</span>';
+      el.appendChild(r);
+    };
+    section('Villagers');
+    NPC_LIST.forEach(n => row(n.glyph, n.name));
+    section('Buildings');
+    Object.keys(BLD_STYLE).forEach(b => row(BLD_STYLE[b].glyph, b));
+    section('Nature');
+    [['🌳', 'tree'], ['🌲', 'pine'], ['🪨', 'rock'], ['🪵', 'stump'],
+     ['🪴', 'bush'], ['🍄', 'mushroom'], ['🌿', 'weeds'], ['🌾', 'tall grass'],
+     ['🌸', 'flowers'], ['💦', 'sprinkler'], ['🌊', 'water'], ['❄️', 'snow']]
+      .forEach(([g, l]) => row(g, l));
   },
 
   renderSuggest() {
@@ -695,17 +756,18 @@ const UI = {
           cell.textContent = '🧭';
           cell.classList.add('me');
         } else if (ch === '#') {
-          cell.textContent = '█';
+          cell.textContent = '🧱';
           cell.classList.add('wall');
         } else if (ch === '.') {
-          cell.textContent = '·';
+          cell.textContent = '';
           cell.classList.add('floor');
         } else if (ch === ' ') {
-          cell.textContent = '▢';
+          cell.textContent = '🚪';
           cell.classList.add('door');
         } else {
           cell.textContent = FURN_GLYPH[ch] || ch;
           cell.classList.add('furn');
+          cell.title = FURN_NAME[ch] || 'something';
         }
         line.appendChild(cell);
       }
@@ -754,9 +816,13 @@ const MapRenderer = {
       const r = this.cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const w = this.screenToWorld(mx, my);
-      this.hoverX = w.x; this.hoverY = w.y;
+      this.hoverX = Math.floor(w.x); this.hoverY = Math.floor(w.y);
+      this.updateHover();
     });
-    this.cv.addEventListener('mouseleave', () => { this.hoverX = this.hoverY = null; });
+    this.cv.addEventListener('mouseleave', () => {
+      this.hoverX = this.hoverY = null;
+      this.updateHover();
+    });
     this.cv.addEventListener('wheel', e => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
@@ -790,6 +856,42 @@ const MapRenderer = {
     const s = this.scale();
     return { x: (mx - this.CSS_W / 2) / s + State.cam.x,
              y: (my - this.CSS_H / 2) / s + State.cam.y };
+  },
+
+  // draw an emoji centered at (cx, cy) with height h px
+  emoji(ctx, txt, cx, cy, h) {
+    ctx.font = `${Math.max(6, Math.round(h))}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(txt, cx, cy);
+  },
+
+  // hover chip: terrain + object + crop under the cursor
+  updateHover() {
+    const el = $('map-hover');
+    if (!el) return;
+    if (this.hoverX == null || !State.tileMap) { el.classList.remove('show'); return; }
+    const tx = this.hoverX, ty = this.hoverY;
+    if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) { el.classList.remove('show'); return; }
+    const tile = State.tileMap[ty * MAP_W + tx];
+    const cell = State.cellMap ? State.cellMap.get(ty * MAP_W + tx) : null;
+    const tileEm = { 0:'🟩', 1:'🟩', 2:'🌊', 3:'🌊', 4:'🌊', 5:'🌊', 6:'🌊',
+                     7:'🟫', 8:'🏖️', 9:'🟤', 10:'🟫', 11:'❄️', 12:'🧊' };
+    const parts = [(tileEm[tile] || '🟩') + ' ' + (TILE_NAME[tile] || 'terrain')];
+    if (cell && cell.obj && OBJ_GLYPH[cell.obj]) {
+      parts.push(OBJ_GLYPH[cell.obj] + ' ' + (OBJ_NAME[cell.obj] || 'object'));
+      if (cell.obj === 2 && cell.ore) {
+        const tiers = { 1: 'copper', 2: 'iron', 3: 'gold', 4: 'iridium' };
+        parts.push('(' + (tiers[cell.ore] || 'ore') + ')');
+      }
+    }
+    if (cell && cell.crop) {
+      const ripe = (cell.stage || 0) >= 3 && (cell.days_left || 0) <= 0;
+      const name = (ITEM[cell.crop] && ITEM[cell.crop][0]) || 'crop';
+      parts.push((CROP_GLYPH[cell.crop] || '🌱') + ' ' + name + (ripe ? ' (ripe)' : ''));
+    }
+    el.textContent = parts.join(' · ') + '  (' + tx + ',' + ty + ')';
+    el.classList.add('show');
   },
 
   paintStatic() {
@@ -899,17 +1001,49 @@ const MapRenderer = {
     ctx.fillStyle = base;
     ctx.fillRect(left, top, s + 1, s + 1);
 
-    // subtle texture decorations
+    // texture + emoji decorations (only when tiles are big enough to read)
     const h = worldHash(tx, ty);
-    if ((tile === 0 || tile === 1) && s >= 6) {
-      // grass tuft dot
-      if (h < 0.18) {
-        ctx.fillStyle = tile === 1 ? '#3a6d20' : '#6aa040';
-        ctx.fillRect(left + (h*400% s)|0 + 1, top + (h*100% s)|0 + 1, 2, 2);
-      } else if (h > 0.92) {
-        // flower
-        ctx.fillStyle = (worldHash(tx*7, ty*11) < 0.5) ? '#e8a9c2' : '#f2d94c';
-        ctx.fillRect(left + 2 + ((h*300)|0)%Math.max(1,s-4), top + 2 + ((h*500)|0)%Math.max(1,s-4), 2, 2);
+    if (s >= 8) {
+      if (tile >= 2 && tile <= 6) {
+        // water — gentle wave crests
+        if (h > 0.72) {
+          ctx.globalAlpha = 0.45;
+          this.emoji(ctx, '🌊', left + s * (0.25 + 0.5 * worldHash(tx * 7, ty * 13)),
+                     top + s * 0.55, s * 0.5);
+          ctx.globalAlpha = 1;
+        }
+      } else if (tile === 11) {
+        // snow — flake sparkle
+        if (h > 0.86) {
+          ctx.globalAlpha = 0.85;
+          this.emoji(ctx, '❄️', left + s * 0.5, top + s * 0.5, s * 0.55);
+          ctx.globalAlpha = 1;
+        }
+      } else if (tile === 12) {
+        // ice — glassy chunk
+        if (h > 0.78) {
+          ctx.globalAlpha = 0.85;
+          this.emoji(ctx, '🧊', left + s * 0.5, top + s * 0.5, s * 0.6);
+          ctx.globalAlpha = 1;
+        }
+      } else if (tile === 0 || tile === 1) {
+        // grass — wildflowers + tufts
+        if (h < 0.10) {
+          ctx.globalAlpha = 0.9;
+          this.emoji(ctx, h < 0.05 ? '🌷' : '🌼', left + s * 0.5, top + s * 0.55, s * 0.4);
+          ctx.globalAlpha = 1;
+        } else if (h > 0.93) {
+          ctx.globalAlpha = 0.55;
+          this.emoji(ctx, '🌿', left + s * 0.5, top + s * 0.6, s * 0.38);
+          ctx.globalAlpha = 1;
+        }
+      } else if (tile === 8) {
+        // sand — pebble
+        if (h > 0.88) {
+          ctx.globalAlpha = 0.8;
+          this.emoji(ctx, '🪨', left + s * 0.5, top + s * 0.5, s * 0.32);
+          ctx.globalAlpha = 1;
+        }
       }
     }
     if (tile === 9 && s >= 6) {
@@ -918,93 +1052,87 @@ const MapRenderer = {
       ctx.fillRect(left, top, s + 1, 1);
     }
     if (tile === 10 && s >= 6) {
+      // bridge plank line
       ctx.fillStyle = '#5a3a18';
       ctx.fillRect(left, top + (s/2)|0, s + 1, 1);
-    }
-    // water shimmer
-    if (tile >= 2 && tile <= 6 && s >= 6) {
-      if (h > 0.7) {
-        ctx.fillStyle = 'rgba(180,210,240,0.25)';
-        ctx.fillRect(left + ((h*300)|0)%Math.max(1,s-3) + 1, top + (s*0.4)|0, 2, 1);
-      }
     }
   },
 
   drawCellObj(ctx, c, px, py, s, dayF, season) {
-    const left = px, top = py;
     if (c.obj === 12) return; // buildings drawn separately
-    // object glyph
-    if (c.obj === 1) { // tree
-      ctx.fillStyle = '#2a5a2a';
-      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
-      ctx.fillStyle = '#3a6a3a';
-      ctx.fillRect(left + 3, top + 3, Math.max(1, s - 7), Math.max(1, s - 7));
-      ctx.fillStyle = '#5a3818';
-      ctx.fillRect(left + (s/2 - 1)|0, top + s - 3, 2, 3);
-    } else if (c.obj === 9) { // pine
-      ctx.fillStyle = '#1a4a26';
-      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
-      ctx.fillStyle = '#5a3818';
-      ctx.fillRect(left + (s/2 - 1)|0, top + s - 3, 2, 3);
-    } else if (c.obj === 2 && c.ore) { // ore rock
-      const col = c.ore === 1 ? '#c8833a' : c.ore === 2 ? '#b0b0b0' : c.ore === 3 ? '#ffd84a' : '#c970b0';
+    const left = px, top = py, cx = left + s / 2, cy = top + s / 2;
+    const o = c.obj;
+    if (o === 7 || o === 8) {           // fence — twin wooden rails
+      ctx.fillStyle = '#b08a50';
+      ctx.fillRect(left + 1, top + (s * 0.42) | 0, s - 2, 2);
+      ctx.fillStyle = '#8a6a3a';
+      ctx.fillRect(left + 1, top + (s * 0.68) | 0, s - 2, 2);
+      ctx.fillStyle = '#6a4e28';
+      ctx.fillRect(left + (s * 0.2) | 0, top + (s * 0.36) | 0, 2, s * 0.4 | 0);
+      ctx.fillRect(left + (s * 0.75) | 0, top + (s * 0.36) | 0, 2, s * 0.4 | 0);
+      return;
+    }
+    const g = OBJ_GLYPH[o];
+    if (g && s >= 6) {
+      // soft ground shadow under tall or bulky objects
+      if (o === 1 || o === 9 || o === 6 || o === 2) {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(cx, top + s * 0.92, s * 0.36, s * 0.11, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const size = (o === 1 || o === 9) ? s * 1.25   // trees
+                 : o === 2 ? s * 0.95               // rocks
+                 : o === 11 ? s * 0.85               // mushrooms
+                 : s * 0.95;
+      this.emoji(ctx, g, cx, cy, size);
+      // ore rock: colored mineral sparkle in the corner
+      if (o === 2 && c.ore) {
+        const col = c.ore === 1 ? '#e8833a' : c.ore === 2 ? '#c8c8d8'
+                  : c.ore === 3 ? '#ffd84a' : '#d06ad8';
+        const ox = left + s * 0.8, oy = top + s * 0.2;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(ox, oy, Math.max(2.5, s * 0.14), 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath(); ctx.arc(ox, oy, Math.max(1, s * 0.05), 0, Math.PI * 2); ctx.fill();
+      }
+      // sprinkler: blue water glint
+      if (o === 13) {
+        ctx.fillStyle = 'rgba(120,190,255,0.35)';
+        ctx.beginPath(); ctx.arc(cx, cy, s * 0.55, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (g) {
+      // tiny zoom: plain color dot keeps the map readable
+      const col = o === 1 || o === 9 ? '#3a6a2a' : o === 2 ? '#6a6a6a'
+                : o === 13 ? '#8ab6d6' : o === 6 ? '#5a3818' : '#4a7a3a';
       ctx.fillStyle = col;
-      ctx.fillRect(left + 1, top + 1, s - 2, s - 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.fillRect(left + 2, top + 2, 2, 2);
-    } else if (c.obj === 2) { // rock
-      ctx.fillStyle = '#6a6a6a';
-      ctx.fillRect(left + 1, top + 1, s - 2, s - 2);
-      ctx.fillStyle = '#8a8a8a';
-      ctx.fillRect(left + 2, top + 2, 2, 2);
-    } else if (c.obj === 10) { // bush
-      ctx.fillStyle = '#3a7a3a';
-      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
-      ctx.fillStyle = '#5a9a5a';
-      ctx.fillRect(left + 3, top + 3, 1, 1);
-    } else if (c.obj === 13) { // sprinkler
-      ctx.fillStyle = '#8ab6d6';
-      ctx.fillRect(left + (s/2 - 2)|0, top + (s/2 - 2)|0, 4, 4);
-      ctx.fillStyle = '#d8f0ff';
-      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 2, 2);
-    } else if (c.obj === 11) { // mushroom (also drawn as forage item-ish)
-      ctx.fillStyle = '#c9a86a';
-      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 3, 3);
-    } else if (c.obj === 5) { // flower
-      ctx.fillStyle = '#e86a9a';
-      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 3, 3);
-    } else if (c.obj === 3 || c.obj === 4) { // weed/tall grass
-      ctx.fillStyle = c.obj === 3 ? '#7da05a' : '#6a8a4a';
-      ctx.fillRect(left + 3, top + 3, s - 6, 2);
-    } else if (c.obj === 7 || c.obj === 8) { // fence
-      ctx.fillStyle = '#a08040';
-      ctx.fillRect(left + (s/2 - 1)|0, top + 2, 2, s - 4);
-    } else if (c.obj === 6) { // stump
-      ctx.fillStyle = '#5a3818';
-      ctx.fillRect(left + 3, top + 3, s - 6, s - 6);
+      ctx.fillRect(left + (s / 2 - 1) | 0, top + (s / 2 - 1) | 0, 2, 2);
     }
 
     // crop on top
     if (c.crop && c.crop > 0) {
       const stage = c.stage || 0;
-      const ripe = stage === 3 && (c.days_left || 0) <= 0;
-      const cx_ = left + (s / 2) | 0, cy_ = top + (s * 0.65) | 0;
-      const leafCol = '#4a9028';
-      const fruitCol = CROP_RIPE_COLOR[c.crop] || '#e8d05a';
-      const col = ripe ? fruitCol : leafCol;
-      if (stage <= 1) {
-        ctx.fillStyle = col;
-        ctx.fillRect(cx_ - 1, cy_, 2, 2);
-      } else if (stage === 2) {
-        ctx.fillStyle = leafCol;
-        ctx.fillRect(cx_ - 1, cy_ - 2, 2, 4);
-        ctx.fillRect(cx_ - 2, cy_ - 1, 4, 2);
+      const ripe = stage >= 3 && (c.days_left || 0) <= 0;
+      if (s >= 6) {
+        if (stage <= 1) {
+          ctx.globalAlpha = 0.75;
+          this.emoji(ctx, '🌱', cx, cy + s * 0.05, s * 0.6);
+          ctx.globalAlpha = 1;
+        } else if (stage === 2) {
+          ctx.globalAlpha = 0.9;
+          this.emoji(ctx, '🌿', cx, cy, s * 0.7);
+          ctx.globalAlpha = 1;
+        } else {
+          // ripe produce — glow softly on the tile
+          const glyph = CROP_GLYPH[c.crop] || '🥬';
+          ctx.fillStyle = 'rgba(255,220,120,0.18)';
+          ctx.beginPath(); ctx.arc(cx, cy, s * 0.55, 0, Math.PI * 2); ctx.fill();
+          this.emoji(ctx, glyph, cx, cy, s * 0.82);
+        }
       } else {
-        // full bloom
-        ctx.fillStyle = leafCol;
-        ctx.fillRect(cx_ - 2, cy_ - 1, 4, 3);
-        ctx.fillStyle = ripe ? fruitCol : '#4a9028';
-        ctx.fillRect(cx_ - 1, cy_, 2, 2);
+        const col = ripe ? (CROP_RIPE_COLOR[c.crop] || '#e8d05a') : '#4a9028';
+        ctx.fillStyle = col;
+        ctx.fillRect(cx - 1, cy - 1, 2, 2);
       }
     }
   },
@@ -1066,12 +1194,18 @@ const MapRenderer = {
         ctx.fillRect(wx - 1, winY - 1, winW + 2, winH + 2);
       }
     }
-    // building glyph above roof (small emoji)
-    if (s >= 8) {
-      ctx.font = `${Math.max(10, s * 0.7)}px system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(st.glyph, pxTop + wpx / 2, pyTop - roofH - s * 0.35);
+    // building emoji — large, centered over the footprint
+    if (s >= 5) {
+      const em = st.glyph;
+      const esz = Math.min(wpx * 0.85, Math.max(s * 0.9, hpx * 0.95));
+      // warm glow behind the emoji at night
+      if (dayF < 0.5) {
+        ctx.fillStyle = 'rgba(255,190,110,0.14)';
+        ctx.beginPath();
+        ctx.arc(pxTop + wpx / 2, pyTop + hpx / 2, esz * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      this.emoji(ctx, em, pxTop + wpx / 2, pyTop + hpx / 2, esz);
     }
     // nameplate pill if building is large enough
     if (wpx > 26 && s >= 6) {
@@ -1098,11 +1232,7 @@ const MapRenderer = {
     ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.7, 0, Math.PI * 2); ctx.fill();
     // glyph
     const np = NPC_BY(n.name) || NPC_LIST[(n.color - 1) % NPC_LIST.length];
-    const sz = Math.max(12, s * 0.95);
-    ctx.font = `${sz}px system-ui`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(np.glyph, cxpx, cypy);
+    this.emoji(ctx, np.glyph, cxpx, cypy, Math.max(13, s * 1.05));
     // nameplate
     if (s >= 6) {
       ctx.font = '8.5px system-ui';
@@ -1120,9 +1250,7 @@ const MapRenderer = {
     const cxpx = px + s / 2, cypy = py + s / 2;
     ctx.fillStyle = 'rgba(91,141,255,0.28)';
     ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.8, 0, Math.PI * 2); ctx.fill();
-    ctx.font = `${Math.max(14, s * 1.0)}px system-ui`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🧭', cxpx, cypy);
+    this.emoji(ctx, '🧭', cxpx, cypy, Math.max(15, s * 1.1));
     // outline ring
     ctx.strokeStyle = 'rgba(91,141,255,0.7)';
     ctx.lineWidth = 1.5;
@@ -1158,14 +1286,14 @@ const MapRenderer = {
         ctx.stroke();
       }
     }
-    // hover ring
+    // hover ring (snapped to the hovered tile)
     if (this.hoverX != null && this.hoverY != null) {
-      const hx = this.wx(this.hoverX), hy = this.wy(this.hoverY);
+      const hx = this.wx(this.hoverX + 0.5), hy = this.wy(this.hoverY + 0.5);
       ctx.strokeStyle = 'rgba(255,224,102,0.8)';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
-      ctx.arc(hx, hy - this.scale() / 2, 14, 0, Math.PI * 2);
+      ctx.arc(hx, hy, 14, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -1249,6 +1377,7 @@ async function pollState() {
     const prevMe = State.me();
     State.prevPlayer = prevMe;
     State.world = s;
+    State.cellMap = new Map((s.cells || []).map(c => [c.y * MAP_W + c.x, c]));
     UI.renderStatus();
     UI.renderInventory();
     UI.renderRoom();
