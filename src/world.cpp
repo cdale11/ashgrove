@@ -55,12 +55,17 @@ void generate_world(World& world) {
             }
     }
 
-    // ---- river (meanders N-S near x~29) ----
+    // ---- river (meanders N-S near x~29, smoother organic flow) ----
     float cx = MAP_W * 0.30f;
+    float river_w = 2.2f;  // base river width (slightly tapered)
     for (int y = 0; y < MAP_H; ++y) {
-        cx += std::sin(y * 0.09f) * 1.8f + std::sin(y * 0.23f + 2.0f) * 1.1f;
-        for (int dx = -1; dx <= 1; ++dx) {
-            int ix = int(cx) + dx;
+        // Smoother meander: lower frequency, gentler curves
+        cx += std::sin(y * 0.06f) * 1.4f + std::sin(y * 0.14f + 1.2f) * 0.9f;
+        // Gentle width variation along the river
+        float w_variation = 0.7f + 0.6f * std::sin(y * 0.07f);
+        int half_w = std::max(1, int(river_w * w_variation));
+        for (int dx = -half_w; dx <= half_w; ++dx) {
+            int ix = int(std::round(cx)) + dx;
             if (world.in_bounds(ix, y)) world.at(ix, y).tile = Tile::Water;
         }
     }
@@ -77,25 +82,31 @@ void generate_world(World& world) {
         for (int x = bx + 3; x < 50; ++x) { if (world.in_bounds(x, 30) && !is_water(world.at(x,30).tile)) world.at(x,30).tile = Tile::Dirt; }
     }
 
-    // ---- western stream: tumbles out of the tundra, joins the river mid-south ----
+    // ---- western stream: tumbles out of the tundra, joins the river smoothly ----
     {
         float sx = 20.0f;
         for (int y = 10; y < 42; ++y) {
-            sx += std::sin(y * 0.17f) * 0.9f + std::cos(y * 0.31f) * 0.6f;
-            sx += (29.0f - sx) * 0.06f;   // drift back toward the main river
-            for (int dx = -1; dx <= 0; ++dx) {
-                int ix = int(sx) + dx;
+            // Smoother stream curve, gradually widening as it approaches river
+            float progress = float(y - 10) / 32.0f;
+            sx += std::sin(y * 0.12f) * 0.8f + std::cos(y * 0.25f) * 0.5f;
+            sx += (29.0f - sx) * (0.03f + 0.05f * progress);  // gradual drift
+            int half_w = 1 + (progress > 0.6f ? 1 : 0);  // widens near junction
+            for (int dx = -half_w; dx <= 0; ++dx) {
+                int ix = int(std::round(sx)) + dx;
                 if (world.in_bounds(ix, y)) world.at(ix, y).tile = Tile::Water;
             }
         }
     }
 
-    // ---- pond lower-left ----
+    // ---- pond lower-left: smoother oval pond ----
     float pcx = MAP_W * 0.22f, pcy = MAP_H * 0.78f;
     for (int y = 0; y < MAP_H; ++y)
-        for (int x = 0; x < MAP_W; ++x)
-            if (std::hypot((x - pcx) * 1.6f, y - pcy) < 5.5f)
+        for (int x = 0; x < MAP_W; ++x) {
+            float dx = (x - pcx) * 1.5f, dy = (y - pcy);
+            float d = std::hypot(dx, dy);
+            if (d < 5.5f + 1.0f * std::sin(x * 0.2f) * std::cos(y * 0.15f))
                 world.at(x, y).tile = Tile::Water;
+        }
 
     // ---- Mirror Lake: big round lake in the south meadow ----
     {
