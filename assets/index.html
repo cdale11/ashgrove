@@ -25,7 +25,14 @@
   --blue: #3498db;
   --orange: #e67e22;
   --gold: #e8c562;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* self-hosted color emoji font — systems without Noto Color Emoji
+     otherwise render monochrome, semi-transparent fallback glyphs */
+  font-family: 'Segoe UI', 'Noto Color Emoji', system-ui, -apple-system, sans-serif;
+}
+@font-face {
+  font-family: 'Noto Color Emoji';
+  src: url('fonts/NotoColorEmoji.ttf') format('truetype');
+  font-display: block;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
@@ -861,7 +868,7 @@ const MapRenderer = {
   // draw an emoji centered at (cx, cy) with height h px
   emoji(ctx, txt, cx, cy, h) {
     const dpr = window.devicePixelRatio || 1;
-    ctx.font = `${Math.max(10, Math.round(h))}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui`;
+    ctx.font = `${Math.max(10, Math.round(h))}px "Noto Color Emoji","Segoe UI Emoji","Apple Color Emoji",system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // snap to whole device pixels — color-emoji bitmaps otherwise get
@@ -954,23 +961,10 @@ const MapRenderer = {
         this.drawTile(ctx, tx, ty, tile, px, py, s, dayFactor, cell);
       }
     }
-    // sparse objects + crops overlay from /state.cells
-    for (const c of (w.cells || [])) {
-      if (c.x < x0 || c.x >= x1 || c.y < y0 || c.y >= y1) continue;
-      const px = this.wx(c.x), py = this.wy(c.y);
-      this.drawCellObj(ctx, c, px, py, s, dayFactor, season);
-    }
-    // buildings with full painterly treatment
-    const allBldg = [...(State.join ? State.join.buildings || [] : [])];
-    if (State.world && State.world.house) allBldg.push({ name: 'Farmhouse', x: State.world.house.x, y: State.world.house.y, w: 3, h: 4 });
-    for (const b of allBldg) this.drawBuilding(ctx, b, s, dayFactor);
-    // npcs
-    for (const n of (w.npcs || [])) this.drawNPC(ctx, n, s);
-    // player
-    if (me && !me.inside) this.drawPlayer(ctx, me, s);
-
-    // ---- atmosphere overlays (drawn on offscreen too — they're stable per state) ----
-    // night tint
+    // ---- atmosphere overlays ----
+    // dim only the terrain at night (drawn BEFORE entities so buildings,
+    // crops and npc emoji stay bright and opaque; also avoids a dark wash
+    // that made emoji look translucent)
     if (dayFactor < 1) {
       const darkness = 1 - dayFactor;
       ctx.fillStyle = `rgba(8,12,40,${0.36 * darkness})`;
@@ -981,6 +975,20 @@ const MapRenderer = {
       ctx.fillStyle = 'rgba(170,190,205,0.18)';
       ctx.fillRect(0, 0, W, H);
     }
+    // sparse objects + crops overlay from /state.cells
+    for (const c of (w.cells || [])) {
+      if (c.x < x0 || c.x >= x1 || c.y < y0 || c.y >= y1) continue;
+      const px = this.wx(c.x), py = this.wy(c.y);
+      this.drawCellObj(ctx, c, px, py, s, dayFactor, season);
+    }
+    // buildings — pure emoji
+    const allBldg = [...(State.join ? State.join.buildings || [] : [])];
+    if (State.world && State.world.house) allBldg.push({ name: 'Farmhouse', x: State.world.house.x, y: State.world.house.y, w: 3, h: 4 });
+    for (const b of allBldg) this.drawBuilding(ctx, b, s, dayFactor);
+    // npcs
+    for (const n of (w.npcs || [])) this.drawNPC(ctx, n, s);
+    // player
+    if (me && !me.inside) this.drawPlayer(ctx, me, s);
   },
 
   drawTile(ctx, tx, ty, tile, px, py, s, dayF, cell) {
