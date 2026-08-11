@@ -631,21 +631,510 @@ async function selectSlot(i) {
   } catch (e) { /* ignore */ }
 }
 
-// ----- 6. map renderer (placeholder; full painterly version next) ---
-let mapRaf = null;
-function renderMapPlaceholder() {
-  const cv = $('map');
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#0a0d0b';
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = '#5a8a3a';
-  ctx.font = '14px system-ui';
-  ctx.textAlign = 'center';
-  ctx.fillText('Loading map...', cv.width / 2, cv.height / 2);
+// ----- 6. map renderer (painterly Stardew-style) ---------------------
+// Strategy: paint the static world into an offscreen canvas once per state
+// change. The visible canvas blits the offscreen each RAF tick plus the
+// animated overlay (weather particles, fireflies, water shimmer, hover).
+// Camera is world-anchored; tiles are 16 world-units; we project at a
+// variable scale so the whole 96x64 map is comfortably visible.
+
+const MapRenderer = {
+  cv: null, ctx: null,
+  off: null, offCtx: null,    // offscreen for static scene
+  dirty: true,                // re-paint offscreen when true
+  raf: null,
+  hoverX: null, hoverY: null,
+  // animation phases
+  t0: performance.now(),
+
+  init() {
+    this.cv = $('map');
+    this.ctx = this.cv.getContext('2d');
+    this.off = document.createElement('canvas');
+    this.offCtx = this.off.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    // Hover for click-to-walk
+    this.cv.addEventListener('mousemove', e => {
+      const r = this.cv.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const w = this.screenToWorld(mx, my);
+      this.hoverX = w.x; this.hoverY = w.y;
+    });
+    this.cv.addEventListener('mouseleave', () => { this.hoverX = this.hoverY = null; });
+    this.cv.addEventListener('click', e => {
+      const r = this.cv.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const w = this.screenToWorld(mx, my);
+      handleMapClick(w.x, w.y);
+    });
+    this.cv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      State.zoom = clamp(State.zoom * factor, 0.5, 3);
+    }, { passive: false });
+    this.loop();
+  },
+
+  resize() {
+    const r = this.cv.getBoundingClientRect();
+    // Crisp canvas at device pixel ratio
+    const dpr = window.devicePixelRatio || 1;
+    this.cv.width = Math.round(r.width * dpr);
+    this.cv.height = Math.round(r.height * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.CSS_W = r.width; this.CSS_H = r.height;
+    this.off.width = this.cv.width;
+    this.off.height = this.cv.height;
+    this.offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.dirty = true;
+  },
+
+  // world (tile coords 0..96, 0..64) -> screen (CSS px)
+  scale() {
+    // base: fit ~48 tiles in the canvas height; multiplied by zoom
+    return (this.CSS_H / 48) * State.zoom;
+  },
+  wx(worldX) { return (worldX - State.cam.x) * this.scale() + this.CSS_W / 2; },
+  wy(worldY) { return (worldY - State.cam.y) * this.scale() + this.CSS_H / 2; },
+  screenToWorld(mx, my) {
+    const s = this.scale();
+    return { x: (mx - this.CSS_W / 2) / s + State.cam.x,
+             y: (my - this.CSS_H / 2) / s + State.cam.y };
+  },
+
+  paintStatic() {
+    const ctx = this.offCtx;
+    const W = this.CSS_W, H = this.CSS_H;
+    ctx.clearRect(0, 0, W, H);
+    if (!State.world || !State.tileMap) {
+      ctx.fillStyle = '#0a0d0b';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#5a8a3a';
+      ctx.font = '14px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Loading map…', W / 2, H / 2);
+      return;
+    }
+    const me = State.me();
+    const w = State.world;
+    const s = this.scale();
+    const season = w.season || 'Spring';
+    const tint = SEASON_TINT[season] || SEASON_TINT.Spring;
+    // daylight factor for ground brightness
+    const hrs = 6 + 24 * (w.time / DAY_LENGTH_S);
+    const daylight = hrs >= 6 && hrs < 20;
+    const dayFactor = clamp(
+      (daylight ? 1 : 0.28) * (w.weather ? 0.78 : 1), 0.25, 1
+    );
+
+    const tintRGB = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+    const [tr, tg, tb] = tintRGB(tint.tint);
+    // ground gradient (top-to-bottom warm tone)
+    const gt = `rgb(${Math.round(tr*1.18*dayFactor+8)},${Math.round(tg*1.18*dayFactor+10)},${Math.round(tb*1.08*dayFactor+8)})`;
+    const gb = `rgb(${Math.round(tr*0.72*dayFactor)},${Math.round(tg*0.72*dayFactor)},${Math.round(tb*0.72*dayFactor)})`;
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, gt); grad.addColorStop(1, gb);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- tile cells (ground + objects) ----
+    const sInt = Math.max(2, Math.round(s));
+    // visible tile range
+    const halfW = Math.ceil(W / 2 / s) + 1;
+    const halfH = Math.ceil(H / 2 / s) + 1;
+    const x0 = clamp(Math.floor(State.cam.x - halfW), 0, MAP_W);
+    const x1 = clamp(Math.ceil(State.cam.x + halfW), 0, MAP_W);
+    const y0 = clamp(Math.floor(State.cam.y - halfH), 0, MAP_H);
+    const y1 = clamp(Math.ceil(State.cam.y + halfH), 0, MAP_H);
+
+    // ground tiles
+    for (let ty = y0; ty < y1; ty++) {
+      for (let tx = x0; tx < x1; tx++) {
+        const tile = State.tileMap[ty * MAP_W + tx];
+        const px = this.wx(tx), py = this.wy(ty);
+        this.drawTile(ctx, tx, ty, tile, px, py, s, dayFactor);
+      }
+    }
+    // sparse objects + crops overlay from /state.cells
+    for (const c of (w.cells || [])) {
+      if (c.x < x0 || c.x >= x1 || c.y < y0 || c.y >= y1) continue;
+      const px = this.wx(c.x), py = this.wy(c.y);
+      this.drawCellObj(ctx, c, px, py, s, dayFactor, season);
+    }
+    // buildings with full painterly treatment
+    const allBldg = [...(State.join ? State.join.buildings || [] : [])];
+    if (State.world && State.world.house) allBldg.push({ name: 'Farmhouse', x: State.world.house.x, y: State.world.house.y, w: 3, h: 4 });
+    for (const b of allBldg) this.drawBuilding(ctx, b, s, dayFactor);
+    // npcs
+    for (const n of (w.npcs || [])) this.drawNPC(ctx, n, s);
+    // player
+    if (me && !me.inside) this.drawPlayer(ctx, me, s);
+
+    // ---- atmosphere overlays (drawn on offscreen too — they're stable per state) ----
+    // night tint
+    if (dayFactor < 1) {
+      const darkness = 1 - dayFactor;
+      ctx.fillStyle = `rgba(8,12,40,${0.36 * darkness})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    // weather murk on rain days
+    if (w.weather && dayFactor > 0.3) {
+      ctx.fillStyle = 'rgba(170,190,205,0.18)';
+      ctx.fillRect(0, 0, W, H);
+    }
+  },
+
+  drawTile(ctx, tx, ty, tile, px, py, s, dayF) {
+    // only draw if visible (py range check); keep cheap
+    if (px < -s || py < -s || px > this.CSS_W + s || py > this.CSS_H + s) return;
+    const left = px, top = py;
+    // Per-tile color choices
+    let base, accent;
+    switch (tile) {
+      case 0: case 1: { // grass / grass var
+        const h = worldHash(tx, ty);
+        base = h < 0.5 ? '#4a7a2e' : '#5a8a3a';
+        if (tile === 1) base = h < 0.5 ? '#3f6d28' : '#4f7d34';
+        break;
+      }
+      case 2: case 3: case 4: case 5: case 6: base = '#2a4f8f'; break; // water
+      case 7: base = worldHash(tx,ty)<0.5 ? '#8a6b3a' : '#9a7b4a'; break; // dirt
+      case 8: base = worldHash(tx,ty)<0.5 ? '#c8b877' : '#d8c887'; break; // sand
+      case 9: base = '#5a3818'; break;      // tilled
+      case 10: base = '#7a5a30'; break;     // bridge
+      case 11: base = worldHash(tx,ty)<0.5 ? '#d8e0e8' : '#e8eef2'; break; // snow
+      case 12: base = worldHash(tx,ty)<0.5 ? '#a8c8d8' : '#b8dcea'; break; // ice
+      default: base = '#4a7a2e';
+    }
+    ctx.fillStyle = base;
+    ctx.fillRect(left, top, s + 1, s + 1);
+
+    // subtle texture decorations
+    const h = worldHash(tx, ty);
+    if ((tile === 0 || tile === 1) && s >= 6) {
+      // grass tuft dot
+      if (h < 0.18) {
+        ctx.fillStyle = tile === 1 ? '#3a6d20' : '#6aa040';
+        ctx.fillRect(left + (h*400% s)|0 + 1, top + (h*100% s)|0 + 1, 2, 2);
+      } else if (h > 0.92) {
+        // flower
+        ctx.fillStyle = (worldHash(tx*7, ty*11) < 0.5) ? '#e8a9c2' : '#f2d94c';
+        ctx.fillRect(left + 2 + ((h*300)|0)%Math.max(1,s-4), top + 2 + ((h*500)|0)%Math.max(1,s-4), 2, 2);
+      }
+    }
+    if (tile === 9 && s >= 6) {
+      // tilled soil furrow line
+      ctx.fillStyle = '#3a2410';
+      ctx.fillRect(left, top, s + 1, 1);
+    }
+    if (tile === 10 && s >= 6) {
+      ctx.fillStyle = '#5a3a18';
+      ctx.fillRect(left, top + (s/2)|0, s + 1, 1);
+    }
+    // water shimmer
+    if (tile >= 2 && tile <= 6 && s >= 6) {
+      if (h > 0.7) {
+        ctx.fillStyle = 'rgba(180,210,240,0.25)';
+        ctx.fillRect(left + ((h*300)|0)%Math.max(1,s-3) + 1, top + (s*0.4)|0, 2, 1);
+      }
+    }
+  },
+
+  drawCellObj(ctx, c, px, py, s, dayF, season) {
+    const left = px, top = py;
+    if (c.obj === 12) return; // buildings drawn separately
+    // object glyph
+    if (c.obj === 1) { // tree
+      ctx.fillStyle = '#2a5a2a';
+      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
+      ctx.fillStyle = '#3a6a3a';
+      ctx.fillRect(left + 3, top + 3, Math.max(1, s - 7), Math.max(1, s - 7));
+      ctx.fillStyle = '#5a3818';
+      ctx.fillRect(left + (s/2 - 1)|0, top + s - 3, 2, 3);
+    } else if (c.obj === 9) { // pine
+      ctx.fillStyle = '#1a4a26';
+      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
+      ctx.fillStyle = '#5a3818';
+      ctx.fillRect(left + (s/2 - 1)|0, top + s - 3, 2, 3);
+    } else if (c.obj === 2 && c.ore) { // ore rock
+      const col = c.ore === 1 ? '#c8833a' : c.ore === 2 ? '#b0b0b0' : c.ore === 3 ? '#ffd84a' : '#c970b0';
+      ctx.fillStyle = col;
+      ctx.fillRect(left + 1, top + 1, s - 2, s - 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(left + 2, top + 2, 2, 2);
+    } else if (c.obj === 2) { // rock
+      ctx.fillStyle = '#6a6a6a';
+      ctx.fillRect(left + 1, top + 1, s - 2, s - 2);
+      ctx.fillStyle = '#8a8a8a';
+      ctx.fillRect(left + 2, top + 2, 2, 2);
+    } else if (c.obj === 10) { // bush
+      ctx.fillStyle = '#3a7a3a';
+      ctx.fillRect(left + 2, top + 2, s - 4, s - 4);
+      ctx.fillStyle = '#5a9a5a';
+      ctx.fillRect(left + 3, top + 3, 1, 1);
+    } else if (c.obj === 13) { // sprinkler
+      ctx.fillStyle = '#8ab6d6';
+      ctx.fillRect(left + (s/2 - 2)|0, top + (s/2 - 2)|0, 4, 4);
+      ctx.fillStyle = '#d8f0ff';
+      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 2, 2);
+    } else if (c.obj === 11) { // mushroom (also drawn as forage item-ish)
+      ctx.fillStyle = '#c9a86a';
+      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 3, 3);
+    } else if (c.obj === 5) { // flower
+      ctx.fillStyle = '#e86a9a';
+      ctx.fillRect(left + (s/2 - 1)|0, top + (s/2 - 1)|0, 3, 3);
+    } else if (c.obj === 3 || c.obj === 4) { // weed/tall grass
+      ctx.fillStyle = c.obj === 3 ? '#7da05a' : '#6a8a4a';
+      ctx.fillRect(left + 3, top + 3, s - 6, 2);
+    } else if (c.obj === 7 || c.obj === 8) { // fence
+      ctx.fillStyle = '#a08040';
+      ctx.fillRect(left + (s/2 - 1)|0, top + 2, 2, s - 4);
+    } else if (c.obj === 6) { // stump
+      ctx.fillStyle = '#5a3818';
+      ctx.fillRect(left + 3, top + 3, s - 6, s - 6);
+    }
+
+    // crop on top
+    if (c.crop && c.crop > 0) {
+      const stage = c.stage || 0;
+      const ripe = stage === 3 && (c.days_left || 0) <= 0;
+      const cx_ = left + (s / 2) | 0, cy_ = top + (s * 0.65) | 0;
+      const leafCol = '#4a9028';
+      const fruitCol = CROP_RIPE_COLOR[c.crop] || '#e8d05a';
+      const col = ripe ? fruitCol : leafCol;
+      if (stage <= 1) {
+        ctx.fillStyle = col;
+        ctx.fillRect(cx_ - 1, cy_, 2, 2);
+      } else if (stage === 2) {
+        ctx.fillStyle = leafCol;
+        ctx.fillRect(cx_ - 1, cy_ - 2, 2, 4);
+        ctx.fillRect(cx_ - 2, cy_ - 1, 4, 2);
+      } else {
+        // full bloom
+        ctx.fillStyle = leafCol;
+        ctx.fillRect(cx_ - 2, cy_ - 1, 4, 3);
+        ctx.fillStyle = ripe ? fruitCol : '#4a9028';
+        ctx.fillRect(cx_ - 1, cy_, 2, 2);
+      }
+    }
+  },
+
+  drawBuilding(ctx, b, s, dayF) {
+    const pxTop = this.wx(b.x), pyTop = this.wy(b.y);
+    const wpx = b.w * s, hpx = b.h * s;
+    const st = bldStyle(b.name);
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(pxTop + wpx / 2, pyTop + hpx + 2, wpx * 0.55, hpx * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // walls
+    const wallGrad = ctx.createLinearGradient(0, pyTop, 0, pyTop + hpx);
+    wallGrad.addColorStop(0, shade(st.wall, 1.05 * dayF));
+    wallGrad.addColorStop(1, shade(st.wall, 0.78 * dayF));
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(pxTop, pyTop, wpx, hpx);
+    // roof — triangular
+    const roofH = Math.max(6, hpx * 0.4);
+    const roofGrad = ctx.createLinearGradient(0, pyTop - roofH, 0, pyTop + 2);
+    roofGrad.addColorStop(0, shade(st.roof, 1.15 * dayF));
+    roofGrad.addColorStop(1, shade(st.roof, 0.85 * dayF));
+    ctx.fillStyle = roofGrad;
+    ctx.beginPath();
+    ctx.moveTo(pxTop - 2, pyTop + 2);
+    ctx.lineTo(pxTop + wpx / 2, pyTop - roofH);
+    ctx.lineTo(pxTop + wpx + 2, pyTop + 2);
+    ctx.closePath();
+    ctx.fill();
+    // ridge line highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pxTop + wpx / 2, pyTop - roofH);
+    ctx.lineTo(pxTop + wpx / 2, pyTop + 2);
+    ctx.stroke();
+    // door
+    const doorW = Math.max(4, s * 0.4);
+    const doorH = Math.max(6, s * 0.6);
+    const doorX = pxTop + (wpx - doorW) / 2;
+    const doorY = pyTop + hpx - doorH;
+    ctx.fillStyle = '#3c2b1c';
+    ctx.fillRect(doorX, doorY, doorW, doorH);
+    ctx.strokeStyle = '#8a7352'; ctx.lineWidth = 1;
+    ctx.strokeRect(doorX, doorY, doorW, doorH);
+    // windows (2) — amber at night, blue-grey by day
+    const isNight = dayF < 0.5;
+    const winW = Math.max(3, s * 0.28), winH = Math.max(3, s * 0.28);
+    const winY = pyTop + Math.max(roofH + 2, hpx * 0.25);
+    const winCells = Math.max(1, Math.floor(b.w / 2));
+    for (let i = 0; i < Math.min(2, b.w); i++) {
+      const wx = pxTop + (i === 0 ? s * 0.2 : wpx - s * 0.2 - winW);
+      ctx.fillStyle = isNight ? 'rgba(255,206,118,0.92)' : 'rgba(120,140,160,0.7)';
+      ctx.fillRect(wx, winY, winW, winH);
+      if (isNight) {
+        ctx.fillStyle = 'rgba(255,206,118,0.3)';
+        ctx.fillRect(wx - 1, winY - 1, winW + 2, winH + 2);
+      }
+    }
+    // building glyph above roof (small emoji)
+    if (s >= 8) {
+      ctx.font = `${Math.max(10, s * 0.7)}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(st.glyph, pxTop + wpx / 2, pyTop - roofH - s * 0.35);
+    }
+    // nameplate pill if building is large enough
+    if (wpx > 26 && s >= 6) {
+      const txt = b.name;
+      ctx.font = '10px system-ui';
+      const tw = ctx.measureText(txt).width;
+      const ny = pyTop + hpx + 10;
+      ctx.fillStyle = 'rgba(18,14,8,0.66)';
+      roundRect(ctx, pxTop + (wpx - tw) / 2 - 4, ny - 7, tw + 8, 14, 7);
+      ctx.fill();
+      ctx.fillStyle = '#f4ead0';
+      ctx.textAlign = 'center';
+      ctx.fillText(txt, pxTop + wpx / 2, ny + 2);
+    }
+  },
+
+  drawNPC(ctx, n, s) {
+    const px = this.wx(n.x), py = this.wy(n.y);
+    const cxpx = px + s / 2, cypy = py + s / 2;
+    // halo
+    ctx.fillStyle = 'rgba(20,24,32,0.5)';
+    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(232,163,61,0.2)';
+    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.7, 0, Math.PI * 2); ctx.fill();
+    // glyph
+    const np = NPC_BY(n.name) || NPC_LIST[(n.color - 1) % NPC_LIST.length];
+    const sz = Math.max(12, s * 0.95);
+    ctx.font = `${sz}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(np.glyph, cxpx, cypy);
+    // nameplate
+    if (s >= 6) {
+      ctx.font = '8.5px system-ui';
+      const tn = n.name.split(' ')[0];
+      const tw = ctx.measureText(tn).width;
+      ctx.fillStyle = 'rgba(20,24,32,0.66)';
+      roundRect(ctx, cxpx - tw/2 - 3, cypy + s*0.5, tw + 6, 12, 6); ctx.fill();
+      ctx.fillStyle = '#eee';
+      ctx.fillText(tn, cxpx, cypy + s*0.5 + 8);
+    }
+  },
+
+  drawPlayer(ctx, me, s) {
+    const px = this.wx(me.x), py = this.wy(me.y);
+    const cxpx = px + s / 2, cypy = py + s / 2;
+    ctx.fillStyle = 'rgba(91,141,255,0.28)';
+    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.font = `${Math.max(14, s * 1.0)}px system-ui`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🧭', cxpx, cypy);
+    // outline ring
+    ctx.strokeStyle = 'rgba(91,141,255,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cxpx, cypy, s * 0.6, 0, Math.PI * 2); ctx.stroke();
+    // direction indicator — small arrow ahead
+    const dir = me.dir || 0;
+    const dirs = [[0,1],[-1,0],[1,0],[0,-1]];
+    const [dx_, dy_] = dirs[dir] || [0, 1];
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(cxpx + dx_ * s * 0.85, cypy + dy_ * s * 0.85, 2, 0, Math.PI * 2); ctx.fill();
+  },
+
+  // ---- animated overlay (per-RAF) ----
+  drawLive(now) {
+    const ctx = this.ctx;
+    const W = this.CSS_W, H = this.CSS_H;
+    // blit static
+    ctx.drawImage(this.off, 0, 0, this.off.width, this.off.height, 0, 0, W, H);
+    const w = State.world;
+    if (!w || !State.tileMap) return;
+    // weather particles
+    if (w.weather) {
+      ctx.strokeStyle = 'rgba(180,200,225,0.5)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 60; i++) {
+        const phase = (i / 60) * Math.PI * 2;
+        const x = (now * 0.4 + i * 53) % (W + 30) - 15;
+        const y = (now * 0.7 + i * 91) % (H + 30) - 15;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 2, y + 8);
+        ctx.stroke();
+      }
+    }
+    // hover ring
+    if (this.hoverX != null && this.hoverY != null) {
+      const hx = this.wx(this.hoverX), hy = this.wy(this.hoverY);
+      ctx.strokeStyle = 'rgba(255,224,102,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(hx, hy - this.scale() / 2, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  },
+
+  loop() {
+    const now = performance.now();
+    if (this.dirty) { this.paintStatic(); this.dirty = false; }
+    this.drawLive(now - this.t0);
+    this.raf = requestAnimationFrame(() => this.loop());
+  },
+
+  markDirty() { this.dirty = true; },
+};
+
+// Crop ripe color (matches ITEM produce table)
+const CROP_RIPE_COLOR = { 20:'#e8d05a', 21:'#c8a04a', 22:'#d8e0a0', 23:'#f0c830', 24:'#e84838', 25:'#d8b860', 26:'#4a6ace' };
+
+// color helpers
+function shade(hex, f) {
+  const r = clamp(Math.round(parseInt(hex.slice(1,3),16) * f), 0, 255);
+  const g = clamp(Math.round(parseInt(hex.slice(3,5),16) * f), 0, 255);
+  const b = clamp(Math.round(parseInt(hex.slice(5,7),16) * f), 0, 255);
+  return `rgb(${r},${g},${b})`;
 }
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// wired click action (will be expanded in actions iteration)
+async function handleMapClick(wx, wy) {
+  // Click on NPC nearby -> talk; click on building door -> enter; click ground -> move.
+  if (!State.world || !State.myId) return;
+  const me = State.me();
+  if (!me) return;
+  const tx = Math.floor(wx), ty = Math.floor(wy);
+  // NPC?
+  const n = State.world.npcs && State.world.npcs.find(n => Math.abs(n.x - tx) <= 1 && Math.abs(n.y - ty) <= 1);
+  if (n) { Cmd.send('talk ' + n.name); return; }
+  // Building door?
+  const b = State.buildingAt(tx, ty + 1); // door is one tile below the building footprint
+  if (b && Math.abs(me.x - tx) <= 1 && Math.abs(me.y - ty) <= 1) { Cmd.send('enter ' + b.name); return; }
+  // Otherwise move
+  try {
+    await postJSON('/move', { player_id: State.myId, target_x: tx, target_y: ty });
+    pollState();
+  } catch (e) { /* ignore */ }
+  MapRenderer.markDirty();
+}
+
 function startMapLoop() {
-  if (mapRaf) cancelAnimationFrame(mapRaf);
-  renderMapPlaceholder();
+  MapRenderer.init();
 }
 
 // ----- 7. modal panels (placeholder; full version later) ------------
@@ -686,15 +1175,20 @@ async function pollState() {
   if (!State.myId) return;
   try {
     const s = await getJSON('/state');
-    State.prevPlayer = State.me();
+    const prevMe = State.me();
+    State.prevPlayer = prevMe;
     State.world = s;
     UI.renderStatus();
     UI.renderInventory();
-    // auto-recenter map on first state arrival (full renderer will take over next iter)
-    if (State.cam.x === 48 && State.cam.y === 32) {
-      const me = State.me();
-      if (me) { State.cam = { x: me.x, y: me.y }; }
+    // smooth camera: only recenter if player walked >2 tiles away from cam
+    const me = State.me();
+    if (me) {
+      if (Math.abs(State.cam.x - me.x) > 2 || Math.abs(State.cam.y - me.y) > 2) {
+        State.cam = { x: me.x, y: me.y };
+      }
     }
+    // mark map dirty so NPCs/day-night/season/player stay fresh
+    if (typeof MapRenderer !== 'undefined' && MapRenderer) MapRenderer.markDirty();
   } catch (e) { $('conn-dot').classList.add('off'); }
 }
 
