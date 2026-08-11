@@ -121,8 +121,10 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         return true;
     };
 
-    // ---- harvest ready crop (any selected item, adjacent) ----
-    if (c.crop.is_crop() && c.crop.stage == 3 && c.crop.days_left <= 0) {
+    // ---- harvest ready crop (only when no tool is selected: bare-hand gesture) ----
+    // Other tools must use the explicit "harvest" command so a Hoe/Axe swing on
+    // a ripe tile doesn't double-pay the sell price and then clear the tile.
+    if (tool == Item::None && c.crop.is_crop() && c.crop.stage == 3 && c.crop.days_left <= 0) {
         Item produce = c.crop.crop;
         c.crop = Crop{};
         add_item(p, produce, 1);
@@ -333,13 +335,6 @@ static int gift_taste(const std::string& npc, Item it) {
         else if (eq(Item::Bread) || eq(Item::Parsnip) || eq(Item::Potato) || eq(Item::Cauliflower)) val = 1;
     }
     return val;
-}
-
-static const char* gift_word(int taste) {
-    return taste >= 2 ? "lovemaking item!" :
-           taste == 1 ? "nice gift" :
-           taste == -1 ? "meh" :
-           taste <= -2 ? "disgusting" : "thing";
 }
 
 static Item item_from_name(const std::string& s) {
@@ -1252,13 +1247,13 @@ if (cmd == "buy") {
         std::string old_season = season_name(season_index(w.day));
         advance_day(w);
         std::string new_season = season_name(season_index(w.day));
-        int wheather = weather_of_day(w.day);
+        int nextWeather = weather_of_day(w.day);
         say("Zzz...");
         say("--- Day " + std::to_string(w.day) + " · " + std::string(new_season) + " ---");
         say(clock_str(w));
         if (new_season != old_season)
             say("You wake to the first day of " + std::string(new_season) + ". The air has changed.");
-        if (wheather == 1)
+        if (nextWeather == 1)
             say("Rain is drumming on the roof. Your fields will be watered by the storm.");
         else
             say("You wake up refreshed. Energy restored.");
