@@ -379,9 +379,18 @@ struct BuildingState {
 
 // ---- interiors ----
 struct InteriorRoom {
-    std::string building;              // matches Bldg::name; "" = none
-    std::vector<std::string> rows;     // '#' wall, '.' floor, letters = furniture
+    std::string building;                    // matches Bldg::name; "" = none
+    std::vector<std::string> rows;           // floor 0 (ground floor) - '#' wall, '.' floor, letters = furniture, ' ' = doorway
+    std::vector<std::vector<std::string>> floors; // additional floors (floor 1+)
     int16_t w = 0, h = 0;
+    // Helper: get floor by index (0 = ground, 1+ = upper)
+    const std::vector<std::string>& get_floor(int floor) const {
+        if (floor == 0) return rows;
+        if (floor > 0 && floor - 1 < (int)floors.size()) return floors[floor - 1];
+        static const std::vector<std::string> empty;
+        return empty;
+    }
+    int num_floors() const { return 1 + (int)floors.size(); }
 };
 
 struct FarmObj { ObjType type = ObjType::None; uint8_t hp = 0; uint8_t ore = 0; };

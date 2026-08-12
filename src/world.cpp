@@ -647,15 +647,407 @@ void place_buildings(World& world) {
 // interior furniture: '#' wall, '.' floor, letters = furnishings, ' ' = doorway.
 // everything except '.', ' ' and 'P' blocks movement. Stepping down from the
 // last walkable row exits the building. Door is always bottom-centre.
+// '>' = stairs up, '<' = stairs down (on upper floors).
+// Furniture letters for interact:
+//   B=Bed(sleep) V=TV(forecast) T=Table(eat/social) S=Shelf(browse) C=Counter(shop)
+//   F=Fridge/Stove/Forge/Anvil G=Governor/Growing H=Hay I=Item rack K=Kettle
+//   L=Lamp/Loom M=Market/Millstone N=Notice O=Observatory P=Pet/Platform
+//   R=Register U=Upgrade W=Workbench X=Exit/Stairs Y=Library Z=Zen garden
 void init_interiors(World& world) {
-    auto room = [&](const char* building, std::vector<std::string> rows) {
+    auto room = [&](const char* building, std::vector<std::string> ground, std::vector<std::vector<std::string>> upper = {}) {
         InteriorRoom r;
         r.building = building;
-        r.rows = rows;
-        r.h = (int16_t)rows.size();
-        r.w = (int16_t)(r.h ? rows[0].size() : 0);
+        r.rows = ground;
+        r.floors = upper;
+        r.h = (int16_t)ground.size();
+        r.w = (int16_t)(r.h ? ground[0].size() : 0);
         world.interiors[building] = r;
     };
+
+    // ============================================================
+    // CIVIC PLAZA DISTRICT (West Bank)
+    // ============================================================
+
+    // Town Center (4x3) - 2 floors: civic hall + archive
+    room("Town Center", {
+        "##########",
+        "#..GGGG..#",  // Governor's desk area
+        "#..GGGG..#",
+        "#........#",
+        "#..LL..LL#",  // Lamps
+        "#........#",
+        "##    ##",    // doorway
+    }, {
+        {   // Floor 1 - Archive/Records
+            "##########",
+            "#YYYYYYYY#",  // Library shelves
+            "#YYYYYYYY#",
+            "#........#",
+            "#..<>....#",  // Stairs down
+            "#........#",
+            "##    ##",
+        }
+    });
+
+    // Clinic (2x2) - Medical care
+    room("Clinic", {
+        "########",
+        "#DDDDDD.#",  // Doctor desk + cabinets
+        "#.......#",
+        "#.BB..BB#",  // Patient beds
+        "#.......#",
+        "#.MM..MM#",  // Medicine cabinets
+        "##   ##",
+    });
+
+    // Museum (2x2) - 2 floors: exhibits + curator office
+    room("Museum", {
+        "##########",
+        "#EE.EE.EE#",  // Exhibits
+        "#........#",
+        "#..E...E.#",
+        "#........#",
+        "#..<>....#",  // Stairs up
+        "##    ##",
+    }, {
+        {   // Floor 1 - Curator office + rare items
+            "##########",
+            "#Y.Y.Y.Y.#",  // Rare book shelves
+            "#........#",
+            "#..D......#",  // Curator desk
+            "#........#",
+            "#..<>....#",  // Stairs down
+            "##    ##",
+        }
+    });
+
+    // Old Mill (2x2) - Working mill
+    room("Old Mill", {
+        "########",
+        "#X....X.#",  // Millstones
+        "#........#",
+        "#..M...M.#",  // Grain hoppers
+        "#........#",
+        "#..S...S.#",  // Sacks of flour
+        "##   ##",
+    });
+
+    // Stardrop Saloon (3x3) - 2 floors: tavern + rooms
+    room("Stardrop Saloon", {
+        "############",
+        "#BBBB.BBBB.#",  // Bar counter
+        "#..........#",
+        "#..TT.TT..#",  // Tables
+        "#..........#",
+        "#..TT.TT..#",
+        "#..........#",
+        "#..KK..KK.#",  // Kitchen
+        "#..<>......#",  // Stairs up to rooms
+        "##      ##",
+    }, {
+        {   // Floor 1 - Guest rooms
+            "############",
+            "#BB....BB..#",  // Guest beds
+            "#..........#",
+            "#..BB....BB#",
+            "#..........#",
+            "#..BB....BB#",
+            "#..........#",
+            "#..BB....BB#",
+            "#..<>......#",  // Stairs down
+            "##      ##",
+        }
+    });
+
+    // ============================================================
+    // COMMERCE ROW (East Bank)
+    // ============================================================
+
+    // Blacksmith (2x2) - Forge + shop
+    room("Blacksmith", {
+        "########",
+        "#A.FFF..#",  // Anvil + Forge
+        "#........#",
+        "#..AA..A.#",  // Tool racks
+        "#........#",
+        "#..CC..C.#",  // Coal bin
+        "##   ##",
+    });
+
+    // General Store (2x2) - Full general store
+    room("General Store", {
+        "########",
+        "#CCCCCC.#",  // Counter
+        "#........#",
+        "#..SS..S.#",  // Shelves
+        "#........#",
+        "#..SS..S.#",
+        "##   ##",
+    });
+
+    // Market (4x2) - Open market hall
+    room("Market", {
+        "############",
+        "#MMMMMMMMMM#",  // Market stalls
+        "#..........#",
+        "#..MM..MM..#",
+        "#..........#",
+        "#..MM..MM..#",
+        "##      ##",
+    });
+
+    // Carpenter Shop (2x2) - Workshop + blueprints
+    room("Carpenter Shop", {
+        "########",
+        "#WWWWWW.#",  // Workbenches
+        "#........#",
+        "#..UU..U.#",  // Upgrade blueprints
+        "#........#",
+        "#..LL..L.#",  // Lumber storage
+        "##   ##",
+    });
+
+    // Pet Shop (2x2) - Adoption center
+    room("Pet Shop", {
+        "########",
+        "#PP.PP.P.#",  // Pet beds
+        "#........#",
+        "#..CC..C.#",  // Counter
+        "#........#",
+        "#..FF..F.#",  // Food bowls
+        "##   ##",
+    });
+
+    // ============================================================
+    // RESIDENTIAL: BIRCH COURT (West)
+    // ============================================================
+
+    // Willow House (2x2) - Cozy cottage
+    room("Willow House", {
+        "########",
+        "#B..T...#",  // Bed + TV
+        "#........#",
+        "#..SS..S.#",  // Shelf
+        "#........#",
+        "#..KK..K.#",  // Kitchenette
+        "##   ##",
+    });
+
+    // Maple House (2x2)
+    room("Maple House", {
+        "########",
+        "#B..T...#",
+        "#........#",
+        "#..SS..S.#",
+        "#........#",
+        "#..KK..K.#",
+        "##   ##",
+    });
+
+    // ============================================================
+    // RESIDENTIAL: MAPLE COURT (East)
+    // ============================================================
+
+    // Rowan Cottage (2x2)
+    room("Rowan Cottage", {
+        "########",
+        "#B..T...#",
+        "#........#",
+        "#..SS..S.#",
+        "#........#",
+        "#..KK..K.#",
+        "##   ##",
+    });
+
+    // Hawthorne Cottage (2x2)
+    room("Hawthorne Cottage", {
+        "########",
+        "#B..T...#",
+        "#........#",
+        "#..SS..S.#",
+        "#........#",
+        "#..KK..K.#",
+        "##   ##",
+    });
+
+    // ============================================================
+    // TRAVEL
+    // ============================================================
+
+    // Bus Stop (2x2) - Simple shelter
+    room("Bus Stop", {
+        "########",
+        "#N......#",  // Notice board
+        "#........#",
+        "#..BB....#",  // Benches
+        "#........#",
+        "#........#",
+        "##   ##",
+    });
+
+    // Railway Station (9x6) - 2 floors: platform + ticket hall
+    room("Railway Station", {
+        "################",
+        "#TTTTTTTTTTTTTTT#",  // Ticket counters
+        "#..............#",
+        "#..PPPPPPPPPP..#",  // Platform benches
+        "#..............#",
+        "#..LL..LL..LL..#",  // Lamps
+        "#..............#",
+        "#..<>..........#",  // Stairs up
+        "##            ##",
+    }, {
+        {   // Floor 1 - Waiting hall + conductor office
+            "################",
+            "#YYYYYYYYYYYYYY#",  // Waiting area chairs
+            "#..............#",
+            "#..DD..........#",  // Conductor desk
+            "#..............#",
+            "#..............#",
+            "#..............#",
+            "#..<>..........#",  // Stairs down
+            "##            ##",
+        }
+    });
+
+    // ============================================================
+    // FARM OUTBUILDINGS
+    // ============================================================
+
+    // Hawthorn Barn (3x3) - Animal barn
+    room("Hawthorn Barn", {
+        "##########",
+        "#HHHHHHHHH#",  // Hay bins
+        "#..........#",
+        "#..AA..AA..#",  // Animal stalls
+        "#..........#",
+        "#..WW..WW..#",  // Water troughs
+        "#..........#",
+        "#..FF..FF..#",  // Feed bins
+        "##      ##",
+    });
+
+    // Glasshouse (2x2) - Year-round growing
+    room("Glasshouse", {
+        "########",
+        "#GGGGGGG.#",  // Growing tables
+        "#........#",
+        "#..GG..GG.#",
+        "#........#",
+        "#..WW..W.#",  // Water barrels
+        "##   ##",
+    });
+
+    // ============================================================
+    // LAKEFRONT DISTRICT (NE)
+    // ============================================================
+
+    // Tearoom (2x2) - 2 floors: tea room + meditation
+    room("Tearoom", {
+        "########",
+        "#TTTTTTT.#",  // Tea tables
+        "#........#",
+        "#..KK..K.#",  // Kettle station
+        "#........#",
+        "#..<>.....#",  // Stairs up
+        "##   ##",
+    }, {
+        {   // Floor 1 - Meditation/reading room
+            "########",
+            "#ZZZZZZZ.#",  // Zen cushions
+            "#........#",
+            "#..YY..Y.#",  // Book shelves
+            "#........#",
+            "#..<>.....#",  // Stairs down
+            "##   ##",
+        }
+    });
+
+    // Observatory (2x2) - 3 floors: telescope + library + roof
+    room("Observatory", {
+        "########",
+        "#OOOOOOO.#",  // Main telescope
+        "#........#",
+        "#..SS..S.#",  // Star charts
+        "#........#",
+        "#..<>.....#",  // Stairs up
+        "##   ##",
+    }, {
+        {   // Floor 1 - Library
+            "########",
+            "#YYYYYYYY.#",
+            "#........#",
+            "#..YY..Y.#",
+            "#........#",
+            "#..<>.....#",  // Stairs up
+            "##   ##",
+        },
+        {   // Floor 2 - Roof observatory
+            "########",
+            "#........#",  // Open roof
+            "#..OO......#",  // Portable telescope
+            "#........#",
+            "#........#",
+            "#..<>.....#",  // Stairs down
+            "##   ##",
+        }
+    });
+
+    // ============================================================
+    // DOCKS DISTRICT (South)
+    // ============================================================
+
+    // Fish Shack (2x2) - Processing + shop
+    room("Fish Shack", {
+        "########",
+        "#FFFFFFFF#",  // Fillet tables
+        "#........#",
+        "#..SS..S.#",  // Smoker racks
+        "#........#",
+        "#..CC..C.#",  // Counter
+        "##   ##",
+    });
+
+    // Lighthouse (2x2) - 4 floors: keeper quarters + lamp room
+    room("Lighthouse", {
+        "########",
+        "#LLLLLLLL#",  // Lamp base machinery
+        "#........#",
+        "#..CC..C.#",  // Coal storage
+        "#........#",
+        "#..<>.....#",  // Stairs up
+        "##   ##",
+    }, {
+        {   // Floor 1 - Keeper quarters
+            "########",
+            "#B..T..S.#",  // Bed, TV, Shelf
+            "#........#",
+            "#..KK..K.#",  // Kitchenette
+            "#........#",
+            "#..<>.....#",  // Stairs up
+            "##   ##",
+        },
+        {   // Floor 2 - Lens room
+            "########",
+            "#LLLLLLLL#",  // Fresnel lens
+            "#........#",
+            "#..TT.....#",  // Tool table
+            "#........#",
+            "#..<>.....#",  // Stairs up
+            "##   ##",
+        },
+        {   // Floor 3 - Lantern room (top)
+            "########",
+            "#........#",  // Open balcony
+            "#..LL.....#",  // Lantern
+            "#........#",
+            "#........#",
+            "#..<>.....#",  // Stairs down
+            "##   ##",
+        }
+    });
+
+    // Farmhouse (already exists, enhanced)
     room("Farmhouse", {
         "#######",
         "#B.V..#",
@@ -664,109 +1056,6 @@ void init_interiors(World& world) {
         "#.G...#",
         "#..S.C#",
         "#..F.X#",
-        "#.....#",
-        "##   ##",
-    });
-    room("General Store", {
-        "#######",
-        "#CCC..#",
-        "#.....#",
-        "#.....#",
-        "##   ##",
-    });
-    room("Market", {
-        "#######",
-        "#MMMM.#",
-        "#.....#",
-        "#.....#",
-        "##   ##",
-    });
-    room("Stardrop Saloon", {
-        "########",
-        "#BB..T##",
-        "#......#",
-        "#...TT.#",
-        "#......#",
-        "##   ###",
-    });
-    room("Clinic", {
-        "#######",
-        "#DDD..#",
-        "#.....#",
-        "#.B..B#",
-        "##   ##",
-    });
-    room("Museum", {
-        "########",
-        "#E.E.E.#",
-        "#....E.#",
-        "#......#",
-        "#E.E...#",
-        "##   ###",
-    });
-    room("Blacksmith", {
-        "#######",
-        "#A.FF.#",
-        "#.....#",
-        "#.....#",
-        "##   ##",
-    });
-    room("Old Mill", {
-        "######",
-        "#X..X#",
-        "#....#",
-        "#....#",
-        "##  ##",
-    });
-    room("Town Center", {
-        "########",
-        "#..GG..#",
-        "#..GG..#",
-        "#......#",
-        "#......#",
-        "##   ###",
-    });
-    room("Willow House", {
-        "#####",
-        "#B.T#",
-        "#...#",
-        "## ##",
-    });
-    room("Maple House", {
-        "#####",
-        "#B.T#",
-        "#...#",
-        "## ##",
-    });
-    room("Rowan Cottage", {
-        "#####",
-        "#B.T#",
-        "#...#",
-        "## ##",
-    });
-    room("Bus Stop", {
-        "#####",
-        "#N..#",
-        "#...#",
-        "## ##",
-    });
-    room("Railway Station", {
-        "#########",
-        "#T......#",
-        "#.......#",
-        "#..PPP..#",
-        "#.......#",
-        "##     ##",
-    });
-    room("Hawthorn Barn", {
-        "#######",
-        "#H.H.H#",
-        "#.....#",
-        "##   ##",
-    });
-    room("Glasshouse", {
-        "#######",
-        "#GG.GG#",
         "#.....#",
         "##   ##",
     });
