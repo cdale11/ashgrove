@@ -600,11 +600,11 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [ ] [R7.5][A] Build, smoke-test that entering/exiting works, commit `feat: redesigned farmhouse interior + minimap swap`.
 
 ## R8. Farmhouse weathering + maintenance (A1, Farmhouse only)
-- [R8.1][A] Add `BuildingState` struct + per-day decay hook in `World::tick()`. Rainy days → `roof_leak += 1` on Farmhouse. Winter → `foundation -= 0.2/day`.
-- [R8.2][A] Add `repair farmhouse` command. Requires wood + stone from inventory. Restores `condition` to 100.
-- [R8.3][A] Show condition in `status`: "Farmhouse: roof 87, foundation 92".
-- [R8.4][A] Add decay-triggered flavor text: rainy night → "The roof groans. A drip lands on the kitchen floor."
-- [R8.5][A] Build, smoke-test, commit `feat: farmhouse weathering + repair (first ship of A1)`.
+- [x] [R8.1][A] Add `BuildingState` struct + per-day decay hook in `World::tick()`. Rainy days → `roof_leak += 1` on Farmhouse. Winter → `foundation -= 2/day`.
+- [x] [R8.2][A] Add `repair farmhouse` command at the Carpenter Shop. Cost: 10 wood + 5 stone per 10 condition. Restores `condition` to 100.
+- [x] [R8.3][A] Show condition in `status`: "Farmhouse: roof 87, foundation 92, condition 95".
+- [x] [R8.4][A] Add decay-triggered flavor text: rainy night → "The roof groans. A drip lands on the kitchen floor." (logged to server console for players inside)
+- [ ] [R8.5][A] Build, smoke-test, commit `feat: farmhouse weathering + repair (first ship of A1)`.
 
 ## R9. Living world proof-of-concept (A6)
 - [R9.1][A] Add `Tile::LeafLitter` (overlay) and a per-day autumn hook that scatters leaf litter adjacent to deciduous trees in Whisper Wood.

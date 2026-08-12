@@ -1090,6 +1090,16 @@ std::string serialize_world(const World& w) {
             }
             j["cells"].push_back(cj);
         }
+    // Serialize building states
+    j["building_states"] = json::object();
+    for (auto& [name, bs] : w.building_states) {
+        j["building_states"][name] = {
+            {"condition", bs.condition},
+            {"roof_leak", bs.roof_leak},
+            {"foundation", bs.foundation},
+            {"last_maintained_day", bs.last_maintained_day}
+        };
+    }
     return j.dump();
 }
 
@@ -1143,6 +1153,17 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 c.crop.stage = cj.value("stage", 0);
                 c.crop.days_left = cj.value("days_left", 0);
                 c.crop.watered = cj.value("watered", false);
+            }
+        }
+        // Deserialize building states
+        if (j.contains("building_states")) {
+            for (auto& [name, bs_json] : j["building_states"].items()) {
+                BuildingState bs;
+                bs.condition = bs_json.value("condition", 100);
+                bs.roof_leak = bs_json.value("roof_leak", 0);
+                bs.foundation = bs_json.value("foundation", 100);
+                bs.last_maintained_day = bs_json.value("last_maintained_day", 0);
+                w.building_states[name] = bs;
             }
         }
         return true;

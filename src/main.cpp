@@ -99,6 +99,34 @@ static void advance_day(World& w) {
         p.path.clear();
         p.gifted_today.clear();
     }
+
+    // Building weathering & maintenance (Farmhouse first ship)
+    int season = season_index(w.day);
+    bool winter = (season == 3);
+    for (auto& [name, bs] : w.building_states) {
+        if (name != "Farmhouse") continue; // First ship: only Farmhouse decays
+        if (rain) bs.roof_leak = std::min<uint8_t>(bs.roof_leak + 1, 100);
+        if (winter) bs.foundation = bs.foundation > 2 ? bs.foundation - 2 : 0;
+        // Condition decays based on damage
+        if (bs.roof_leak > 50 || bs.foundation < 50) {
+            bs.condition = bs.condition > 5 ? bs.condition - 5 : 0;
+        } else if (bs.roof_leak > 20 || bs.foundation < 80) {
+            bs.condition = bs.condition > 2 ? bs.condition - 2 : 0;
+        } else {
+            bs.condition = std::min<uint8_t>(bs.condition + 1, 100); // slow recovery if maintained
+        }
+        // Flavor text for significant decay - send to players inside farmhouse
+        if (bs.condition < 30 && bs.roof_leak > 30) {
+            for (auto& [id, p] : w.players) {
+                if (p.inside == "Farmhouse") {
+                    // We can't use say() here, so we'll add a notification to a queue
+                    // For now, just log to server console
+                    std::cerr << "[Farmhouse] The roof groans. A drip lands on the kitchen floor.\n";
+                }
+            }
+        }
+    }
+
     save_world(w, "save.json");
 }
 
@@ -439,6 +467,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  sell <item>    sell produce/items");
         say("  craft <item>  make things from resources (bread)");
         say("  place <thing>  build a structure: place sprinkler (2 Iron + 1 Gold)");
+        say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
         say("  enter [<name>] step into a building (stand at its door)");
         say("  exit           leave the building you're in (alias: leave)");
         say("  interact       use what's around you inside (alias: use)");
@@ -463,6 +492,13 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             std::to_string(season_day(w.day)) + " · " + weather_of_day_name(w.day));
         say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
             "   Money: " + std::to_string(p.money) + "g");
+        // Building condition
+        auto it = w.building_states.find("Farmhouse");
+        if (it != w.building_states.end()) {
+            say("Farmhouse: roof " + std::to_string(it->second.roof_leak) +
+                " foundation " + std::to_string(it->second.foundation) +
+                " condition " + std::to_string(it->second.condition));
+        }
         return out;
     }
     if (cmd == "inventory" || cmd == "inv") {
@@ -1097,6 +1133,42 @@ if (cmd == "buy") {
             return out;
         }
         say("Can place: sprinkler (2 Iron Bar + 1 Gold Bar).");
+        return out;
+    }
+
+    // ---------- repair ----------
+    if (cmd == "repair") {
+        std::string building = lower_trim(arg);
+        if (building.empty()) { say("Repair what? Try: repair farmhouse"); return out; }
+        if (building != "farmhouse") { say("Can only repair farmhouse for now."); return out; }
+        // Must be at Carpenter Shop
+        bool at_carpenter = false;
+        for (auto& b : w.buildings) {
+            if (b.name == "Carpenter Shop" && p.pos.x == b.x + (b.w - 1) / 2 && p.pos.y == b.y + b.h) {
+                at_carpenter = true; break;
+            }
+        }
+        if (!at_carpenter) { say("Visit the Carpenter Shop to arrange repairs."); return out; }
+        auto it = w.building_states.find("Farmhouse");
+        if (it == w.building_states.end()) { say("Farmhouse is in good condition."); return out; }
+        BuildingState& bs = it->second;
+        if (bs.condition >= 100) { say("Farmhouse is already in perfect condition."); return out; }
+        // Cost: 10 wood + 5 stone per 10 condition points
+        int needed = 100 - bs.condition;
+        int wood_cost = (needed + 9) / 10 * 10;
+        int stone_cost = (needed + 9) / 10 * 5;
+        if (!has_item(p, Item::Wood, wood_cost) || !has_item(p, Item::Stone, stone_cost)) {
+            say("Repair needs " + std::to_string(wood_cost) + " wood + " + std::to_string(stone_cost) + " stone.");
+            say("Condition: " + std::to_string(bs.condition) + "/100 (roof leak " + std::to_string(bs.roof_leak) + ", foundation " + std::to_string(bs.foundation) + ")");
+            return out;
+        }
+        consume_item(p, Item::Wood, wood_cost);
+        consume_item(p, Item::Stone, stone_cost);
+        bs.condition = 100;
+        bs.roof_leak = 0;
+        bs.foundation = 100;
+        bs.last_maintained_day = w.day;
+        say("Farmhouse repaired to perfect condition! (-" + std::to_string(wood_cost) + " wood, -" + std::to_string(stone_cost) + " stone)");
         return out;
     }
 

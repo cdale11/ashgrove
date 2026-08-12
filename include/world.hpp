@@ -159,6 +159,14 @@ struct Bldg {
     int16_t x, y, w, h;
 };
 
+// Building condition state for weathering/maintenance
+struct BuildingState {
+    uint8_t condition = 100;     // 0..100, decays over time
+    uint8_t roof_leak = 0;        // rain damage accrued
+    uint8_t foundation = 100;     // winter frost damage
+    uint32_t last_maintained_day = 0;
+};
+
 // ---- interiors ----
 struct InteriorRoom {
     std::string building;              // matches Bldg::name; "" = none
@@ -220,6 +228,7 @@ struct World {
     std::vector<NPC> npcs;
     std::vector<Bldg> buildings;
     std::unordered_map<std::string, InteriorRoom> interiors;
+    std::unordered_map<std::string, BuildingState> building_states;
     uint32_t next_player_id = 1;
     uint32_t day = 1;
     float day_seconds = 0.0f;   // seconds since 6:00 AM
