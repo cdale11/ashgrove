@@ -36,6 +36,8 @@ enum class Item : uint16_t {
     CopperBar = 17, IronBar = 18, GoldBar = 19,
     Wood = 30, Stone = 31, Fiber = 32,
     Fish = 33, Forage = 34, Bread = 35,
+    FertilizerBasic = 36, FertilizerQuality = 37, FertilizerPremium = 38,
+    Scarecrow = 39,
 };
 
 struct ItemDef {
@@ -64,6 +66,8 @@ inline ItemDef const& item_def(Item it) {
         /* 30 */ {"Wood",3,-1,2,0},{"Stone",3,-1,2,0},{"Fiber",3,-1,1,0},
         /* 33 */ {"Fish",3,-1,0,0},{"Forage",3,-1,0,0},
         /* 35 */ {"Bread",2,5,0,0},
+        /* 36 */ {"Fertilizer Basic",3,100,0,0},{"Fertilizer Quality",3,200,0,0},{"Fertilizer Premium",3,400,0,0},
+        /* 39 */ {"Scarecrow",3,500,0,0},
     };
     uint16_t i = static_cast<uint16_t>(it);
     return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
@@ -151,7 +155,7 @@ struct NPC {
 enum class ObjType : uint8_t {
     None = 0, Tree, Rock, Weed, TallGrass, Flower, Stump,
     FencePost, FenceRail, Pine, Bush, Mushroom, Building,
-    Sprinkler = 13, Statue, LeafLitter,
+    Sprinkler = 13, Statue, LeafLitter, Scarecrow,
 };
 static inline bool is_machine(ObjType t) { return t == ObjType::Sprinkler; }
 

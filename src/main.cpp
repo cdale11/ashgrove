@@ -63,7 +63,16 @@ static void advance_day(World& w) {
     for (auto& cell : w.cells) {
         if (cell.crop.is_crop()) {
             if (cell.crop.watered && cell.crop.days_left > 0) {
-                cell.crop.days_left--;
+                int growth = 1;
+                // Fertilizer bonus: basic=+1, quality=+2, premium=+3 extra growth per day
+                // Fertilizer is consumed (one-time boost) - applied on first growth
+                if (cell.obj.type == ObjType::None && cell.obj.ore >= 2) {
+                    int bonus = (cell.obj.ore - 1);
+                    growth += bonus;
+                    // Consume fertilizer after applying boost
+                    cell.obj.ore = 0;
+                }
+                cell.crop.days_left = std::max(0, cell.crop.days_left - growth);
                 // Recompute stage based on elapsed time vs total days.
                 // Stage 0 = just planted, stage 3 = ready to harvest.
                 const CropDef* cd = crop_def(cell.crop.crop);
@@ -117,7 +126,32 @@ static void advance_day(World& w) {
         }
         // Flavor text for significant decay - send to players inside farmhouse
         if (bs.condition < 30 && bs.roof_leak > 30) {
-            for (auto& [id, p] : w.players) {
+    // Crow overnight logic: mature crops (stage 3) have 5% chance of being eaten by crows
+    // unless protected by a scarecrow within 17x17 tiles.
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!c.crop.is_crop() || c.crop.stage < 3) continue; // only mature crops
+            // Check if protected by scarecrow (17x17 = radius 8 in all directions)
+            bool is_protected = false;
+            for (int dy = -8; dy <= 8 && !is_protected; ++dy) {
+                for (int dx = -8; dx <= 8 && !is_protected; ++dx) {
+                    int sx = x + dx, sy = y + dy;
+                    if (!w.in_bounds(sx, sy)) continue;
+                    if (w.at(sx, sy).obj.type == ObjType::Scarecrow) is_protected = true;
+                }
+            }
+            if (!is_protected) {
+                // 5% chance of crow eating crop
+                int roll = (w.day + x * 31 + y * 17) % 100; // deterministic
+                if (roll < 5) {
+                    c.crop = {}; // eaten by crows
+                }
+            }
+        }
+    }
+
+    for (auto& [id, p] : w.players) {
                 if (p.inside == "Farmhouse") {
                     // We can't use say() here, so we'll add a notification to a queue
                     // For now, just log to server console
@@ -965,6 +999,35 @@ c.crop.stage = 0;
         return out;
     }
 
+    // ---------- apply fertilizer ----------
+    if (cmd == "fertilize" || cmd == "fertilizer") {
+        std::string fert_name = lower_trim(arg);
+        Item fert = Item::None;
+        if (fert_name == "basic") fert = Item::FertilizerBasic;
+        else if (fert_name == "quality") fert = Item::FertilizerQuality;
+        else if (fert_name == "premium") fert = Item::FertilizerPremium;
+        else {
+            say("Apply which fertilizer? 'fertilize basic', 'fertilize quality', 'fertilize premium'.");
+            return out;
+        }
+        int slot = find_slot(p, fert);
+        if (slot < 0) { say("You don't have any " + std::string(item_def(fert).name) + "."); return out; }
+        Vec2 f = facing_cell(p);
+        if (!w.in_bounds(f)) { say("Nothing to fertilize."); return out; }
+        Cell& c = w.at(f);
+        if (c.tile != Tile::Tilled) { say("Fertilize tilled soil only."); return out; }
+        if (c.crop.is_crop()) { say("There is already a crop growing there."); return out; }
+        if (p.energy < 1) { say("Too tired. Rest or sleep."); return out; }
+        p.energy -= 1;
+        consume_item(p, fert, 1);
+        // Fertilizer improves crop yield/speed: apply quality modifier
+        // Basic: +1 stage speed, Quality: +2, Premium: +3
+        int bonus = (fert == Item::FertilizerBasic) ? 1 : (fert == Item::FertilizerQuality) ? 2 : 3;
+        c.obj = {ObjType::None, static_cast<uint8_t>(bonus + 1), 255}; // Store bonus in ore field
+        say("Applied " + std::string(item_def(fert).name) + ". Crops here will grow faster.");
+        return out;
+    }
+
     // ---------- harvest ----------
     if (cmd == "harvest") {
         Vec2 f = facing_cell(p);
@@ -1131,6 +1194,17 @@ if (cmd == "buy") {
                 return out;
             }
         }
+        if (thing == "scarecrow") {
+            if (!has_item(p, Item::Wood, 10) || !has_item(p, Item::Fiber, 5)) {
+                say("Recipe: scarecrow — 10 Wood + 5 Fiber.");
+                return out;
+            }
+            consume_item(p, Item::Wood, 10);
+            consume_item(p, Item::Fiber, 5);
+            add_item(p, Item::Scarecrow, 1);
+            say("Crafted a Scarecrow. (10 Wood + 5 Fiber)");
+            return out;
+        }
         if (thing == "bread") {
             if (!has_item(p, Item::Wheat, 3)) {
                 say("Recipe: bread — need 3 Wheat."); return out;
@@ -1169,6 +1243,22 @@ if (cmd == "buy") {
             c.obj = {ObjType::Sprinkler, 255, static_cast<uint8_t>(big ? 3 : 2)}; // ore field = tier
             say("Placed a " + std::string(big ? "Iridium" : "Steel") + " Sprinkler on the farmland.");
             say("     It will water adjacent tiles overnight.");
+            return out;
+        }
+        // scarecrow: 1 Scarecrow item, place on tilled or dirt
+        if (what == "scarecrow") {
+            if (!has_item(p, Item::Scarecrow, 1)) {
+                say("You need a Scarecrow. Craft one first: 'craft scarecrow' (10 Wood + 5 Fiber).");
+                return out;
+            }
+            Vec2 f = facing_cell(p);
+            if (!w.in_bounds(f)) { say("You must face an empty tilled or ground tile."); return out; }
+            Cell& c = w.at(f);
+            if (c.obj.type != ObjType::None) { say("Occupied. Place on an empty tile."); return out; }
+            if (c.crop.is_crop()) { say("Can't place on a growing crop."); return out; }
+            consume_item(p, Item::Scarecrow, 1);
+            c.obj = {ObjType::Scarecrow, 255};
+            say("Placed a Scarecrow. It will protect crops in a 17x17 area from crows.");
             return out;
         }
         say("Can place: sprinkler (2 Iron Bar + 1 Gold Bar).");
