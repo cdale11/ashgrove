@@ -19,7 +19,7 @@ using namespace std::chrono;
 std::mutex g_mutex;
 
 static uint64_t now_ms() {
-    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+    return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
 static bool is_water_any(Tile t) {
@@ -68,10 +68,10 @@ static void advance_day(World& w) {
                 // Stage 0 = just planted, stage 3 = ready to harvest.
                 const CropDef* cd = crop_def(cell.crop.crop);
                 if (cd) {
-                    int total = std::max(1, (int)cd->days);
+                    int total = std::max(1, static_cast<int>(cd->days));
                     int elapsed = total - cell.crop.days_left;
                     cell.crop.stage = std::min<uint8_t>(
-                        (uint8_t)((elapsed * 4) / total), (uint8_t)3);
+                        static_cast<uint8_t>((elapsed * 4) / total), static_cast<uint8_t>(3));
                 }
             }
             cell.crop.watered = rain;   // overnight rain waters every plot
@@ -106,8 +106,8 @@ static void advance_day(World& w) {
 static void step_npc(World& w, NPC& n) {
     Vec2 target = n.way[n.way_idx];
     if (n.pos == target) { n.way_idx ^= 1; return; }
-    int dx = target.x > n.pos.x ? 1 : target.x < n.pos.x ? -1 : 0;
-    int dy = target.y > n.pos.y ? 1 : target.y < n.pos.y ? -1 : 0;
+    int16_t dx = target.x > n.pos.x ? 1 : (target.x < n.pos.x ? -1 : 0);
+    int16_t dy = target.y > n.pos.y ? 1 : (target.y < n.pos.y ? -1 : 0);
     Vec2 next = n.pos;
     if (dx != 0) next.x += dx;
     if (w.in_bounds(next) && w.walkable(next) && npc_at(w, next.x, next.y) < 0)
@@ -222,7 +222,7 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             if (!consume_item(p, tool, 1)) return "";
             c.crop.crop = cd->produce;
             c.crop.stage = 0;
-            c.crop.days_left = cd->days;
+            c.crop.days_left = static_cast<int8_t>(cd->days);
             c.crop.watered = false;
             return "Planted";
         }
@@ -233,9 +233,9 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
 // ---------- text command interpreter ----------
 
 static std::string lower_trim(std::string s) {
-    while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
-    while (!s.empty() && std::isspace((unsigned char)s.back())) s.pop_back();
-    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
 }
 
@@ -318,8 +318,8 @@ static int count_item(Player& p, Item it) {
 static bool has_item(Player& p, Item it, int need) { return count_item(p, it) >= need; }
 static void consume_item(Player& p, Item it, int need) {
     for (int i = 0; i < 12 && need > 0; ++i) if (p.inv[i].item == it) {
-        int t = std::min<int>(need, (int)p.inv[i].count);
-        p.inv[i].count -= (uint16_t)t; need -= t;
+        int t = std::min(need, static_cast<int>(p.inv[i].count));
+        p.inv[i].count -= static_cast<uint16_t>(t); need -= t;
         if (p.inv[i].count == 0) p.inv[i].item = Item::None;
     }
 }
@@ -355,13 +355,13 @@ static Item item_from_name(const std::string& s) {
     std::string lc = lower_trim(s);
     // exact item name match first (including seeds)
     for (int i = 1; i <= 35; ++i) {
-        Item it = (Item)i;
+        Item it = static_cast<Item>(i);
         std::string nm = lower_trim(item_def(it).name);
         if (nm == lc) return it;
     }
     // plural / "seeds" suffix
     for (int i = 1; i <= 35; ++i) {
-        Item it = (Item)i;
+        Item it = static_cast<Item>(i);
         std::string nm = lower_trim(item_def(it).name);
         if (nm + "s" == lc || nm + " seed" == lc || nm + " seeds" == lc) return it;
     }
@@ -461,7 +461,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say(clock_str(w));
         say(std::string(season_name(season_index(w.day))) + " " +
             std::to_string(season_day(w.day)) + " · " + weather_of_day_name(w.day));
-        say("Energy: " + std::to_string((int)p.energy) + "/" + std::to_string(p.max_energy) +
+        say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
             "   Money: " + std::to_string(p.money) + "g");
         return out;
     }
@@ -596,10 +596,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         
         auto it = dirs.find(dir_arg);
         if (it == dirs.end()) { say("Go where? Try: go north / go south / go east / go west / go 5 north / go to town center"); return out; }
-        int dx = 0, dy = 0;
+        int16_t dx = 0, dy = 0;
         if (it->second == 3) dy = -1; else if (it->second == 0) dy = 1;
         else if (it->second == 2) dx = 1; else dx = -1;
-        p.dir = (uint8_t)it->second;
+        p.dir = static_cast<uint8_t>(it->second);
         static const char* dn[] = {"south", "west", "east", "north"};
 
         // ---------- interior movement ----------
@@ -628,8 +628,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                     if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
                     say("Blocked by " + furniture_name(ch) + "."); return out;
                 }
-                p.inx = (int16_t)nx;
-                p.iny = (int16_t)ny;
+                p.inx = static_cast<int16_t>(nx);
+                p.iny = static_cast<int16_t>(ny);
                 walked++;
             }
             if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
@@ -783,7 +783,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     auto grab_tool = [&](Item tool) -> bool {
         int slot = find_slot(p, tool);
         if (slot < 0) { say("You don't have a " + std::string(item_def(tool).name) + "."); return false; }
-        p.sel = (uint8_t)slot;
+        p.sel = static_cast<uint8_t>(slot);
         return true;
     };
 
@@ -872,7 +872,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         int slot = find_slot(p, crop->seed);
         if (slot < 0) { say("You don't have any " + std::string(item_def(crop->seed).name) + "."); return out; }
-        p.sel = (uint8_t)slot;
+        p.sel = static_cast<uint8_t>(slot);
         Vec2 f = facing_cell(p);
         if (!w.in_bounds(f)) { say("Nothing to plant on."); return out; }
         Cell& c = w.at(f);
@@ -882,9 +882,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.energy -= 1;
         consume_item(p, crop->seed, 1);
         c.crop.crop = crop->produce;
-        c.crop.stage = 0;
-        c.crop.days_left = crop->days;
-        c.crop.watered = false;
+c.crop.stage = 0;
+            c.crop.days_left = static_cast<int8_t>(crop->days);
+            c.crop.watered = false;
         say("You plant " + std::string(crop->name) + " seeds. (" +
             std::to_string(crop->days) + " days to harvest)");
         return out;
@@ -1025,8 +1025,9 @@ if (cmd == "buy") {
         int price = item_def(it->second).sell;
         if (it->second == Item::Fish) price = 45;
         if (it->second == Item::Forage) price = 50;
-        p.inv[slot].count--;
-        if (p.inv[slot].count == 0) p.inv[slot].item = Item::None;
+        auto idx = static_cast<size_t>(slot);
+        p.inv[idx].count--;
+        if (p.inv[idx].count == 0) p.inv[idx].item = Item::None;
         p.money += price;
         say("You sell " + std::string(item_def(it->second).name) + " for " + std::to_string(price) + "g.");
         return out;
@@ -1090,7 +1091,7 @@ if (cmd == "buy") {
             consume_item(p, Item::IronBar, needIron);
             consume_item(p, Item::GoldBar, needGold);
             if (big) consume_item(p, Item::IridiumOre, needIri);
-            c.obj = {ObjType::Sprinkler, 255, (uint8_t)(big ? 3 : 2)}; // ore field = tier
+            c.obj = {ObjType::Sprinkler, 255, static_cast<uint8_t>(big ? 3 : 2)}; // ore field = tier
             say("Placed a " + std::string(big ? "Iridium" : "Steel") + " Sprinkler on the farmland.");
             say("     It will water adjacent tiles overnight.");
             return out;
@@ -1589,7 +1590,7 @@ int main(int argc, char** argv) {
 
     // precompute static tile map (never changes after gen)
     std::vector<uint8_t> tile_map(MAP_W * MAP_H);
-    for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[i] = (uint8_t)world.cells[i].tile;
+    for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[i] = static_cast<uint8_t>(world.cells[i].tile);
 
     httplib::Server svr;
     svr.set_base_dir("assets");
@@ -1754,7 +1755,7 @@ json cells = json::array();
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
             Player& p = it->second;
-            if (j.contains("sel")) p.sel = (uint8_t)std::clamp<int>(int(j["sel"]), 0, 11);
+            if (j.contains("sel")) p.sel = static_cast<uint8_t>(std::clamp<int>(static_cast<int>(j["sel"]), 0, 11));
             if (tx != -9999 && ty != -9999) {
                 int dx = std::abs(int(tx) - p.pos.x), dy = std::abs(int(ty) - p.pos.y);
                 if (dx > 1 || dy > 1) { msg = "Too far"; }

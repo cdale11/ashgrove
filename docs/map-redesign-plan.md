@@ -2,6 +2,103 @@
 
 Approved 2026-08-12. Geography first, town layered on top.
 
+## Core Design Principles
+
+### 1. Maximum Parallelism — Utilize All CPU Cores
+**Every subsystem that can be parallelized MUST be parallelized.** The game server should scale across all available CPU cores:
+- **World generation**: Parallel terrain passes (mountains, rivers, forests, ore) using thread pools
+- **NPC scheduling**: Each NPC's pathfinding and decision-making runs on worker threads
+- **Crop growth / weather simulation**: Per-cell updates distributed across threads
+- **Save/load**: Async I/O with background serialization threads
+- **Network handling**: Thread-per-connection or thread-pool for HTTP/WebSocket endpoints
+- **Game loop**: Fixed-timestep simulation decoupled from network tick; systems run in parallel phases (movement → AI → environment → persistence)
+- **Build system**: CMake with Ninja generator, `-j$(nproc)` by default
+- **Profiling**: Continuous profiling (perf, VTune) to identify serialization bottlenecks
+
+### 2. Simulation-First Realism — The Real Map Is the Mental Map
+**The visual client (PIXI.js map) is merely a reference prompt. The TRUE game map lives in the server simulation and the player's imagination.**
+
+- **MUD text is the primary interface** — every command produces rich, evocative prose that lets players *visualize* the world like reading a novel
+- **Visual map is secondary** — a simplified minimap for orientation only; it does NOT replace textual description
+- **Server simulation is authoritative and hyper-detailed**:
+  - Every tile has: terrain, sub-terrain, moisture, temperature, soil quality, elevation, vegetation density, light level, sound propagation
+  - Every building has: interior rooms with furniture placement, lighting, temperature, smell, sound, structural condition, ownership, history
+  - Every road has: material (cobble/dirt/gravel/boardwalk), width, curvature, wear, drainage, lighting, traffic patterns
+  - Every NPC has: detailed schedule, personality, memory, relationships, skills, inventory, home, workplace, favorite spots
+  - Every crop has: variety, growth stage, water level, fertilizer, disease risk, pollination state, yield quality
+  - Weather simulates: humidity, pressure, wind, precipitation, fog, temperature gradients across the valley
+  - Time progresses: seasons, moon phases, festivals, aging, decay, growth cycles
+
+### 3. Verbose, Imaginative MUD Commands
+**Commands should read like prose from a novel, not terse computer output.**
+
+Examples:
+- `look` → *"You stand on packed cobblestone in Stardrop Plaza. The roundabout's central statue — a weathered stone figure of a farmer sowing seeds — watches over the radiating streets. Morning light catches the dew on the ornamental cherry trees ringing the plaza, their blossoms a soft pink against the grey stone. To the north, Mulberry Lane curves toward the north bridge, wagon ruts worn deep into the cobbles. The river murmurs beyond, cold and clear. Leah's easel is set up near the fountain, half-finished canvas catching the light."*
+
+- `examine statue` → *"The statue stands three meters tall, carved from local grey granite veined with quartz. The farmer's face is worn smooth by decades of weather, features softened to an archetype: broad hat, rolled sleeves, bag of seed at hip. Moss clings in the folds of the carved cloak. A plaque at the base reads: 'To those who sow — the valley remembers.' Someone has tucked a fresh dandelion into the stone fingers."*
+
+- `survey` → *"Stardrop Plaza (Civic District): 42×38 cobblestones. Central roundabout (7×7) with statue. Four radiating streets: north to North Bridge, south to Main Bridge, east to Commerce Row, west to Bus Stop. Buildings: Town Center (north face), Clinic (northwest), Museum (northeast), Old Mill (west), Stardrop Saloon (southeast). Cherry trees: 16 (spring blossom). Benches: 8. Fountain: 1 (running). Lighting: 12 gas lamps. NPCs present: Leah (painting), 2 townsfolk (walking)."*
+
+### 4. Imagination-Driven Gameplay
+**The player's mind renders a richer world than any GPU.** Design for mental visualization:
+- Use sensory language: sight, sound, smell, touch, temperature, proprioception
+- Describe spatial relationships precisely (distances, directions, landmarks)
+- Convey atmosphere through environmental storytelling
+- Let players "walk" the world through text, building cognitive maps
+- Visual client shows only: player position, major landmarks, fog of war edges
+
+### 5. Bug-First Development
+**Fix flaws immediately when discovered.** No known bugs ship. Regression tests for every fix.
+
+### 6. Documentation Standards
+- **CHANGELOG.md**: Every commit summarized, user-facing changes highlighted
+- **README.md**: Project overview, architecture, build/run instructions, design philosophy
+- **Design docs**: Verbose, decision-logged, updated with each change
+- **Code comments**: Explain *why*, not *what* (code shows what)
+
+### 7. Parallelism Implementation Status (v0.6.1)
+
+| Subsystem | Status | Approach |
+|-----------|--------|----------|
+| **Build** | ✅ Done | CMake + Ninja/Unix Makefiles, `-j$(nproc)`, LTO, native arch |
+| **HTTP Server** | ✅ Done | `httplib` thread pool (one thread per connection) |
+| **Game Loop** | 🟡 Partial | Two threads: autosave (60s) + simulation (16ms tick); mutex-protected world |
+| **World Gen** | ⏳ Planned | `std::execution::par` for independent terrain passes (mountains, rivers, biomes, ore) |
+| **NPC AI** | ⏳ Planned | Thread pool: each NPC's `schedule_slot` + `bfs_path` on workers |
+| **Crops/Environment** | ⏳ Planned | Per-cell updates distributed; double-buffered world state |
+| **Save/Load** | ⏳ Planned | Async JSON serialization on background thread |
+| **Weather** | ⏳ Planned | Regional cells updated in parallel |
+
+**Current bottleneck**: Single `g_mutex` protects entire `World` in game loop. Next step: fine-grained locking or double-buffered tick.
+
+---
+
+## Parallelism Roadmap (Post-v0.6)
+
+### Phase P1 — Fine-Grained Locking (R5-adjacent)
+- Split `World` mutex: `cells_mutex`, `players_mutex`, `npcs_mutex`, `buildings_mutex`
+- Read-heavy ops (look, survey, map render) use shared_lock; writes use unique_lock
+- Target: 2-4× throughput on 8+ cores for read-heavy workloads
+
+### Phase P2 — Double-Buffered Tick
+- Two `World` states: `front` (read by network/client) and `back` (written by simulation)
+- Atomic pointer swap at tick boundary; zero-copy for readers
+- Eliminates mutex contention for `/state` and `/cmd` reads
+
+### Phase P3 — Parallel Systems (R7+)
+- `std::execution::par_unseq` for: crop growth, weather diffusion, ore respawn, leaf litter
+- NPC thread pool: `schedule_slot` + `bfs_path` per NPC concurrently
+- World gen: parallel terrain passes (mountains || rivers || biomes || ore)
+
+### Phase P4 — Async Persistence
+- Background serialization thread with lock-free queue
+- Incremental saves (dirty chunks only)
+- Save compression (zstd) on worker thread
+
+---
+
+## Map size
+
 ## Map size
 - **128 x 96** (was 96 x 64). Update `MAP_W`, `MAP_H` in `include/world.hpp`.
 - Client in `assets/index.html` already expects `MAP_W=128, MAP_H=96` — so the C++ side catches up (the existing mismatch is finally resolved).

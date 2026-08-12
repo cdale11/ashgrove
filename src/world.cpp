@@ -403,7 +403,7 @@ void generate_world(World& world) {
             else if (r < 0.26f) tier = 2;                        // iron mid
             if (tier) {
                 int hp = tier == 1 ? 2 : 3;
-                c.obj = {ObjType::Rock, (uint8_t)hp, tier};
+                c.obj = {ObjType::Rock, static_cast<uint8_t>(hp), tier};
             }
         }
 
@@ -784,8 +784,8 @@ const char* clock_str(const World& w) {
     return buf;
 }
 
-int season_index(uint32_t day) { return (int)((day - 1) / 28) % 4; }
-int season_day(uint32_t day)   { return (int)((day - 1) % 28) + 1; }
+int season_index(uint32_t day) { return static_cast<int>((day - 1) / 28) % 4; }
+int season_day(uint32_t day)   { return static_cast<int>((day - 1) % 28) + 1; }
 
 const char* season_name(int s) {
     static const char* names[4] = {"Spring", "Summer", "Fall", "Winter"};
@@ -802,7 +802,7 @@ const char* weather_of_day_name(uint32_t day) {
 
 int npc_at(const World& w, int x, int y) {
     for (size_t i = 0; i < w.npcs.size(); ++i)
-        if (w.npcs[i].pos.x == x && w.npcs[i].pos.y == y) return (int)i;
+        if (w.npcs[i].pos.x == x && w.npcs[i].pos.y == y) return static_cast<int>(i);
     return -1;
 }
 

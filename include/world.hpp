@@ -227,10 +227,10 @@ struct World {
 
     Vec2 house_tl{38, 78};
 
-    Cell&     at(int x, int y) { return cells[y * MAP_W + x]; }
-    Cell const& at(int x, int y) const { return cells[y * MAP_W + x]; }
-    Cell&     at(Vec2 p) { return cells[p.y * MAP_W + p.x]; }
-    Cell const& at(Vec2 p) const { return cells[p.y * MAP_W + p.x]; }
+    Cell&     at(int x, int y) { return cells[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)]; }
+    Cell const& at(int x, int y) const { return cells[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)]; }
+    Cell&     at(Vec2 p) { return cells[static_cast<size_t>(p.y) * MAP_W + static_cast<size_t>(p.x)]; }
+    Cell const& at(Vec2 p) const { return cells[static_cast<size_t>(p.y) * MAP_W + static_cast<size_t>(p.x)]; }
     bool in_bounds(int x, int y) const { return x >= 0 && x < MAP_W && y >= 0 && y < MAP_H; }
     bool in_bounds(Vec2 p) const { return in_bounds(p.x, p.y); }
 
