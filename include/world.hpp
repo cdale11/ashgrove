@@ -209,6 +209,8 @@ struct Player {
     // Egg Festival (Spring 13): eggs found this festival, searches remaining.
     uint8_t fest_eggs = 0;
     uint8_t fest_tries = 8;
+    // Known landmarks for fast-travel / path-walking (building names player has entered)
+    std::set<std::string> known_landmarks;
 };
 
 // ---- world ----

@@ -140,14 +140,18 @@ void generate_world(World& world) {
         if (!world.in_bounds(x, y) || is_water(world.at(x, y).tile)) return;
         world.at(x, y).tile = Tile::Dirt;
     };
-    // main E-W high street on each bank (gently curving), broken at the river
+    auto croad = [&](int x, int y) {
+        if (!world.in_bounds(x, y) || is_water(world.at(x, y).tile)) return;
+        world.at(x, y).tile = Tile::Cobble;
+    };
+    // main E-W high street on each bank (gently curving), broken at the river — COBBLESTONE (main loop)
     for (int x = 8; x < 42; ++x) {
         int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
-        road(x, y); road(x, y + 1);
+        croad(x, y); croad(x, y + 1);
     }
     for (int x = 48; x < MAP_W - 6; ++x) {
         int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
-        road(x, y); road(x, y + 1);
+        croad(x, y); croad(x, y + 1);
     }
     // N-S lane east bank linking high street to the farm gate
     for (int y = 14; y < 70; ++y) { road(60, y); road(61, y); }
@@ -156,6 +160,45 @@ void generate_world(World& world) {
     // town square (civic plaza footprint, west bank) — refined in R2
     for (int y = 26; y < 32; ++y)
         for (int x = 18; x < 32; ++x) road(x, y);
+
+    // ---- cobblestone roundabout at plaza center (Stardrop Plaza) ----
+    // 3x3 grass circle at center (24,28), cobblestone ring around it, statue in middle
+    const int rx = 24, ry = 28;
+    // grass center (3x3)
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx)
+            if (world.in_bounds(rx + dx, ry + dy))
+                world.at(rx + dx, ry + dy).tile = Tile::Grass;
+    // cobblestone ring (5x5 minus 3x3 center)
+    for (int dy = -2; dy <= 2; ++dy)
+        for (int dx = -2; dx <= 2; ++dx)
+            if (world.in_bounds(rx + dx, ry + dy) &&
+                (dx < -1 || dx > 1 || dy < -1 || dy > 1))
+                world.at(rx + dx, ry + dy).tile = Tile::Cobble;
+    // statue at center
+    if (world.in_bounds(rx, ry))
+        world.at(rx, ry).obj = {ObjType::Statue, 255};
+    // cobblestone roads radiating 4 directions from ring
+    // north to high street (y=22)
+    for (int y = 22; y < ry - 2; ++y) {
+        world.at(rx, y).tile = Tile::Cobble;
+        world.at(rx + 1, y).tile = Tile::Cobble;
+    }
+    // south to main-street bridge (y=34)
+    for (int y = ry + 3; y <= 34; ++y) {
+        world.at(rx, y).tile = Tile::Cobble;
+        world.at(rx + 1, y).tile = Tile::Cobble;
+    }
+    // east toward river / commerce district
+    for (int x = rx + 3; x < 44; ++x) {
+        world.at(x, ry).tile = Tile::Cobble;
+        world.at(x, ry + 1).tile = Tile::Cobble;
+    }
+    // west toward bus stop
+    for (int x = 8; x < rx - 2; ++x) {
+        world.at(x, ry).tile = Tile::Cobble;
+        world.at(x, ry + 1).tile = Tile::Cobble;
+    }
 
     // path + river crossings become bridges
     for (int y = 0; y < MAP_H; ++y)
@@ -409,6 +452,56 @@ void generate_world(World& world) {
     place_buildings(world);
     init_interiors(world);
     resolve_water_edges(world);
+
+    // ---- docks boardwalk (south ocean shore, east of river mouth) ----
+    // River mouth at south edge is around x≈58-60. Boardwalk runs east from there.
+    for (int x = 62; x <= 120; ++x) {
+        for (int y = 90; y <= 92; ++y) {
+            if (!world.in_bounds(x, y)) continue;
+            Cell& c = world.at(x, y);
+            if (is_water(c.tile)) {
+                // wooden planks over water (Bridge tile renders as wooden bridge)
+                c.tile = Tile::Bridge;
+            } else if (c.tile == Tile::Grass || c.tile == Tile::GrassVar || c.tile == Tile::Sand) {
+                // wooden planks on land
+                c.tile = Tile::Bridge;
+                c.obj = FarmObj{};
+            }
+        }
+    }
+    // short pier extending south from boardwalk toward ocean
+    for (int y = 90; y < MAP_H - 1; ++y) {
+        int x = 100;
+        if (!world.in_bounds(x, y)) continue;
+        Cell& c = world.at(x, y);
+        if (is_water(c.tile) || c.tile == Tile::Grass || c.tile == Tile::GrassVar || c.tile == Tile::Sand) {
+            c.tile = Tile::Bridge;
+            c.obj = FarmObj{};
+        }
+    }
+
+    // ---- lakefront pier at Lake Aurora (south shore, near Tearoom) ----
+    // Lake Aurora center (96, 16), Tearoom at (90, 22). Pier extends north from shore into lake.
+    for (int y = 18; y >= 12; --y) {
+        int x = 90;
+        if (!world.in_bounds(x, y)) continue;
+        Cell& c = world.at(x, y);
+        if (is_water(c.tile) || c.tile == Tile::Grass || c.tile == Tile::GrassVar || c.tile == Tile::Sand) {
+            c.tile = Tile::Bridge;
+            c.obj = FarmObj{};
+        }
+    }
+    // small T-shape at end of pier
+    for (int dx = -1; dx <= 1; ++dx) {
+        int x = 90 + dx, y = 13;
+        if (!world.in_bounds(x, y)) continue;
+        Cell& c = world.at(x, y);
+        if (is_water(c.tile)) {
+            c.tile = Tile::Bridge;
+            c.obj = FarmObj{};
+        }
+    }
+
     // cart-track west from the village street to the bus stop
     for (int x = 10; x <= 32; ++x) {
         Cell& c = world.at(x, 16);
@@ -972,6 +1065,9 @@ std::string serialize_world(const World& w) {
         pl["max_energy"] = p.max_energy;
         pl["fest_eggs"] = p.fest_eggs;
         pl["fest_tries"] = p.fest_tries;
+        json kl = json::array();
+        for (auto& lm : p.known_landmarks) kl.push_back(lm);
+        pl["known_landmarks"] = kl;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -1019,6 +1115,8 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 p.hearts[hn.key()] = hn.value().get<uint8_t>();
             for (auto& g : pl.value("gifted_today", json::array()))
                 p.gifted_today.insert(g.get<std::string>());
+            for (auto& lm : pl.value("known_landmarks", json::array()))
+                p.known_landmarks.insert(lm.get<std::string>());
             int i = 0;
             for (auto& s : pl.value("inv", json::array())) {
                 if (i >= 12) break;

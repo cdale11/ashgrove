@@ -500,12 +500,12 @@ const ITEM = {
 // ObjType -> glyph. Mirrors include/world.hpp:146-150.
 const OBJ_GLYPH = {
   0: '', 1: '🌳', 2: '🪨', 3: '🌿', 4: '🌾', 5: '🌸', 6: '🪵', 7: '🪵',
-  8: '🪵', 9: '🌲', 10: '🪴', 11: '🍄', 12: '🏠', 13: '💦',
+  8: '🪵', 9: '🌲', 10: '🪴', 11: '🍄', 12: '🏠', 13: '💦', 14: '🗿',
 };
 const OBJ_NAME = {
   0: 'open ground', 1: 'tree', 2: 'rock', 3: 'weeds', 4: 'tall grass',
   5: 'flowers', 6: 'stump', 7: 'fence post', 8: 'fence rail',
-  9: 'pine', 10: 'bush', 11: 'mushroom', 12: 'building', 13: 'sprinkler',
+  9: 'pine', 10: 'bush', 11: 'mushroom', 12: 'building', 13: 'sprinkler', 14: 'statue',
 };
 
 // NPC list (mirrors world.cpp:651-666 init_npcs). color: 1..5 used for palette.
@@ -528,13 +528,20 @@ const BLD_STYLE = {
   'Town Center':     { roof: '#8a3a2a', wall: '#9a6a44', glyph: '🏫' },
   'Stardrop Saloon': { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🍻' },
   'Market':          { roof: '#a06a3a', wall: '#9a6a44', glyph: '🛒' },
+  'Carpenter Shop':  { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🔨' },
+  'Pet Shop':        { roof: '#c97a3a', wall: '#9a6a44', glyph: '🐕' },
   'Willow House':    { roof: '#7a9a4a', wall: '#9a6a44', glyph: '🏠' },
   'Maple House':     { roof: '#c97a3a', wall: '#9a6a44', glyph: '🏚️' },
   'Rowan Cottage':   { roof: '#8a4a3a', wall: '#9a6a44', glyph: '🛖' },
+  'Hawthorne Cottage': { roof: '#7a9a4a', wall: '#9a6a44', glyph: '🏠' },
   'Bus Stop':        { roof: '#7fbf6a', wall: '#9a6a44', glyph: '🚏' },
   'Railway Station': { roof: '#5f4a3a', wall: '#7a6a54', glyph: '🚉' },
   'Hawthorn Barn':   { roof: '#8c4a2f', wall: '#9a6a44', glyph: '🐄' },
   'Glasshouse':      { roof: '#7fbf6a', wall: '#b8d8c0', glyph: '🌿' },
+  'Tearoom':         { roof: '#a07050', wall: '#c0a888', glyph: '🍵' },
+  'Observatory':     { roof: '#4a6a8a', wall: '#a0b0c0', glyph: '🔭' },
+  'Fish Shack':      { roof: '#5f4a3a', wall: '#7a6a54', glyph: '🎣' },
+  'Lighthouse':      { roof: '#e8c562', wall: '#f0e0b0', glyph: '🗼' },
   'Inn':             { roof: '#8c4a2f', wall: '#b8a48a', glyph: '🏨' },
   'Tavern':          { roof: '#5a3a20', wall: '#8a6a44', glyph: '🍺' },
   'Library':         { roof: '#4a6a8a', wall: '#a0b0c0', glyph: '📚' },
@@ -604,6 +611,22 @@ const SEASON_PILL = {
   Fall:   ['#e59866', '#e67e22'], Winter: ['#85c1e9', '#5dade2'],
 };
 const WEATHER_GLYPH = { 0: '☀️ Sunny', 1: '🌧️ Rainy' };
+
+// Seasonal tree glyphs by region tag. Returns emoji for tree/pine based on season.
+function seasonTreeGlyph(season, regionTag, isPine) {
+  if (isPine) {
+    // Pines stay green year-round but get snow-laden in winter
+    return season === 'Winter' ? '🌲' : '🌲';
+  }
+  // Deciduous trees change with seasons
+  switch (season) {
+    case 'Spring': return regionTag === 'town' ? '🌸' : '🌳';  // cherry blossom in town
+    case 'Summer': return '🌳';
+    case 'Fall':   return '🍂';
+    case 'Winter': return '🌲';  // bare branches look like pines in winter
+    default:       return '🌳';
+  }
+}
 
 // Common commands shown in suggest bar (clickable).
 const SUGGESTIONS = [
@@ -1221,6 +1244,17 @@ const MapView = {
     return { x: (mx - this.CSS_W / 2) / s + State.cam.x,
              y: (my - this.CSS_H / 2) / s + State.cam.y };
   },
+  // Region tag for seasonal tree glyphs
+  regionTag(x, y) {
+    if (x >= 4 && x <= 22 && y >= 16 && y <= 74) return 'forest';      // Whisper Wood
+    if (x >= 78 && x <= 100 && y >= 16 && y <= 50) return 'moor';       // East Moor
+    if (y < 14) return 'tundra';                                          // Frostveil Tundra
+    if (x >= 18 && x <= 32 && y >= 14 && y <= 46) return 'town';        // Stardrop Plaza / Birch Court
+    if (x >= 48 && x <= 62 && y >= 14 && y <= 46) return 'town';        // Commerce Row / Maple Court
+    if (x >= 86 && x <= 106 && y >= 6 && y <= 26) return 'lakeside';    // Lake Aurora
+    if (y >= MAP_H - 4) return 'shore';                                   // Seaglass Shore
+    return 'valley';
+  },
 
   // ---- events ----
   onMouseMove(e) {
@@ -1419,6 +1453,15 @@ const MapView = {
         // Ice — crystal clear blue-white
         const shimmer = 0.08 * Math.sin(tx * 0.4 + ty * 0.3);
         return worldHash(tx, ty) < 0.5 ? '#b8d4e8' : '#d4e6f5';
+      }
+      case 13: {
+        // Cobblestone — grey-tan with subtle variation
+        const darkCobble = '#8a857a';
+        const lightCobble = '#a8a398';
+        const noise = worldHash(tx, ty);
+        const variation = Math.sin(tx * 0.17 + ty * 0.23) * 0.03;
+        return noise < 0.5 ? this.darkenBrighten(darkCobble, variation)
+                           : this.darkenBrighten(lightCobble, variation);
       }
       default: return '#4a7c35';
     }
@@ -1675,7 +1718,8 @@ const bldgs = [...(State.join ? State.join.buildings || [] : [])];
       this.objects.addChild(g);
       return;
     }
-    const glyph = OBJ_GLYPH[o];
+    const glyph = (o === 1 || o === 9) ? seasonTreeGlyph(State.world && State.world.season, this.regionTag(c.x, c.y), o === 9)
+                                  : OBJ_GLYPH[o];
     if (!glyph) return;
     if (s >= 6) {
       // Tree/object shadow for depth

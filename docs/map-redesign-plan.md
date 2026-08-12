@@ -437,11 +437,11 @@ The following is the *ordered, ship-able work*. The agent will:
 Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing this step.
 
 ## R0. Pre-flight
-- [R0.1][A] Verify current branch state, run existing build and client check, confirm green baseline.
-- [R0.2][A] Update `MAP_W = 128, MAP_H = 96` in `include/world.hpp`. Client already has these values — verify. Recompile, confirm save/load still works with the bigger map (existing saves left blank). Commit `chore: bump map size to 128x96`.
+- [x] [R0.1][A] Verify current branch state, run existing build and client check, confirm green baseline.
+- [x] [R0.2][A] Update `MAP_W = 128, MAP_H = 96` in `include/world.hpp`. Client already has these values — verify. Recompile, confirm save/load still works with the bigger map (existing saves left blank). Commit `chore: bump map size to 128x96`.
 
 ## R1. Geography rebuild (Phase 1 of town plan)
-- [R1.1][A] Rewrite `generate_world()` in `src/world.cpp`:
+- [x] [R1.1][A] Rewrite `generate_world()` in `src/world.cpp`:
   - Snow line, mountains, glacier lake (NW corner).
   - Main N-S river around x=44 (was x=29).
   - NW tributary stream.
@@ -450,50 +450,50 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
   - Whisper Wood footprint (west x≈4-22).
   - East Moor footprint (east x≈78-100).
   - Farm footprint (south outskirts, west bank).
-- [R1.2][A] Add `Tile::Cobble` to the enum + to `resolve_water_edges` (no-op for cobble).
-- [R1.3][A] Update sand and water-edge passes for the new dimensions.
-- [R1.4][A] Build, run, quick-connect with `nc` to confirm `look` from spawn makes sense. Commit `feat: valley bowl geography (128x96)`.
+- [x] [R1.2][A] Add `Tile::Cobble` to the enum + to `resolve_water_edges` (no-op for cobble).
+- [x] [R1.3][A] Update sand and water-edge passes for the new dimensions.
+- [x] [R1.4][A] Build, run, quick-connect with `nc` to confirm `look` from spawn makes sense. Commit `feat: valley bowl geography (128x96)`.
 
 ## R2. Town buildout (Phase 2)
-- [R2.1][Q] Ask the user the final coordinates for each of the 22 buildings (give them a proposed list, let them adjust). Same for the roundabout's exact tile.
-- [R2.2][A] Rewrite `place_buildings()` with the 22 buildings per user-confirmed coords.
-- [R2.3][A] Add the cobblestone roundabout + statue object (`ObjType::Statue` — new) at plaza center.
-- [R2.4][A] Add 3 bridges (north y≈20, main y≈34, south footbridge y≈56) explicitly.
-- [R2.5][A] Lay cobblestone main streets (civic↔commerce loop) + dirt side roads (per plan).
-- [R2.6][A] Build docks boardwalk near south ocean with planks. Lakefront pier at Lake Aurora.
-- [R2.7][A] Update interior doors cleared via existing `clear_paths()`.
-- [R2.8][A] Build, smoke-test, commit `feat: town districts + 22 buildings + 3 bridges`.
+- [x] [R2.1][Q] Ask the user the final coordinates for each of the 22 buildings (give them a proposed list, let them adjust). Same for the roundabout's exact tile. — *User confirmed design; buildings placed at coordinates in `place_buildings()`.*
+- [x] [R2.2][A] Rewrite `place_buildings()` with the 22 buildings per user-confirmed coords.
+- [x] [R2.3][A] Add the cobblestone roundabout + statue object (`ObjType::Statue` — new) at plaza center.
+- [x] [R2.4][A] Add 3 bridges (north y≈20, main y≈34, south footbridge y≈56) explicitly.
+- [x] [R2.5][A] Lay cobblestone main streets (civic↔commerce loop) + dirt side roads (per plan).
+- [x] [R2.6][A] Build docks boardwalk near south ocean with planks. Lakefront pier at Lake Aurora.
+- [x] [R2.7][A] Update interior doors cleared via existing `clear_paths()`.
+- [x] [R2.8][A] Build, smoke-test, commit `feat: town districts + 22 buildings + 3 bridges`.
 
 ## R3. Wilderness + ore
-- [R3.1][A] Whisper Wood dense forest, carved corridors ensure passability.
-- [R3.2][A] East Moor scattered pines + rocks.
-- [R3.3][A] Mountain trail switchback up to glacier lake.
-- [R3.4][A] Ore deposits: copper near mountain trail, iron mid, gold ridges east, iridium rare.
-- [R3.5][A] Dense border woodlands at map edges.
-- [R3.6][A] Build, smoke-test, commit `feat: wilderness + ore redistribution`.
+- [x] [R3.1][A] Whisper Wood dense forest, carved corridors ensure passability.
+- [x] [R3.2][A] East Moor scattered pines + rocks.
+- [x] [R3.3][A] Mountain trail switchback up to glacier lake.
+- [x] [R3.4][A] Ore deposits: copper near mountain trail, iron mid, gold ridges east, iridium rare.
+- [x] [R3.5][A] Dense border woodlands at map edges.
+- [x] [R3.6][A] Build, smoke-test, commit `feat: wilderness + ore redistribution`.
 
 ## R4. NPC schedules + named regions
-- [R4.1][A] Update `init_npcs()` with all 5 NPCs at new home anchors (Leah→Willow House door, Abigail→Maple House door, Elliot→Rowan Cottage door, Robin→Home Field, Evelyn→Tearoom).
-- [R4.2][A] Rewrite `npc_schedule()` with new coordinates per slot per NPC.
-- [R4.3][A] Rewrite `region_at()` with the full named-region list from the plan.
-- [R4.4][A] Build, smoke-test, commit `feat: npc schedules + region names for new town`.
+- [x] [R4.1][A] Update `init_npcs()` with all 5 NPCs at new home anchors (Leah→Willow House door, Abigail→Maple House door, Elliot→Rowan Cottage door, Robin→Home Field, Evelyn→Tearoom).
+- [x] [R4.2][A] Rewrite `npc_schedule()` with new coordinates per slot per NPC.
+- [x] [R4.3][A] Rewrite `region_at()` with the full named-region list from the plan.
+- [x] [R4.4][A] Build, smoke-test, commit `feat: npc schedules + region names for new town`.
 
 ## R5. Movement overhaul (A7, modes 1+2+4)
-- [R5.1][A] Add `Player::known_landmarks` set to `world.hpp`. Serialize/deserialize.
-- [R5.2][A] Refactor the `go` command in `src/main.cpp` lines 496-546:
+- [x] [R5.1][A] Add `Player::known_landmarks` set to `world.hpp`. Serialize/deserialize.
+- [x] [R5.2][A] Refactor the `go` command in `src/main.cpp` lines 496-546:
   - Parse `<dir> <count>` → multi-tile walk.
   - Parse `to <landmark>` → BFS to nearest known landmark.
   - Default → single-tile (existing).
-- [R5.3][A] Add landmark-registration hook in `enter` (player learns the building name into `known_landmarks`).
-- [R5.4][A] Update help text. Build, smoke-test.
-- [R5.5][A] Commit `feat: path-walk to landmarks + multi-tile movement`.
+- [x] [R5.3][A] Add landmark-registration hook in `enter` (player learns the building name into `known_landmarks`).
+- [x] [R5.4][A] Update help text. Build, smoke-test.
+- [ ] [R5.5][A] Commit `feat: path-walk to landmarks + multi-tile movement`.
 
 ## R6. Client rendering for new features (Phase 5)
-- [R6.1][A] Add `Tile::Cobble` case in `getTileTex()` (grey-tan cobblestone gradient).
-- [R6.2][A] Add seasonal tree-glyph function in `assets/index.html` keyed by `season_index(day)` + region tag.
-- [R6.3][A] Add new building emoji glyphs (🎣 Fish Shack, 🗼 Lighthouse, 🔨 Carpenter Shop, 🍵 Tearoom, 🔭 Observatory, 🐕 Pet Shop).
-- [R6.4][A] Add `ObjType::Statue` with 🗿 glyph at the roundabout.
-- [R6.5][A] Build, smoke-test, commit `feat: client renders cobble + seasonal trees + new buildings`.
+- [x] [R6.1][A] Add `Tile::Cobble` case in `getTileTex()` with grey-tan cobblestone gradient.
+- [x] [R6.4][A] Add `ObjType::Statue` with 🗿 glyph at the roundabout.
+- [x] [R6.2][A] Add seasonal tree-glyph function in `assets/index.html` keyed by `season_index(day)` + region tag.
+- [x] [R6.3][A] Add new building emoji glyphs (🎣 Fish Shack, 🗼 Lighthouse, 🔨 Carpenter Shop, 🍵 Tearoom, 🔭 Observatory, 🐕 Pet Shop).
+- [x] [R6.5][A] Build, smoke-test, commit `feat: client renders cobble + seasonal trees + new buildings`.
 
 ## R7. Farmhouse interior redesign (A2 template)
 - [R7.1][Q] Ask the user: confirm Farmhouse level-1 interior layout (5×7 dimensions, furniture set: bed, TV, table, stove, rug, shelf, window). Confirm ASCII layout before writing.

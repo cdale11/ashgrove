@@ -420,6 +420,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     // ---------- help ----------
     if (cmd == "help" || cmd == "?") {
         say("  go <dir>       move (north/south/east/west, or n/s/e/w)");
+        say("  go <dir> <n>   walk n tiles (e.g. 'go 5 north', 'go e 10')");
+        say("  go to <name>   path-walk to a known landmark/building");
         say("  look           examine your surroundings (alias: l)");
         say("  inventory      list what you carry (alias: inv)");
         say("  status         day, time, energy, money (alias: stats)");
@@ -498,8 +500,102 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     };
     if (cmd == "go" || cmd == "move" || dirs.count(cmd)) {
         std::string d = (cmd == "go" || cmd == "move") ? arg : cmd;
-        auto it = dirs.find(d);
-        if (it == dirs.end()) { say("Go where? Try: go north / go south / go east / go west"); return out; }
+        
+        // Check for "go to <landmark>" syntax
+        if (d == "to" && !arg.empty()) {
+            // Parse "go to <landmark>" - the arg contains "to <landmark>"
+            std::string landmark = arg;
+            size_t pos = landmark.find(' ');
+            if (pos != std::string::npos) {
+                landmark = landmark.substr(pos + 1);
+            } else {
+                landmark = "";
+            }
+            if (landmark.empty()) {
+                say("Go to where? Try: go to town center / go to farmhouse / go to saloon");
+                return out;
+            }
+            // Find the building by name (case-insensitive substring match)
+            Bldg* target = nullptr;
+            for (auto& b : w.buildings) {
+                std::string bn = b.name;
+                std::transform(bn.begin(), bn.end(), bn.begin(), ::tolower);
+                std::string ln = landmark;
+                std::transform(ln.begin(), ln.end(), ln.begin(), ::tolower);
+                if (bn.find(ln) != std::string::npos) {
+                    target = &b;
+                    break;
+                }
+            }
+            // Also check farmhouse
+            if (!target && (landmark.find("farm") != std::string::npos || landmark.find("house") != std::string::npos)) {
+                // Create a pseudo-building for farmhouse
+                Vec2 door = w.door();
+                std::vector<Vec2> path;
+                if (bfs_path(w, p.pos, door, path)) {
+                    p.path = std::move(path);
+                    p.moving = !p.path.empty();
+                    p.move_start_ms = now_ms();
+                    int dx = door.x - p.pos.x, dy = door.y - p.pos.y;
+                    p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
+                    // Register landmark
+                    p.known_landmarks.insert("Farmhouse");
+                    say("You start walking toward the Farmhouse...");
+                    return out;
+                } else {
+                    say("There's no clear path to the Farmhouse.");
+                    return out;
+                }
+            }
+            if (!target) {
+                // Check if it's a known landmark the player has visited
+                if (p.known_landmarks.find(landmark) != p.known_landmarks.end()) {
+                    say("You know of '" + landmark + "' but can't locate it from here. Try walking closer first.");
+                } else {
+                    say("Unknown landmark '" + landmark + "'. Visit a building first to learn its location.");
+                }
+                return out;
+            }
+            // Check if player has visited this building before (for fast-travel unlock)
+            bool known = p.known_landmarks.find(target->name) != p.known_landmarks.end();
+            // Destination is the building's doorstep
+            Vec2 door = {int16_t(target->x + (target->w - 1) / 2), int16_t(target->y + target->h)};
+            std::vector<Vec2> path;
+            if (bfs_path(w, p.pos, door, path)) {
+                p.path = std::move(path);
+                p.moving = !p.path.empty();
+                p.move_start_ms = now_ms();
+                int dx = door.x - p.pos.x, dy = door.y - p.pos.y;
+                p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
+                // Register landmark
+                p.known_landmarks.insert(target->name);
+                say("You start walking toward the " + target->name + "...");
+                if (!known) say("(You commit the location to memory for future travels.)");
+                return out;
+            } else {
+                say("There's no clear path to the " + target->name + ".");
+                return out;
+            }
+        }
+        
+        // Check for "go <dir> <count>" syntax (multi-tile walk)
+        std::string dir_arg = d;
+        int count = 1;
+        size_t space_pos = dir_arg.find(' ');
+        if (space_pos != std::string::npos) {
+            std::string count_str = dir_arg.substr(space_pos + 1);
+            dir_arg = dir_arg.substr(0, space_pos);
+            try {
+                count = std::stoi(count_str);
+                if (count < 1) count = 1;
+                if (count > 50) count = 50; // cap at 50 tiles
+            } catch (...) {
+                count = 1;
+            }
+        }
+        
+        auto it = dirs.find(dir_arg);
+        if (it == dirs.end()) { say("Go where? Try: go north / go south / go east / go west / go 5 north / go to town center"); return out; }
         int dx = 0, dy = 0;
         if (it->second == 3) dy = -1; else if (it->second == 0) dy = 1;
         else if (it->second == 2) dx = 1; else dx = -1;
@@ -511,40 +607,60 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             auto rit = w.interiors.find(p.inside);
             if (rit == w.interiors.end()) { p.inside.clear(); return out; }
             const InteriorRoom& r = rit->second;
-            int nx = p.inx + dx, ny = p.iny + dy;
-            if (ny >= r.h - 1) {                       // walk out the door
-                say("You step out the door.");
-                p.inside.clear();
-                p.pos = p.inside_exit;
-                p.target = p.pos;
-                p.path.clear();
-                p.moving = false;
-                return out;
+            int walked = 0;
+            for (int step = 0; step < count; ++step) {
+                int nx = p.inx + dx, ny = p.iny + dy;
+                if (ny >= r.h - 1) {                       // walk out the door
+                    say("You step out the door.");
+                    p.inside.clear();
+                    p.pos = p.inside_exit;
+                    p.target = p.pos;
+                    p.path.clear();
+                    p.moving = false;
+                    return out;
+                }
+                if (nx < 0 || nx >= r.w || ny < 0 || r.rows[ny][nx] == '#') {
+                    if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+                    say("A wall stops you."); return out;
+                }
+                char ch = r.rows[ny][nx];
+                if (ch != '.' && ch != ' ' && ch != 'P') {
+                    if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+                    say("Blocked by " + furniture_name(ch) + "."); return out;
+                }
+                p.inx = (int16_t)nx;
+                p.iny = (int16_t)ny;
+                walked++;
             }
-            if (nx < 0 || nx >= r.w || ny < 0 || r.rows[ny][nx] == '#') {
-                say("A wall stops you."); return out;
-            }
-            char ch = r.rows[ny][nx];
-            if (ch != '.' && ch != ' ' && ch != 'P') {
-                say("Blocked by " + furniture_name(ch) + "."); return out;
-            }
-            p.inx = (int16_t)nx;
-            p.iny = (int16_t)ny;
-            say("You step " + std::string(dn[it->second]) + ".");
+            if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
             return out;
         }
 
-        Vec2 next = p.pos;
-        next.x += dx; next.y += dy;
-        if (!w.in_bounds(next)) { say("The edge of the world. You can't go that way."); return out; }
-        if (!w.walkable(next)) {
-            Cell& c = w.at(next);
-            say("Blocked by " + std::string(obj_name(c.obj.type) ? obj_name(c.obj.type) : terrain_name(c.tile)) + ".");
-            return out;
+        // Multi-tile walk on overworld
+        int walked = 0;
+        for (int step = 0; step < count; ++step) {
+            Vec2 next = p.pos;
+            next.x += dx; next.y += dy;
+            if (!w.in_bounds(next)) {
+                if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+                say("The edge of the world. You can't go that way."); return out;
+            }
+            if (!w.walkable(next)) {
+                if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+                Cell& c = w.at(next);
+                say("Blocked by " + std::string(obj_name(c.obj.type) ? obj_name(c.obj.type) : terrain_name(c.tile)) + ".");
+                return out;
+            }
+            p.pos = next;
+            walked++;
+            // Check if we entered farmhouse area
+            if (w.in_house(next.x, next.y)) {
+                say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+                say("You are inside your farmhouse. The door is to the south.");
+                return out;
+            }
         }
-        p.pos = next;
-        say("You walk " + std::string(dn[it->second]) + ".");
-        if (w.in_house(next.x, next.y)) say("You are inside your farmhouse. The door is to the south.");
+        if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
         return out;
     }
 
@@ -1126,6 +1242,8 @@ if (cmd == "buy") {
         }
         auto rit = w.interiors.find(p.inside);
         if (rit == w.interiors.end()) { p.inside.clear(); say("That building has no interior yet."); return out; }
+        // Register this building as a known landmark for path-walking
+        p.known_landmarks.insert(p.inside);
         const InteriorRoom& r = rit->second;
         p.inx = (int16_t)(r.w / 2);
         p.iny = (int16_t)(r.h - 2);
