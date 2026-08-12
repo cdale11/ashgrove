@@ -18,6 +18,10 @@ static bool is_water(Tile t) {
            t == Tile::WaterEast || t == Tile::WaterWest;
 }
 
+static int mountain_top(int x) {
+    return int(3 + noise(x, 1, 0.18f) * 5.0f);
+}
+
 void generate_world(World& world) {
     std::mt19937 rng(1337);
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
@@ -30,9 +34,19 @@ void generate_world(World& world) {
         }
     }
 
+    // ---- mountains along the north edge (valley bowl) ----
+    // Rough ridge: a jagged rocky band above y~8, with a wavy treeline at y~12
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            if (y < mountain_top(x))
+                world.at(x, y).tile = Tile::Ice;   // snow-capped ridge
+            else if (y < mountain_top(x) + 4)
+                world.at(x, y).tile = Tile::Snow;  // rocky talus below ridge
+        }
+
     // ---- snow biome in the far north (wavy treeline, clear around the house) ----
     auto snow_line = [&](int x) {
-        return int(12 + noise(x, 3, 0.22f) * 5.0f - 2.5f);
+        return int(13 + noise(x, 3, 0.22f) * 5.0f - 2.5f);
     };
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
@@ -43,8 +57,8 @@ void generate_world(World& world) {
                 world.at(x, y).tile = Tile::Snow;
         }
 
-    // ---- frozen glacier lake up in the tundra ----
-    float fl_cx = 34.0f + noise(0, 9, 0.5f) * 4.0f, fl_cy = 3.5f;
+    // ---- frozen glacier lake up in the tundra (NW) ----
+    float fl_cx = 30.0f + noise(0, 9, 0.5f) * 4.0f, fl_cy = 3.5f;
     {
         float lcx = fl_cx, lcy = fl_cy;
         for (int y = 0; y < 12; ++y)
@@ -55,41 +69,43 @@ void generate_world(World& world) {
             }
     }
 
-    // ---- river (meanders N-S near x~29, smoother organic flow) ----
-    float cx = MAP_W * 0.30f;
-    float river_w = 2.2f;  // base river width (slightly tapered)
+    // ---- main river: meanders N-S around x~44 (center of 128-wide map), bounded ----
+    // Below the south footbridge the river swings east so the farm (west bank)
+    // and the docks (east of the river mouth) stay separate.
+    std::array<float, MAP_H> river_cx{};
     for (int y = 0; y < MAP_H; ++y) {
-        // Smoother meander: lower frequency, gentler curves
-        cx += std::sin(y * 0.06f) * 1.4f + std::sin(y * 0.14f + 1.2f) * 0.9f;
-        // Gentle width variation along the river
-        float w_variation = 0.7f + 0.6f * std::sin(y * 0.07f);
-        int half_w = std::max(1, int(river_w * w_variation));
+        float drift = y > 55 ? (y - 55) / 41.0f * 15.0f : 0.0f;
+        float cy = MAP_W * 0.34f + std::sin(y * 0.09f) * 3.2f + std::sin(y * 0.21f + 1.5f) * 1.8f + drift;
+        river_cx[y] = cy;
+        float w_variation = 2.4f + 1.0f * std::sin(y * 0.07f);
+        int half_w = std::max(1, int(w_variation));
         for (int dx = -half_w; dx <= half_w; ++dx) {
-            int ix = int(std::round(cx)) + dx;
+            int ix = int(std::round(cy)) + dx;
             if (world.in_bounds(ix, y)) world.at(ix, y).tile = Tile::Water;
         }
     }
-    // carve a mid-map bridge crossing at y~30 so west/east halves stay connected
+    // three bridge crossings: north y~20, main y~34, south footbridge y~56
+    // (bridges are placed at the river's exact position that row)
     {
-        float bcx = 29.0f + std::sin(30 * 0.09f) * 1.8f + std::sin(30 * 0.23f + 2.0f) * 1.1f;
-        int bx = int(bcx);
-        for (int dx = -2; dx <= 2; ++dx) {
-            int ix = bx + dx;
-            if (world.in_bounds(ix, 30)) world.at(ix, 30).tile = Tile::Bridge;
+        const int rows[3] = {20, 34, 56};
+        const int widths[3] = {2, 2, 1};
+        for (int b = 0; b < 3; ++b) {
+            int by = rows[b];
+            int bx = int(std::round(river_cx[by]));
+            for (int dx = -widths[b]; dx <= widths[b]; ++dx) {
+                int ix = bx + dx;
+                if (world.in_bounds(ix, by)) world.at(ix, by).tile = Tile::Bridge;
+            }
         }
-        // dirt path leading to the bridge from both sides
-        for (int x = 14; x < bx - 2; ++x) { if (world.in_bounds(x, 30) && !is_water(world.at(x,30).tile)) world.at(x,30).tile = Tile::Dirt; }
-        for (int x = bx + 3; x < 50; ++x) { if (world.in_bounds(x, 30) && !is_water(world.at(x,30).tile)) world.at(x,30).tile = Tile::Dirt; }
     }
 
-    // ---- western stream: tumbles out of the tundra, joins the river smoothly ----
+    // ---- tributary stream: tumbles out of the NW, joins the river at y~22 ----
     {
         float sx = 20.0f;
-        for (int y = 10; y < 42; ++y) {
-            // Smoother stream curve, gradually widening as it approaches river
-            float progress = float(y - 10) / 32.0f;
+        for (int y = 10; y < 30; ++y) {
+            float progress = float(y - 10) / 20.0f;
             sx += std::sin(y * 0.12f) * 0.8f + std::cos(y * 0.25f) * 0.5f;
-            sx += (29.0f - sx) * (0.03f + 0.05f * progress);  // gradual drift
+            sx += (river_cx[y] - sx) * (0.03f + 0.06f * progress);  // drift toward river
             int half_w = 1 + (progress > 0.6f ? 1 : 0);  // widens near junction
             for (int dx = -half_w; dx <= 0; ++dx) {
                 int ix = int(std::round(sx)) + dx;
@@ -98,19 +114,9 @@ void generate_world(World& world) {
         }
     }
 
-    // ---- pond lower-left: smoother oval pond ----
-    float pcx = MAP_W * 0.22f, pcy = MAP_H * 0.78f;
-    for (int y = 0; y < MAP_H; ++y)
-        for (int x = 0; x < MAP_W; ++x) {
-            float dx = (x - pcx) * 1.5f, dy = (y - pcy);
-            float d = std::hypot(dx, dy);
-            if (d < 5.5f + 1.0f * std::sin(x * 0.2f) * std::cos(y * 0.15f))
-                world.at(x, y).tile = Tile::Water;
-        }
-
-    // ---- Mirror Lake: big round lake in the south meadow ----
+    // ---- Lake Aurora: big round mountain lake in the NE ----
     {
-        float mcx = 42.0f, mcy = 46.0f;
+        float mcx = 96.0f, mcy = 16.0f;
         for (int y = 0; y < MAP_H; ++y)
             for (int x = 0; x < MAP_W; ++x) {
                 float d = std::hypot((x - mcx) * 1.45f, (y - mcy));
@@ -134,21 +140,22 @@ void generate_world(World& world) {
         if (!world.in_bounds(x, y) || is_water(world.at(x, y).tile)) return;
         world.at(x, y).tile = Tile::Dirt;
     };
-    // main E-W high street (gently curving), from the farm doorstep to the east edge
-    for (int x = 8; x < MAP_W - 6; ++x) {
-        int y = 10 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+    // main E-W high street on each bank (gently curving), broken at the river
+    for (int x = 8; x < 42; ++x) {
+        int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
         road(x, y); road(x, y + 1);
     }
-    // N-S lane linking high street to the southern farm gate
-    for (int y = 9; y < 40; ++y) { road(60, y); road(61, y); }
+    for (int x = 48; x < MAP_W - 6; ++x) {
+        int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+        road(x, y); road(x, y + 1);
+    }
+    // N-S lane east bank linking high street to the farm gate
+    for (int y = 14; y < 70; ++y) { road(60, y); road(61, y); }
     // farm drive: high street -> farm gate row
-    for (int x = 54; x < 76; ++x) road(x, 20);
-    // town square (west of the plaza, east of the river bridge)
-    for (int y = 14; y < 20; ++y)
-        for (int x = 42; x < 52; ++x) road(x, y);
-    // lakeside boardwalk: stardrop plaza -> mirror lake
-    for (int y = 20; y < 46; ++y) road(77, y);
-    road(77, 46); road(78, 46); road(79, 46); road(80, 46);   // lake shore stalls
+    for (int x = 54; x < 76; ++x) road(x, 24);
+    // town square (civic plaza footprint, west bank) — refined in R2
+    for (int y = 26; y < 32; ++y)
+        for (int x = 18; x < 32; ++x) road(x, y);
 
     // path + river crossings become bridges
     for (int y = 0; y < MAP_H; ++y)
@@ -181,21 +188,19 @@ void generate_world(World& world) {
             i = j;
         }
     };
-    // high street (both rows of the lane)
-    bridge_run(MAP_W - 14, [](int i) { return i + 8; },
-               [](int i) { return 10 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)); });
-    bridge_run(MAP_W - 14, [](int i) { return i + 8; },
-               [](int i) { return 10 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)) + 1; });
+    // high street (both rows of the lane), west bank segment
+    bridge_run(34, [](int i) { return i + 8; },
+               [](int i) { return 18 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)); });
+    bridge_run(34, [](int i) { return i + 8; },
+               [](int i) { return 18 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)) + 1; });
+    // high street (both rows of the lane), east bank segment
+    bridge_run(MAP_W - 54, [](int i) { return i + 48; },
+               [](int i) { return 18 + int(std::round(std::sin((i + 48) * 0.11f) * 1.5f)); });
+    bridge_run(MAP_W - 54, [](int i) { return i + 48; },
+               [](int i) { return 18 + int(std::round(std::sin((i + 48) * 0.11f) * 1.5f)) + 1; });
     // N-S lane down to the farm gate
-    bridge_run(31, [](int) { return 60; }, [](int i) { return i + 9; });
-    bridge_run(31, [](int) { return 61; }, [](int i) { return i + 9; });
-    // lakeside boardwalk
-    bridge_run(27, [](int) { return 77; }, [](int i) { return i + 20; });
-
-    // ---- farm soil patch ----
-    for (int y = 10; y < 20; ++y)
-        for (int x = MAP_W - 26; x < MAP_W - 6; ++x)
-            world.at(x, y).tile = Tile::Tilled;
+    bridge_run(56, [](int) { return 60; }, [](int i) { return i + 14; });
+    bridge_run(56, [](int) { return 61; }, [](int i) { return i + 14; });
 
     // ---- sand near water ----
     const std::pair<int,int> dirs[4] = {{-1,0},{1,0},{0,-1},{0,1}};
@@ -216,7 +221,7 @@ void generate_world(World& world) {
                y >= world.house_tl.y - 1 && y < world.house_tl.y + 6;
     };
     auto on_farm_patch = [&](int x, int y) {
-        return x >= MAP_W - 26 && x < MAP_W - 6 && y >= 10 && y < 20;
+        return x >= 24 && x < 44 && y >= 70 && y < 86;
     };
     auto in_snow = [&](int x, int y) { return y < snow_line(x); };
 
@@ -232,16 +237,16 @@ void generate_world(World& world) {
             c.obj = {type, uint8_t(hp)};
         }
     };
-    scatter(70, ObjType::Tree, 3);
-    scatter(35, ObjType::Rock, 2);
-    scatter(55, ObjType::Weed, 1);
-    scatter(25, ObjType::TallGrass, 1);
-    scatter(40, ObjType::Flower, 1);
-    scatter(50, ObjType::Bush, 1);
-    scatter(18, ObjType::Mushroom, 1);
+    scatter(90, ObjType::Tree, 3);
+    scatter(45, ObjType::Rock, 2);
+    scatter(70, ObjType::Weed, 1);
+    scatter(35, ObjType::TallGrass, 1);
+    scatter(50, ObjType::Flower, 1);
+    scatter(60, ObjType::Bush, 1);
+    scatter(22, ObjType::Mushroom, 1);
 
     // ---- Whisper Wood: dense old-growth forest west of the stream ----
-    for (int y = 16; y < 46; ++y)
+    for (int y = 16; y < 74; ++y)
         for (int x = 4; x < 20; ++x) {
             if (!world.in_bounds(x, y)) continue;
             if (is_water(world.at(x,y).tile) || world.at(x,y).tile == Tile::Dirt ||
@@ -255,12 +260,12 @@ void generate_world(World& world) {
             else if (d < 0.72f) world.at(x, y).obj = {ObjType::Flower, 1};
         }
     // carve explicit corridors through Whisper Wood so it's always passable
-    // horizontal trail at y=24 and y=38, vertical trail at x=12
+    // horizontal trail at y=30 and y=46, vertical trail at x=12
     for (int x = 4; x < 21; ++x) {
-        if (world.in_bounds(x, 24)) world.at(x, 24).obj = FarmObj{};
-        if (world.in_bounds(x, 38)) world.at(x, 38).obj = FarmObj{};
+        if (world.in_bounds(x, 30)) world.at(x, 30).obj = FarmObj{};
+        if (world.in_bounds(x, 46)) world.at(x, 46).obj = FarmObj{};
     }
-    for (int y = 16; y < 46; ++y) {
+    for (int y = 16; y < 74; ++y) {
         if (world.in_bounds(12, y)) world.at(12, y).obj = FarmObj{};
     }
 
@@ -277,9 +282,9 @@ void generate_world(World& world) {
             else if (d < 0.36f) c.obj = {ObjType::Rock, 2};
         }
     // carve a clear corridor from the high street up to the glacier
-    for (int y = 3; y < 14; ++y) {
-        if (world.in_bounds(40, y)) world.at(40, y).obj = FarmObj{};
-        if (world.in_bounds(41, y)) world.at(41, y).obj = FarmObj{};
+    for (int y = 3; y < 16; ++y) {
+        if (world.in_bounds(42, y)) world.at(42, y).obj = FarmObj{};
+        if (world.in_bounds(43, y)) world.at(43, y).obj = FarmObj{};
     }
 
     // ---- winding trails + glades, so no forest pocket is ever sealed away ----
@@ -302,22 +307,22 @@ void generate_world(World& world) {
 
     // orchard row along the south side of the high street
     for (int x = 14; x < MAP_W - 8; x += 3) {
-        int y = 12 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+        int y = 20 + int(std::round(std::sin(x * 0.11f) * 1.5f));
         Cell& c = world.at(x, y);
         if (is_water(c.tile) || c.obj.type != ObjType::None) continue;
         c.obj = {ObjType::Tree, 3};
     }
     // town square flower beds
-    for (int y = 15; y < 19; ++y)
-        for (int x = 43; x < 51; ++x)
+    for (int y = 27; y < 31; ++y)
+        for (int x = 21; x < 29; ++x)
             if ((x + y) % 3 == 0)
                 world.at(x, y).obj = {ObjType::Flower, 1};
-    // mirror lake shore: reeds + rocks ring
-    for (int y = 40; y < 54; ++y)
-        for (int x = 34; x < 54; ++x) {
+    // lake aurora shore: reeds + rocks ring
+    for (int y = 10; y < 24; ++y)
+        for (int x = 86; x < 106; ++x) {
             Cell& c = world.at(x, y);
             if (c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Sand) continue;
-            float ring = std::hypot((x - 42.0f) * 1.45f, y - 46.0f);
+            float ring = std::hypot((x - 96.0f) * 1.45f, y - 16.0f);
             if (ring > 6.4f && ring < 7.6f && dist(rng) < 0.5f)
                 c.obj = {ObjType::Bush, 1};
             else if (ring > 7.6f && ring < 9.0f && dist(rng) < 0.25f)
@@ -359,34 +364,61 @@ void generate_world(World& world) {
             }
         }
 
-    // fence ring around farm patch (gap at the farm drive gate)
-    for (int x = MAP_W - 27; x < MAP_W - 5; ++x) {
-        for (auto y : {9, 20}) {
-            if (y == 20 && x >= 72 && x <= 75) continue;  // gate
+    // ---- farm plot (south outskirts, overgrown; player tills themselves) ----
+    // The farm is a grassy field west of the river with a few weeds/rocks for character.
+    for (int y = 70; y < 86; ++y)
+        for (int x = 24; x < 44; ++x) {
+            if (!world.in_bounds(x, y)) continue;
+            Cell& c = world.at(x, y);
+            if (c.tile == Tile::Dirt || is_water(c.tile)) continue;
+            float d = dist(rng);
+            if (d < 0.06f) c.obj = {ObjType::Weed, 1};
+            else if (d < 0.10f) c.obj = {ObjType::Rock, 2};
+        }
+
+    // fence ring around farm plot (gap at the farm drive gate, south side)
+    for (int x = 24; x < 44; ++x) {
+        for (auto y : {70, 85}) {
+            if (y == 85 && x >= 38 && x <= 41) continue;  // gate
             if (world.at(x, y).obj.type == ObjType::None)
                 world.at(x, y).obj = {ObjType::FencePost, 255};
         }
     }
-    for (int y = 10; y < 20; ++y) {
-        for (auto x : {MAP_W - 27, MAP_W - 6}) {
+    for (int y = 71; y < 85; ++y) {
+        for (auto x : {24, 43}) {
             if (world.at(x, y).obj.type == ObjType::None)
                 world.at(x, y).obj = {ObjType::FencePost, 255};
         }
+    }
+    // farm lane: south footbridge -> farm gate (west bank, beside the river)
+    for (int y = 56; y < 86; ++y) {
+        Cell& c = world.at(40, y);
+        if (is_water(c.tile)) continue;
+        if (c.obj.type == ObjType::Building) continue;
+        c.tile = Tile::Dirt;
+        c.obj = FarmObj{};
+    }
+    // east-bank approach: N-S lane across to the footbridge at y=56
+    for (int x = 44; x <= 60; ++x) {
+        Cell& c = world.at(x, 56);
+        if (is_water(c.tile)) continue;
+        c.tile = Tile::Dirt;
+        c.obj = FarmObj{};
     }
 
     place_buildings(world);
     init_interiors(world);
     resolve_water_edges(world);
     // cart-track west from the village street to the bus stop
-    for (int x = 9; x <= 28; ++x) {
-        Cell& c = world.at(x, 10);
+    for (int x = 10; x <= 32; ++x) {
+        Cell& c = world.at(x, 16);
         if (is_water(c.tile) || c.obj.type == ObjType::Building) continue;
         c.tile = Tile::Dirt;
         c.obj = FarmObj{};
     }
     // station approach: lane along the station's south edge from the boardwalk
-    for (int y = 33; y <= 33; ++y)
-        for (int x = 77; x <= 91; ++x) {
+    for (int y = 16; y <= 16; ++y)
+        for (int x = 96; x <= 116; ++x) {
             Cell& c = world.at(x, y);
             if (is_water(c.tile) || c.obj.type == ObjType::Building) continue;
             c.tile = Tile::Dirt;
@@ -457,27 +489,36 @@ void resolve_water_edges(World& world) {
 
 void place_buildings(World& world) {
     static const struct { const char* name; int16_t x, y, w, h; } bs[] = {
-        // village shops (north row, backing the tundra)
-        {"Blacksmith", 42, 8, 2, 2},
-        {"General Store", 46, 8, 2, 2},
-        {"Old Mill", 50, 8, 2, 2},
-        {"Clinic", 54, 8, 2, 2},
-        {"Museum", 58, 8, 2, 2},
-        // plaza civic buildings
-        {"Town Center", 42, 13, 4, 3},
-        {"Stardrop Saloon", 48, 13, 3, 3},
-        // market row on the plaza's south edge
-        {"Market", 43, 20, 4, 2},
-        // residential houses tucked around the village
-        {"Willow House", 32, 12, 2, 2},
-        {"Maple House", 62, 13, 2, 2},
-        {"Rowan Cottage", 66, 12, 2, 2},
+        // civic plaza (west bank, north of center)
+        {"Town Center", 20, 24, 4, 3},
+        {"Clinic", 16, 16, 2, 2},
+        {"Museum", 26, 16, 2, 2},
+        {"Old Mill", 12, 22, 2, 2},
+        {"Stardrop Saloon", 28, 22, 3, 3},
+        // commerce row (east bank, north of center)
+        {"Blacksmith", 50, 16, 2, 2},
+        {"General Store", 54, 16, 2, 2},
+        {"Market", 58, 18, 4, 2},
+        {"Carpenter Shop", 50, 22, 2, 2},
+        {"Pet Shop", 54, 22, 2, 2},
+        // residential: Birch Court (west)
+        {"Willow House", 20, 38, 2, 2},
+        {"Maple House", 26, 38, 2, 2},
+        // residential: Maple Court (east)
+        {"Rowan Cottage", 50, 38, 2, 2},
+        {"Hawthorne Cottage", 56, 38, 2, 2},
         // travel
-        {"Bus Stop", 8, 8, 2, 2},
-        {"Railway Station", 86, 27, 9, 6},
-        // farm outbuildings
-        {"Hawthorn Barn", 84, 22, 3, 3},
-        {"Glasshouse", 70, 22, 2, 2},
+        {"Bus Stop", 8, 14, 2, 2},
+        {"Railway Station", 108, 10, 9, 6},
+        // farm outbuildings (on the farm plot, south)
+        {"Hawthorn Barn", 38, 80, 3, 3},
+        {"Glasshouse", 50, 80, 2, 2},
+        // lakefront district (NE)
+        {"Tearoom", 90, 22, 2, 2},
+        {"Observatory", 110, 4, 2, 2},
+        // docks district (south)
+        {"Fish Shack", 96, 82, 2, 2},
+        {"Lighthouse", 122, 88, 2, 2},
     };
     for (auto& b : bs) {
         world.buildings.push_back({b.name, b.x, b.y, b.w, b.h});
@@ -500,8 +541,8 @@ void place_buildings(World& world) {
     }
 
     // ---- rail corridor running out of the station toward the eastern sea ----
-    for (int y = 31; y <= 32; ++y)
-        for (int x = 66; x < 86; ++x) {
+    for (int y = 16; y <= 17; ++y)
+        for (int x = 96; x < 108; ++x) {
             if (!world.in_bounds(x, y)) continue;
             Cell& c = world.at(x, y);
             if (is_water(c.tile)) continue;
@@ -677,20 +718,25 @@ const char* region_at(const World& w, int x, int y) {
         if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)
             return b.name.c_str();
     if (w.in_house(x, y)) return "Your Farmhouse";
-    if (x >= 12 && x <= 20 && y >= 5 && y <= 12) return "Home Field";
-    if (x >= MAP_W - 27 && x < MAP_W - 5 && y >= 9 && y <= 20) return "Ashgrove Farm";
-    if (x >= 42 && x < 52 && y >= 14 && y < 20) return "Stardrop Plaza";
+    if (x >= 24 && x <= 43 && y >= 70 && y <= 85) return "Ashgrove Farm";
+    if (x >= 18 && x <= 32 && y >= 14 && y <= 32) return "Stardrop Plaza";
+    if (x >= 18 && x <= 32 && y >= 36 && y <= 46) return "Birch Court";
+    if (x >= 48 && x <= 62 && y >= 36 && y <= 46) return "Maple Court";
+    if (x >= 48 && x <= 62 && y >= 14 && y <= 28) return "Commerce Row";
     if (y >= 10 && y < 12 && x >= 8 && x < MAP_W - 6) return "Mulberry Lane";
-    if (x >= 33 && x <= 52 && y >= 38 && y <= 54) return "Mirror Lake";
+    if (y >= 16 && y <= 20 && x >= 8 && x < MAP_W - 6) return "Mulberry Lane";
+    if (x >= 86 && x <= 106 && y >= 6 && y <= 26) return "Lake Aurora";
+    if (x >= 56 && x <= 80 && y >= 80 && y <= 92) return "Seaglass Docks";
     if (y >= MAP_H - 4) return "Seaglass Shore";
     if (w.in_bounds(x, y) && w.at(x, y).tile == Tile::Ice) return "Frozen Lake";
     {
-        int line = int(12 + noise(x, 3, 0.22f) * 5.0f - 2.5f);
+        int line = int(13 + noise(x, 3, 0.22f) * 5.0f - 2.5f);
+        if (y < mountain_top(x)) return "Frostveil Peaks";
         if (y < line) return "Frostveil Tundra";
     }
-    if (x >= 26 && x <= 34) return "Willow River";
-    if (x >= 4 && x <= 20 && y >= 16 && y <= 46) return "Whisper Wood";
-    if (y < 30 && ((x * 7 + y * 13) % 10) < 5) return "East Moor";
+    if (x >= 40 && x <= 46 && y >= 18 && y <= 30 && is_water(w.at(x, y).tile)) return "Willow River";
+    if (x >= 4 && x <= 20 && y >= 16 && y <= 74) return "Whisper Wood";
+    if (x >= 82 && x <= 122 && y >= 20 && y <= 70) return "East Moor";
     return "Ashgrove Valley";
 }
 
@@ -707,11 +753,11 @@ void init_npcs(World& world) {
         n.next_move_ms = 0;
         world.npcs.push_back(n);
     };
-    add_npc("Leah", 1, {46, 17}, {46, 17});          // Stardrop Plaza
-    add_npc("Abigail", 2, {74, 20}, {74, 20});       // farm gate
-    add_npc("Elliot", 3, {30, 10}, {31, 11});        // the river bridge
-    add_npc("Robin", 4, {12, 11}, {14, 11});         // home field
-    add_npc("Evelyn", 5, {77, 46}, {78, 45});        // mirror lake shore
+    add_npc("Leah", 1, {21, 40}, {21, 40});          // Willow House door (Birch Court)
+    add_npc("Abigail", 2, {27, 40}, {27, 40});        // Maple House door (Birch Court)
+    add_npc("Elliot", 3, {51, 40}, {51, 40});         // Rowan Cottage door (Maple Court)
+    add_npc("Robin", 4, {51, 24}, {51, 24});          // Carpenter Shop (commerce row)
+    add_npc("Evelyn", 5, {94, 24}, {95, 23});         // Tearoom shore (Lake Aurora)
 }
 
 // ---- NPC daily schedules ----
@@ -723,36 +769,36 @@ struct SchedSlot { int8_t start_hour; int8_t end_hour; int16_t x, y; };
 
 static const SchedSlot* npc_schedule(const std::string& name, int& n) {
     static const SchedSlot leah[] = {
-        {6, 9, 33, 14},    // home (Willow House door)
-        {9, 16, 46, 17},   // Stardrop Plaza
-        {16, 21, 30, 10},  // the river bridge (sketching)
-        {21, 30, 33, 14},  // home
+        {6, 9, 21, 40},    // home (Willow House door)
+        {9, 16, 24, 27},   // Stardrop Plaza (civic)
+        {16, 21, 43, 34},  // the main bridge (sketching)
+        {21, 30, 21, 40},  // home
     };
     static const SchedSlot abigail[] = {
-        {6, 9, 63, 15},    // home (Maple House door)
-        {9, 17, 73, 20},   // farm gate
-        {17, 21, 49, 16},  // Stardrop Saloon
-        {21, 30, 63, 15},  // home
+        {6, 9, 27, 40},    // home (Maple House door)
+        {9, 17, 40, 84},   // farm gate
+        {17, 21, 30, 25},  // Stardrop Saloon
+        {21, 30, 27, 40},  // home
     };
     static const SchedSlot elliot[] = {
-        {6, 9, 67, 14},    // home (Rowan Cottage door)
-        {9, 13, 30, 10},   // the river bridge (writing)
-        {13, 17, 46, 17},  // Stardrop Plaza
-        {17, 21, 49, 16},  // Stardrop Saloon
-        {21, 30, 67, 14},  // home
+        {6, 9, 51, 40},    // home (Rowan Cottage door)
+        {9, 13, 43, 34},   // the main bridge (writing)
+        {13, 17, 24, 27},  // Stardrop Plaza
+        {17, 21, 30, 25},  // Stardrop Saloon
+        {21, 30, 51, 40},  // home
     };
     static const SchedSlot robin[] = {
-        {6, 9, 12, 11},    // home field
-        {9, 13, 45, 22},   // the market
-        {13, 17, 12, 11},  // home field (workshop)
-        {17, 21, 49, 16},  // Stardrop Saloon
-        {21, 30, 12, 11},  // home field
+        {6, 9, 51, 24},    // home (Carpenter Shop)
+        {9, 13, 60, 20},   // the market
+        {13, 17, 51, 24},  // home (workshop)
+        {17, 21, 30, 25},  // Stardrop Saloon
+        {21, 30, 51, 24},  // home
     };
     static const SchedSlot evelyn[] = {
-        {6, 10, 77, 46},   // mirror lake shore
-        {10, 16, 46, 17},  // Stardrop Plaza
-        {16, 21, 77, 46},  // mirror lake shore
-        {21, 30, 77, 46},  // home (the shore)
+        {6, 10, 94, 24},   // tearoom shore (Lake Aurora)
+        {10, 16, 24, 27},  // Stardrop Plaza
+        {16, 21, 94, 24},  // tearoom shore
+        {21, 30, 94, 24},  // home (the shore)
     };
     struct Table { const char* who; const SchedSlot* slots; int n; };
     static const Table tables[] = {
@@ -775,7 +821,7 @@ bool is_festival_day(uint32_t day) {
 int schedule_slot(const std::string& name, uint32_t day, int hour,
                   Vec2& anchor) {
     if (is_festival_day(day) && hour >= 8 && hour < 20) {
-        anchor = {43, 16};   // Town Center door
+        anchor = {21, 27};   // Town Center door
         return 100;          // festival overrides everything
     }
     int n = 0;

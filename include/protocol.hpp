@@ -1,4 +1,5 @@
 #pragma once
+#include "world.hpp"
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <string>
@@ -24,7 +25,7 @@ inline json make_join(const std::string& name) {
 
 inline json make_join_ack(uint32_t id, const std::vector<uint8_t>& tiles) {
     return {{"type", static_cast<int>(MsgType::JoinAck)},
-            {"player_id", id}, {"map_w", 96}, {"map_h", 64}, {"tile_size", 16}, {"tile_map", tiles}};
+            {"player_id", id}, {"map_w", MAP_W}, {"map_h", MAP_H}, {"tile_size", 16}, {"tile_map", tiles}};
 }
 
 inline json make_player_pos(uint32_t id, int16_t x, int16_t y, uint8_t dir, bool moving) {

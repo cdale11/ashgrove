@@ -8,8 +8,8 @@
 #include <string>
 #include <optional>
 
-constexpr uint16_t MAP_W = 96;
-constexpr uint16_t MAP_H = 64;
+constexpr uint16_t MAP_W = 128;
+constexpr uint16_t MAP_H = 96;
 constexpr uint8_t TILE_SIZE = 16;
 
 struct Vec2 {
@@ -21,7 +21,7 @@ struct Vec2 {
 enum class Tile : uint8_t {
     Grass = 0, GrassVar = 1, Water = 2, WaterNorth = 3, WaterSouth = 4,
     WaterEast = 5, WaterWest = 6, Dirt = 7, Sand = 8, Tilled = 9, Bridge = 10,
-    Snow = 11, Ice = 12,
+    Snow = 11, Ice = 12, Cobble = 13,
 };
 
 // ---- items ----
@@ -150,7 +150,7 @@ struct NPC {
 enum class ObjType : uint8_t {
     None = 0, Tree, Rock, Weed, TallGrass, Flower, Stump,
     FencePost, FenceRail, Pine, Bush, Mushroom, Building,
-    Sprinkler = 13,
+    Sprinkler = 13, Statue, LeafLitter,
 };
 static inline bool is_machine(ObjType t) { return t == ObjType::Sprinkler; }
 
@@ -223,7 +223,7 @@ struct World {
     float day_seconds = 0.0f;   // seconds since 6:00 AM
     static constexpr float DAY_LENGTH_S = 800.0f; // 20h @ 40s per game hour
 
-    Vec2 house_tl{12, 5};
+    Vec2 house_tl{38, 78};
 
     Cell&     at(int x, int y) { return cells[y * MAP_W + x]; }
     Cell const& at(int x, int y) const { return cells[y * MAP_W + x]; }
@@ -241,7 +241,7 @@ struct World {
         return o != ObjType::Tree && o != ObjType::Rock && o != ObjType::Stump &&
                o != ObjType::FencePost && o != ObjType::FenceRail &&
                o != ObjType::Pine && o != ObjType::Building &&
-               o != ObjType::Sprinkler;
+               o != ObjType::Sprinkler && o != ObjType::Statue;
     }
     bool walkable(Vec2 p) const { return walkable(p.x, p.y); }
 

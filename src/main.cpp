@@ -261,6 +261,7 @@ static const char* terrain_name(Tile t) {
     case Tile::Bridge: return "wooden bridge";
     case Tile::Snow: return "snow";
     case Tile::Ice: return "frozen lake ice";
+    case Tile::Cobble: return "cobblestone street";
     }
     return "unknown";
 }
@@ -280,6 +281,8 @@ static const char* obj_name(ObjType o) {
     case ObjType::FencePost: return "a fence post";
     case ObjType::FenceRail: return "a wooden fence rail";
     case ObjType::Sprinkler:  return "an irrigation sprinkler";
+    case ObjType::Statue: return "a carved stone statue";
+    case ObjType::LeafLitter: return "a drift of fallen leaves";
     default: return nullptr;
     }
 }
