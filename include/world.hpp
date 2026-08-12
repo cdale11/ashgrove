@@ -55,6 +55,20 @@ enum class Item : uint16_t {
     Apricot = 91, Orange = 92, Banana = 93, Mango = 94,
     Plum = 95, Pear = 96, Fig = 97, Avocado = 98,
     Lemon = 99, Lime = 100, Grapefruit = 101, Persimmon = 102,
+    // Tree products
+    Sap = 110, Resin = 111, Rubber = 112, Bark = 113, Hardwood = 114,
+    MapleSyrup = 115, OakResin = 116, PineTar = 117,
+    // Tree seeds/saplings for forestation
+    OakSapling = 120, MapleSapling = 121, BirchSapling = 122, CedarSapling = 123,
+    RedwoodSapling = 124, TeakSapling = 125, MahoganySapling = 126, RubberTreeSapling = 127,
+    WalnutSapling = 128, HickorySapling = 129, ChestnutSapling = 130,
+    // Timber products
+    OakLog = 131, MapleLog = 132, BirchLog = 133, CedarLog = 134,
+    RedwoodLog = 135, TeakLog = 136, MahoganyLog = 137, RubberLog = 138,
+    WalnutLog = 139, HickoryLog = 140, ChestnutLog = 141,
+    Lumber = 142, Plank = 143, Plywood = 144,
+    // Nuts
+    Walnut = 145, HickoryNut = 146, Chestnut = 147, Acorn = 148,
 };
 
 struct ItemDef {
@@ -103,6 +117,16 @@ inline ItemDef const& item_def(Item it) {
         /* 91 */ {"Apricot",2,-1,50,0},{"Orange",2,-1,100,0},{"Banana",2,-1,150,0},{"Mango",2,-1,130,0},
         /* 95 */ {"Plum",2,-1,80,0},{"Pear",2,-1,100,0},{"Fig",2,-1,90,0},{"Avocado",2,-1,150,0},
         /* 99 */ {"Lemon",2,-1,50,0},{"Lime",2,-1,40,0},{"Grapefruit",2,-1,80,0},{"Persimmon",2,-1,120,0},
+        /* 110 */ {"Sap",3,-1,2,0},{"Resin",3,-1,5,0},{"Rubber",3,-1,10,0},{"Bark",3,-1,3,0},{"Hardwood",3,-1,15,0},
+        /* 115 */ {"Maple Syrup",2,-1,200,0},{"Oak Resin",3,-1,15,0},{"Pine Tar",3,-1,10,0},
+        /* 120 */ {"Oak Sapling",3,200,0,0},{"Maple Sapling",3,200,0,0},{"Birch Sapling",3,150,0,0},{"Cedar Sapling",3,300,0,0},
+        /* 124 */ {"Redwood Sapling",3,500,0,0},{"Teak Sapling",3,1000,0,0},{"Mahogany Sapling",3,1000,0,0},{"Rubber Tree Sapling",3,500,0,0},
+        /* 128 */ {"Walnut Sapling",3,400,0,0},{"Hickory Sapling",3,400,0,0},{"Chestnut Sapling",3,500,0,0},
+        /* 131 */ {"Oak Log",3,-1,50,0},{"Maple Log",3,-1,60,0},{"Birch Log",3,-1,40,0},{"Cedar Log",3,-1,80,0},
+        /* 135 */ {"Redwood Log",3,-1,200,0},{"Teak Log",3,-1,300,0},{"Mahogany Log",3,-1,300,0},{"Rubber Log",3,-1,100,0},
+        /* 139 */ {"Walnut Log",3,-1,100,0},{"Hickory Log",3,-1,120,0},{"Chestnut Log",3,-1,100,0},
+        /* 142 */ {"Lumber",3,-1,20,0},{"Plank",3,-1,40,0},{"Plywood",3,-1,80,0},
+        /* 145 */ {"Walnut",2,-1,30,0},{"Hickory Nut",2,-1,25,0},{"Chestnut",2,-1,20,0},{"Acorn",3,-1,1,0},
     };
     uint16_t i = static_cast<uint16_t>(it);
     return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
@@ -278,8 +302,67 @@ enum class ObjType : uint8_t {
     None = 0, Tree, Rock, Weed, TallGrass, Flower, Stump,
     FencePost, FenceRail, Pine, Bush, Mushroom, Building,
     Sprinkler = 13, Statue, LeafLitter, Scarecrow, Composter,
+    // Forestation trees
+    Oak = 18, Maple, Birch, Cedar, Redwood, Teak, Mahogany, RubberTree,
+    WalnutTree, HickoryTree, ChestnutTree,
 };
 static inline bool is_machine(ObjType t) { return t == ObjType::Sprinkler || t == ObjType::Composter; }
+static inline bool is_tree(ObjType t) {
+    return t == ObjType::Tree || t == ObjType::Pine ||
+           t == ObjType::Oak || t == ObjType::Maple || t == ObjType::Birch ||
+           t == ObjType::Cedar || t == ObjType::Redwood || t == ObjType::Teak ||
+           t == ObjType::Mahogany || t == ObjType::RubberTree ||
+           t == ObjType::WalnutTree || t == ObjType::HickoryTree || t == ObjType::ChestnutTree;
+}
+static inline Item tree_log_item(ObjType t) {
+    switch (t) {
+        case ObjType::Tree: return Item::Wood;
+        case ObjType::Pine: return Item::Wood;
+        case ObjType::Oak: return Item::OakLog;
+        case ObjType::Maple: return Item::MapleLog;
+        case ObjType::Birch: return Item::BirchLog;
+        case ObjType::Cedar: return Item::CedarLog;
+        case ObjType::Redwood: return Item::RedwoodLog;
+        case ObjType::Teak: return Item::TeakLog;
+        case ObjType::Mahogany: return Item::MahoganyLog;
+        case ObjType::RubberTree: return Item::RubberLog;
+        case ObjType::WalnutTree: return Item::WalnutLog;
+        case ObjType::HickoryTree: return Item::HickoryLog;
+        case ObjType::ChestnutTree: return Item::ChestnutLog;
+        default: return Item::Wood;
+    }
+}
+static inline Item tree_sap_item(ObjType t) {
+    switch (t) {
+        case ObjType::Maple: return Item::MapleSyrup;
+        case ObjType::Oak: return Item::OakResin;
+        case ObjType::Pine: return Item::PineTar;
+        case ObjType::RubberTree: return Item::Rubber;
+        case ObjType::Birch: return Item::Sap;
+        case ObjType::Cedar: return Item::Resin;
+        default: return Item::Sap;
+    }
+}
+
+static inline const char* obj_type_name(ObjType t) {
+    switch (t) {
+        case ObjType::Tree: return "tree";
+        case ObjType::Pine: return "pine";
+        case ObjType::Oak: return "oak";
+        case ObjType::Maple: return "maple";
+        case ObjType::Birch: return "birch";
+        case ObjType::Cedar: return "cedar";
+        case ObjType::Redwood: return "redwood";
+        case ObjType::Teak: return "teak";
+        case ObjType::Mahogany: return "mahogany";
+        case ObjType::RubberTree: return "rubber tree";
+        case ObjType::WalnutTree: return "walnut";
+        case ObjType::HickoryTree: return "hickory";
+        case ObjType::ChestnutTree: return "chestnut";
+        case ObjType::Stump: return "stump";
+        default: return "object";
+    }
+}
 
 struct Bldg {
     std::string name;
@@ -384,9 +467,9 @@ struct World {
         if (t == Tile::Water || t == Tile::WaterNorth || t == Tile::WaterSouth ||
             t == Tile::WaterEast || t == Tile::WaterWest) return false;
         ObjType o = at(x, y).obj.type;
-        if (o == ObjType::Tree || o == ObjType::Rock || o == ObjType::Stump ||
+        if (is_tree(o) || o == ObjType::Rock || o == ObjType::Stump ||
             o == ObjType::FencePost || o == ObjType::FenceRail ||
-            o == ObjType::Pine || o == ObjType::Building ||
+            o == ObjType::Building ||
             o == ObjType::Sprinkler || o == ObjType::Statue) return false;
         // Trellis crops (green bean, hops) are impassable
         const Crop& crop = at(x, y).crop;

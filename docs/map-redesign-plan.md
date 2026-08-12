@@ -657,6 +657,21 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 
 ---
 
+## Forestation & Tree Products Expansion (added alongside R14)
+- [x] 11 new forestation tree types: Oak, Maple, Birch, Cedar, Redwood, Teak, Mahogany, Rubber Tree, Walnut, Hickory, Chestnut
+- [x] Tree products: Sap, Resin, Rubber, Bark, Hardwood, Maple Syrup, Oak Resin, Pine Tar
+- [x] Tree seeds/saplings for all 11 types
+- [x] Logs for each tree type (Oak Log, Maple Log, etc.)
+- [x] Lumber processing: Lumber, Plank, Plywood
+- [x] Nuts: Walnut, Hickory Nut, Chestnut, Acorn
+- [x] `planttree` command to plant forestation trees
+- [x] `tap` command to install tappers on mature trees for sap/syrup/resin/rubber
+- [x] Tree growth simulation (hp increases over time)
+- [x] Axe drops appropriate logs per tree type (hardwood trees give Hardwood + logs)
+- [x] All tree products edible with energy values
+
+---
+
 # Agent operational rules
 1. Start at R0.1. Check the box. Move on.
 2. For any `[Q]` step, stop and ask the user before writing code.

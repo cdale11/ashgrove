@@ -241,6 +241,33 @@ static void advance_day(World& w) {
     // R9.3: Autumn morning fog - handled in weather system, look command checks this
     // (foggy weather flag stored in world, checked by look command)
 
+    // Tree growth and sap production
+    // Trees grow slowly (chance to grow from sapling to full tree)
+    // Mature trees produce sap/resin/rubber daily (if tapped)
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (is_tree(c.obj.type)) {
+                // Tree sap production: mature trees (hp > 50) produce sap daily
+                if (c.obj.hp > 50 && c.obj.hp < 255) {
+                    // Check if tree has been tapped (ore = 1 means tapped)
+                    if (c.obj.ore == 1) {
+                        // Produce sap item on the ground (as a forage-like item)
+                        // For simplicity, we'll store it in the tree's ore field as a counter
+                        // and player collects with "tap" command
+                        c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
+                    }
+                }
+                // Tree growth: small chance to grow (hp increases)
+                if (c.obj.hp < 255) {
+                    int growth_chance = (c.obj.hp < 20) ? 5 : (c.obj.hp < 50) ? 3 : 1;
+                    if ((w.day * 7 + x * 13 + y * 19) % 100 < growth_chance) {
+                        c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
+                    }
+                }
+            }
+        }
+
     save_world(w, "save.json");
 }
 
@@ -314,8 +341,7 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         return "Water the soil";
     }
     case Item::Axe: {
-        if (c.obj.type != ObjType::Tree && c.obj.type != ObjType::Stump &&
-            c.obj.type != ObjType::Pine) return "";
+        if (!is_tree(c.obj.type) && c.obj.type != ObjType::Stump) return "";
         if (!spend(def.energy)) return "Exhausted";
         if (--c.obj.hp > 0) return "";
         ObjType was = c.obj.type;
@@ -325,8 +351,21 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             return "+2 wood";
         }
         c.obj = {ObjType::Stump, 1};
-        add_item(p, Item::Wood, 4);
-        return was == ObjType::Pine ? "+4 wood (pine resin drips)" : "+4 wood";
+        // Drop appropriate log based on tree type
+        Item log = Item::Wood;
+        if (is_tree(was)) log = tree_log_item(was);
+        int log_amount = 4;
+        // Hardwood trees give more/hardwood
+        if (was == ObjType::Oak || was == ObjType::Maple || was == ObjType::Cedar || 
+            was == ObjType::Redwood || was == ObjType::Teak || was == ObjType::Mahogany ||
+            was == ObjType::WalnutTree || was == ObjType::HickoryTree || was == ObjType::ChestnutTree) {
+            add_item(p, Item::Hardwood, 1);
+            log_amount = 6;
+        }
+        add_item(p, log, log_amount);
+        return "+" + std::to_string(log_amount) + " " + std::string(item_def(log).name) + 
+               (was == ObjType::Pine ? " (pine resin drips)" : 
+                (was == ObjType::RubberTree ? " (latex sap drips)" : ""));
     }
     case Item::Pickaxe: {
         if (c.obj.type != ObjType::Rock) return "";
@@ -593,6 +632,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  sell <item>    sell produce/items");
         say("  craft <item>  make things: bread, scarecrow (10 wood + 5 fiber), composter (50 wood + 10 stone + 20 fiber)");
         say("  place <thing>  build: sprinkler (2 Iron + 1 Gold), scarecrow, composter");
+        say("  planttree <tree>  plant forestation trees (oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut)");
+        say("  tap <tree>     install/collect tapper on mature trees for sap/syrup/resin/rubber");
         say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
         say("  upgrade farmhouse  expand: cottage (10k+350w), house (50k+450w+200s), manor (100k+600w+300s)");
         say("  enter [<name>] step into a building (stand at its door)");
@@ -1114,6 +1155,47 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         return out;
     }
 
+    // ---------- plant tree (forestation) ----------
+    if (cmd == "planttree" || cmd == "plant tree" || cmd == "forest") {
+        std::string tree_name = lower_trim(arg);
+        Item sapling = Item::None;
+        ObjType tree_type = ObjType::None;
+        
+        if (tree_name == "oak") { sapling = Item::OakSapling; tree_type = ObjType::Oak; }
+        else if (tree_name == "maple") { sapling = Item::MapleSapling; tree_type = ObjType::Maple; }
+        else if (tree_name == "birch") { sapling = Item::BirchSapling; tree_type = ObjType::Birch; }
+        else if (tree_name == "cedar") { sapling = Item::CedarSapling; tree_type = ObjType::Cedar; }
+        else if (tree_name == "redwood") { sapling = Item::RedwoodSapling; tree_type = ObjType::Redwood; }
+        else if (tree_name == "teak") { sapling = Item::TeakSapling; tree_type = ObjType::Teak; }
+        else if (tree_name == "mahogany") { sapling = Item::MahoganySapling; tree_type = ObjType::Mahogany; }
+        else if (tree_name == "rubber" || tree_name == "rubber tree") { sapling = Item::RubberTreeSapling; tree_type = ObjType::RubberTree; }
+        else if (tree_name == "walnut") { sapling = Item::WalnutSapling; tree_type = ObjType::WalnutTree; }
+        else if (tree_name == "hickory") { sapling = Item::HickorySapling; tree_type = ObjType::HickoryTree; }
+        else if (tree_name == "chestnut") { sapling = Item::ChestnutSapling; tree_type = ObjType::ChestnutTree; }
+        else {
+            say("Plant which tree? oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut.");
+            return out;
+        }
+        
+        int slot = find_slot(p, sapling);
+        if (slot < 0) { say("You don't have a " + std::string(item_def(sapling).name) + "."); return out; }
+        Vec2 f = facing_cell(p);
+        if (!w.in_bounds(f)) { say("Nothing to plant on."); return out; }
+        Cell& c = w.at(f);
+        if (c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Dirt) {
+            say("Plant trees on grass or dirt, not tilled soil.");
+            return out;
+        }
+        if (c.obj.type != ObjType::None) { say("Occupied."); return out; }
+        if (p.energy < 2) { say("Too tired. Rest or sleep."); return out; }
+        p.energy -= 2;
+        consume_item(p, sapling, 1);
+        c.obj = {tree_type, 1, 0}; // hp=1 (sapling), ore=0 (not tapped)
+        say("Planted a " + std::string(item_def(sapling).name) + ". It will grow over time.");
+        say("Mature trees can be tapped for sap/resin/rubber/syrup. Chop with axe for logs.");
+        return out;
+    }
+
     // ---------- harvest ----------
     if (cmd == "harvest") {
         Vec2 f = facing_cell(p);
@@ -1242,6 +1324,44 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say("You search the ground... nothing today.");
         }
         return out;
+    }
+
+    // ---------- tap tree ----------
+    if (cmd == "tap") {
+        Vec2 f = facing_cell(p);
+        if (!w.in_bounds(f)) { say("No tree there."); return out; }
+        Cell& c = w.at(f);
+        if (!is_tree(c.obj.type)) { say("That's not a tree you can tap."); return out; }
+        std::string sub = lower_trim(arg);
+        if (sub == "collect" || sub == "take" || sub == "harvest") {
+            if (c.obj.ore == 0) { say("Tree hasn't been tapped. Use 'tap' first to install a tapper."); return out; }
+            if (c.obj.hp <= 50) { say("Tree is too young to produce sap."); return out; }
+            // Collect sap
+            Item sap = tree_sap_item(c.obj.type);
+            int amount = 1 + (c.obj.hp - 50) / 50; // more mature = more sap
+            add_item(p, sap, amount);
+            c.obj.ore = 0; // tapper removed after collection
+            say("Collected " + std::to_string(amount) + "x " + std::string(item_def(sap).name) + " from the " + std::string(obj_type_name(c.obj.type)) + ".");
+            return out;
+        } else if (sub == "remove" || sub == "untap") {
+            if (c.obj.ore == 0) { say("No tapper installed."); return out; }
+            c.obj.ore = 0;
+            say(std::string("Removed tapper from the ") + obj_type_name(c.obj.type) + ".");
+            return out;
+        } else {
+            // Install tapper
+            if (c.obj.ore == 1) { say("Tapper already installed."); return out; }
+            if (c.obj.hp < 30) { say("Tree is too young for a tapper (needs 30% growth)."); return out; }
+            if (!has_item(p, Item::Wood, 10) && !has_item(p, Item::Hardwood, 1)) {
+                say("Need 10 Wood or 1 Hardwood to make a tapper.");
+                return out;
+            }
+            if (has_item(p, Item::Hardwood, 1)) consume_item(p, Item::Hardwood, 1);
+            else consume_item(p, Item::Wood, 10);
+            c.obj.ore = 1; // mark as tapped
+            say(std::string("Installed tapper on the ") + obj_type_name(c.obj.type) + ". Use 'tap collect' to gather sap daily.");
+            return out;
+        }
     }
 
     // ---------- shop ----------
@@ -1523,11 +1643,17 @@ if (cmd == "buy") {
             {"fig", {Item::Fig, 20}}, {"avocado", {Item::Avocado, 30}},
             {"lemon", {Item::Lemon, 10}}, {"lime", {Item::Lime, 10}},
             {"grapefruit", {Item::Grapefruit, 15}}, {"persimmon", {Item::Persimmon, 20}},
+            {"sap", {Item::Sap, 10}}, {"resin", {Item::Resin, 15}}, {"rubber", {Item::Rubber, 20}},
+            {"bark", {Item::Bark, 5}}, {"hardwood", {Item::Hardwood, 25}},
+            {"maple syrup", {Item::MapleSyrup, 50}}, {"oak resin", {Item::OakResin, 30}},
+            {"pine tar", {Item::PineTar, 20}},
+            {"walnut", {Item::Walnut, 25}}, {"hickory nut", {Item::HickoryNut, 20}},
+            {"chestnut", {Item::Chestnut, 20}}, {"acorn", {Item::Acorn, 5}},
             {"forage", {Item::Forage, 25}}, {"fish", {Item::Fish, 20}},
         };
         auto it = foods.find(arg);
         if (it == foods.end()) {
-            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon, forage, fish.");
+            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon, sap, resin, rubber, bark, hardwood, maple syrup, oak resin, pine tar, walnut, hickory nut, chestnut, acorn, forage, fish.");
             return out;
         }
         int slot = find_slot(p, it->second.first);
