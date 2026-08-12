@@ -363,6 +363,33 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             log_amount = 6;
         }
         add_item(p, log, log_amount);
+        // Sapling drop: mature trees (hp > 100) have 20% chance to drop a sapling
+        if (c.obj.hp > 100 && (w.day * 7 + tx * 13 + ty * 19) % 100 < 20) {
+            Item sapling = Item::None;
+            switch (was) {
+                case ObjType::Tree: sapling = Item::OakSapling; break;
+                case ObjType::Pine: sapling = Item::None; break; // pine doesn't drop saplings
+                case ObjType::Oak: sapling = Item::OakSapling; break;
+                case ObjType::Maple: sapling = Item::MapleSapling; break;
+                case ObjType::Birch: sapling = Item::BirchSapling; break;
+                case ObjType::Cedar: sapling = Item::CedarSapling; break;
+                case ObjType::Redwood: sapling = Item::RedwoodSapling; break;
+                case ObjType::Teak: sapling = Item::TeakSapling; break;
+                case ObjType::Mahogany: sapling = Item::MahoganySapling; break;
+                case ObjType::RubberTree: sapling = Item::RubberTreeSapling; break;
+                case ObjType::WalnutTree: sapling = Item::WalnutSapling; break;
+                case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
+                case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
+            }
+            if (sapling != Item::None) {
+                add_item(p, sapling, 1);
+                return "+" + std::to_string(log_amount) + " " + std::string(item_def(log).name) + " + 1 " + std::string(item_def(sapling).name) + 
+                       (was == ObjType::Pine ? " (pine resin drips)" : 
+                        (was == ObjType::RubberTree ? " (latex sap drips)" : ""));
+            }
+        }
+        // Note: tx, ty are the target coordinates
+        (void)tx; (void)ty;
         return "+" + std::to_string(log_amount) + " " + std::string(item_def(log).name) + 
                (was == ObjType::Pine ? " (pine resin drips)" : 
                 (was == ObjType::RubberTree ? " (latex sap drips)" : ""));
@@ -392,6 +419,22 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         bool shroom = c.obj.type == ObjType::Mushroom;
         c.obj = FarmObj{};
         add_item(p, Item::Fiber, 1);
+        // Weed seed drops: 15% chance for mixed seeds when cutting weeds
+        if (c.obj.type == ObjType::Weed && (w.day * 7 + tx * 13 + ty * 19) % 100 < 15) {
+            // Random seed from available crops
+            static const Item seeds[] = {
+                Item::ParsnipSeeds, Item::PotatoSeeds, Item::CauliflowerSeeds,
+                Item::CornSeeds, Item::TomatoSeeds, Item::WheatSeeds,
+                Item::BlueberrySeeds, Item::GreenBeanSeeds, Item::HopsSeeds,
+                Item::StrawberrySeeds, Item::MelonSeeds, Item::PumpkinSeeds,
+                Item::RedCabbageSeeds, Item::RhubarbSeeds, Item::GarlicSeeds,
+                Item::ArtichokeSeeds, Item::BokChoySeeds, Item::KaleSeeds,
+                Item::CranberrySeeds, Item::GrapeSeeds
+            };
+            Item seed = seeds[(w.day * 11 + tx * 17 + ty * 23) % 20];
+            add_item(p, seed, 1);
+            return "+1 fiber + 1 " + std::string(item_def(seed).name) + " (mixed seeds!)";
+        }
         return tall || shroom ? "+1 fiber" : "+1 fiber";
     }
     default:
@@ -634,6 +677,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  place <thing>  build: sprinkler (2 Iron + 1 Gold), scarecrow, composter");
         say("  planttree <tree>  plant forestation trees (oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut)");
         say("  tap <tree>     install/collect tapper on mature trees for sap/syrup/resin/rubber");
+        say("  shake <tree>  shake mature trees for saplings (25% chance, costs 2 energy)");
         say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
         say("  upgrade farmhouse  expand: cottage (10k+350w), house (50k+450w+200s), manor (100k+600w+300s)");
         say("  enter [<name>] step into a building (stand at its door)");
@@ -1362,6 +1406,46 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say(std::string("Installed tapper on the ") + obj_type_name(c.obj.type) + ". Use 'tap collect' to gather sap daily.");
             return out;
         }
+    }
+
+    // ---------- shake tree ----------
+    if (cmd == "shake") {
+        Vec2 f = facing_cell(p);
+        if (!w.in_bounds(f)) { say("No tree there."); return out; }
+        Cell& c = w.at(f);
+        if (!is_tree(c.obj.type)) { say("That's not a tree you can shake."); return out; }
+        if (c.obj.hp < 50) { say("Tree is too young to shake for saplings."); return out; }
+        if (p.energy < 2) { say("Too tired to shake a tree. Rest or sleep."); return out; }
+        p.energy -= 2;
+        // Shake: 25% chance for sapling from mature trees, 10% from younger
+        int chance = (c.obj.hp > 150) ? 25 : (c.obj.hp > 100) ? 20 : (c.obj.hp > 50) ? 10 : 0;
+        if (chance > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < chance) {
+            Item sapling = Item::None;
+            switch (c.obj.type) {
+                case ObjType::Tree: sapling = Item::OakSapling; break;
+                case ObjType::Pine: sapling = Item::None; break; // pine doesn't drop saplings from shaking
+                case ObjType::Oak: sapling = Item::OakSapling; break;
+                case ObjType::Maple: sapling = Item::MapleSapling; break;
+                case ObjType::Birch: sapling = Item::BirchSapling; break;
+                case ObjType::Cedar: sapling = Item::CedarSapling; break;
+                case ObjType::Redwood: sapling = Item::RedwoodSapling; break;
+                case ObjType::Teak: sapling = Item::TeakSapling; break;
+                case ObjType::Mahogany: sapling = Item::MahoganySapling; break;
+                case ObjType::RubberTree: sapling = Item::RubberTreeSapling; break;
+                case ObjType::WalnutTree: sapling = Item::WalnutSapling; break;
+                case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
+                case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
+            }
+            if (sapling != Item::None) {
+                add_item(p, sapling, 1);
+                say("You shake the " + std::string(obj_type_name(c.obj.type)) + " and a " + std::string(item_def(sapling).name) + " falls down!");
+            } else {
+                say("You shake the tree but nothing falls.");
+            }
+        } else {
+            say("You shake the " + std::string(obj_type_name(c.obj.type)) + " but nothing falls.");
+        }
+        return out;
     }
 
     // ---------- shop ----------

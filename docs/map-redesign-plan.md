@@ -634,8 +634,13 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R13.4][A] Build, smoke-test, commit `feat: composter + wind pollination + moon phase farming + 16 new crops + 12 new fruit trees`.
 
 ## R14. A2 interiors: do them right for all buildings
-- [R14.1][Q] Ask the user to confirm layouts per building (group by district: civic, commerce, residential, lakefront, docks, rail/bus). Get sign-off on ASCII schemas for each room (size, furniture count, light sources, NPC location).
+- [x] [R14.1][Q] Ask the user to confirm layouts per building (group by district: civic, commerce, residential, lakefront, docks, rail/bus). Get sign-off on ASCII schemas for each room (size, furniture count, light sources, NPC location).
 - [R14.2..R14.21][A] One PR per building interior, each: write room, add interactive furniture, register in `interior_interactables`, test enter/look/interact/exit, commit. Tag commits `feat: <bldg> interior redesign`.
+
+## Stardew-style tree/weed mechanics (added alongside R14)
+- [x] Saplings drop from mature trees when chopped (20% chance for hp > 100)
+- [x] `shake` command: shake mature trees for saplings (25% chance, costs 2 energy)
+- [x] Weeds give random mixed seeds when cut with scythe (15% chance)
 
 ## R15. A1 weathering + maintenance for all 22 buildings
 - [R15.1][A] Wire decay into all 22 `BuildingState` entries. Tune per district (docks buildings decay faster, civic slower, mountain trail buildings need roofwork each winter).
