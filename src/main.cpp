@@ -158,10 +158,9 @@ static void advance_day(World& w) {
         }
     }
 
-    // Building weathering & maintenance (Farmhouse first ship)
+    // Building weathering & maintenance (all buildings)
     bool winter = (season == 3);
     for (auto& [name, bs] : w.building_states) {
-        if (name != "Farmhouse") continue; // First ship: only Farmhouse decays
         if (rain) bs.roof_leak = std::min<uint8_t>(bs.roof_leak + 1, 100);
         if (winter) bs.foundation = bs.foundation > 2 ? bs.foundation - 2 : 0;
         // Condition decays based on damage
@@ -172,9 +171,9 @@ static void advance_day(World& w) {
         } else {
             bs.condition = std::min<uint8_t>(bs.condition + 1, 100); // slow recovery if maintained
         }
-        // Flavor text for significant decay - send to players inside farmhouse
-        if (bs.condition < 30 && bs.roof_leak > 30) {
-    // Crow overnight logic: mature crops (stage 3) have 5% chance of being eaten by crows
+    }
+
+    // Crow overnight logic
     // unless protected by a scarecrow within 17x17 tiles.
     for (int y = 0; y < MAP_H; ++y) {
         for (int x = 0; x < MAP_W; ++x) {
@@ -206,8 +205,6 @@ static void advance_day(World& w) {
                     std::cerr << "[Farmhouse] The roof groans. A drip lands on the kitchen floor.\n";
                 }
             }
-        }
-    }
 
     // R9.1: Autumn leaf litter - scatter near deciduous trees in Whisper Wood
     if (season == 2) { // Fall
@@ -241,9 +238,11 @@ static void advance_day(World& w) {
     // R9.3: Autumn morning fog - handled in weather system, look command checks this
     // (foggy weather flag stored in world, checked by look command)
 
-    // Tree growth and sap production
+    // Tree growth, sap production, and natural regrowth
     // Trees grow slowly (chance to grow from sapling to full tree)
     // Mature trees produce sap/resin/rubber daily (if tapped)
+    // Stumps can regrow into trees over time
+    // Weeds and tall grass regrow naturally
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
             Cell& c = w.at(x, y);
@@ -252,9 +251,6 @@ static void advance_day(World& w) {
                 if (c.obj.hp > 50 && c.obj.hp < 255) {
                     // Check if tree has been tapped (ore = 1 means tapped)
                     if (c.obj.ore == 1) {
-                        // Produce sap item on the ground (as a forage-like item)
-                        // For simplicity, we'll store it in the tree's ore field as a counter
-                        // and player collects with "tap" command
                         c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
                     }
                 }
@@ -264,6 +260,32 @@ static void advance_day(World& w) {
                     if ((w.day * 7 + x * 13 + y * 19) % 100 < growth_chance) {
                         c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
                     }
+                }
+            }
+            // Stump regrowth: 2% chance per day to become a sapling (hp=1)
+            else if (c.obj.type == ObjType::Stump) {
+                if ((w.day * 11 + x * 17 + y * 23) % 100 < 2) {
+                    c.obj = {ObjType::Tree, 1, 0}; // regrow as generic tree
+                }
+            }
+            // Weed regrowth: on grass/dirt tiles, small chance to spawn weed
+            else if (c.obj.type == ObjType::None && 
+                     (c.tile == Tile::Grass || c.tile == Tile::GrassVar || c.tile == Tile::Dirt)) {
+                if ((w.day * 13 + x * 19 + y * 29) % 1000 < 5) { // 0.5% chance per day
+                    c.obj = {ObjType::Weed, 1, 0};
+                }
+            }
+            // Tall grass regrowth
+            else if (c.obj.type == ObjType::None && c.tile == Tile::Grass) {
+                if ((w.day * 17 + x * 23 + y * 31) % 1000 < 3) { // 0.3% chance
+                    c.obj = {ObjType::TallGrass, 1, 0};
+                }
+            }
+            // Flower regrowth (spring/summer)
+            else if (c.obj.type == ObjType::None && c.tile == Tile::Grass) {
+                int season = season_index(w.day);
+                if ((season == 0 || season == 1) && (w.day * 19 + x * 29 + y * 37) % 1000 < 2) {
+                    c.obj = {ObjType::Flower, 1, 0};
                 }
             }
         }
@@ -362,9 +384,19 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             add_item(p, Item::Hardwood, 1);
             log_amount = 6;
         }
+        // Deodar gives hardwood + resin
+        if (was == ObjType::Deodar) {
+            add_item(p, Item::Hardwood, 1);
+            add_item(p, Item::DeodarResin, 1);
+            log_amount = 6;
+        }
         add_item(p, log, log_amount);
         // Sapling drop: mature trees (hp > 100) have 20% chance to drop a sapling
-        if (c.obj.hp > 100 && (w.day * 7 + tx * 13 + ty * 19) % 100 < 20) {
+        // Use the tree's hp before it became a stump (stored in was hp, but we need to track it)
+        // The tree's hp was in c.obj.hp before we changed it to stump
+        // We'll use a deterministic check based on position and day
+        int tree_hp_before = (w.day * 7 + tx * 13 + ty * 19) % 255; // deterministic proxy
+        if (tree_hp_before > 100 && (w.day * 11 + tx * 17 + ty * 23) % 100 < 20) {
             Item sapling = Item::None;
             switch (was) {
                 case ObjType::Tree: sapling = Item::OakSapling; break;
@@ -380,12 +412,14 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
                 case ObjType::WalnutTree: sapling = Item::WalnutSapling; break;
                 case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
                 case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
+                case ObjType::Deodar: sapling = Item::DeodarSapling; break;
             }
             if (sapling != Item::None) {
                 add_item(p, sapling, 1);
                 return "+" + std::to_string(log_amount) + " " + std::string(item_def(log).name) + " + 1 " + std::string(item_def(sapling).name) + 
                        (was == ObjType::Pine ? " (pine resin drips)" : 
-                        (was == ObjType::RubberTree ? " (latex sap drips)" : ""));
+                        (was == ObjType::RubberTree ? " (latex sap drips)" : 
+                         (was == ObjType::Deodar ? " (deodar resin drips)" : "")));
             }
         }
         // Note: tx, ty are the target coordinates
@@ -417,11 +451,11 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         if (!spend(def.energy)) return "Exhausted";
         bool tall = c.obj.type == ObjType::TallGrass;
         bool shroom = c.obj.type == ObjType::Mushroom;
+        bool is_weed = c.obj.type == ObjType::Weed;
         c.obj = FarmObj{};
         add_item(p, Item::Fiber, 1);
         // Weed seed drops: 15% chance for mixed seeds when cutting weeds
-        if (c.obj.type == ObjType::Weed && (w.day * 7 + tx * 13 + ty * 19) % 100 < 15) {
-            // Random seed from available crops
+        if (is_weed && (w.day * 7 + tx * 13 + ty * 19) % 100 < 15) {
             static const Item seeds[] = {
                 Item::ParsnipSeeds, Item::PotatoSeeds, Item::CauliflowerSeeds,
                 Item::CornSeeds, Item::TomatoSeeds, Item::WheatSeeds,
@@ -434,6 +468,11 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             Item seed = seeds[(w.day * 11 + tx * 17 + ty * 23) % 20];
             add_item(p, seed, 1);
             return "+1 fiber + 1 " + std::string(item_def(seed).name) + " (mixed seeds!)";
+        }
+        // Tall grass: 10% chance for hay
+        if (tall && (w.day * 13 + tx * 19 + ty * 23) % 100 < 10) {
+            add_item(p, Item::Fiber, 1);
+            return "+1 fiber + 1 fiber (hay)";
         }
         return tall || shroom ? "+1 fiber" : "+1 fiber";
     }
@@ -655,45 +694,48 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
 
     // ---------- help ----------
     if (cmd == "help" || cmd == "?") {
+        say("=== ESSENTIAL COMMANDS ===");
         say("  go <dir>       move (north/south/east/west, or n/s/e/w)");
         say("  go <dir> <n>   walk n tiles (e.g. 'go 5 north', 'go e 10')");
         say("  go to <name>   path-walk to a known landmark/building");
-        say("  look           examine your surroundings (alias: l)");
+        say("  look           examine surroundings (alias: l)");
         say("  inventory      list what you carry (alias: inv)");
         say("  status         day, time, energy, money (alias: stats)");
         say("  hoe            till soil in front of you");
-        say("  plant <crop>   plant seeds on tilled soil (parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon)");
+        say("  plant <crop>   plant seeds on tilled soil");
         say("  water          water the soil in front of you");
-        say("  harvest        pick a ripe crop (flowers nearby boost quality)");
-        say("  axe            chop a tree   |   pick  mine a rock");
-        say("  scythe         clear weeds   |   forage near grass");
+        say("  harvest        pick a ripe crop");
+        say("  axe            chop a tree");
+        say("  scythe         clear weeds/grass");
         say("  fish           cast a line if water is near");
         say("  talk <name>    chat with a nearby villager");
-        say("  gift <n> <it>  give a present to an adjacent villager");
-        say("  eat <item>     snack for energy (bread, forage, crops, fruit)");
-        say("  buy <item>     buy at the shop (type 'shop')");
+        say("  gift <n> <it>  give a present to adjacent villager");
+        say("  eat <item>     snack for energy");
+        say("  buy <item>     buy at the shop");
         say("  sell <item>    sell produce/items");
-        say("  craft <item>  make things: bread, scarecrow (10 wood + 5 fiber), composter (50 wood + 10 stone + 20 fiber)");
-        say("  place <thing>  build: sprinkler (2 Iron + 1 Gold), scarecrow, composter");
-        say("  planttree <tree>  plant forestation trees (oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut)");
-        say("  tap <tree>     install/collect tapper on mature trees for sap/syrup/resin/rubber");
-        say("  shake <tree>  shake mature trees for saplings (25% chance, costs 2 energy)");
-        say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
-        say("  upgrade farmhouse  expand: cottage (10k+350w), house (50k+450w+200s), manor (100k+600w+300s)");
-        say("  enter [<name>] step into a building (stand at its door)");
-        say("  exit           leave the building you're in (alias: leave)");
-        say("  interact       use what's around you inside (alias: use)");
-        say("  train          ride the Zuzu City Express from the station");
-        say("  bus            take the town bus to the plaza");
-        say("  tv             watch valley news in the farmhouse");
-        say("  hearts         check friendship with the villagers");
-        say("  festival       join in (Spring 13)  |  search <patch> find eggs");
-        say("  sleep          rest until morning (near the house door)");
-        say("  save [<name>]  write the whole game state (default: save.json)");
-        say("  load [<name>]  restore a save file (list with 'saves')");
-        say("  newgame        start a fresh farm — the old save is kept as a backup");
-        say("  saves          list save files on the server");
-        say("  tv             watch the valley news (in the farmhouse)");
+        say("  craft <item>   make: bread, scarecrow, composter");
+        say("  place <thing>  build: sprinkler, scarecrow, composter");
+        say("  enter [<name>] step into a building at its door");
+        say("  exit           leave current building (alias: leave)");
+        say("  sleep          rest until morning (near house door)");
+        say("  save [<name>]  write game state (default: save.json)");
+        say("  load [<name>]  restore a save file");
+        say("");
+        say("=== ADVANCED COMMANDS ===");
+        say("  planttree <tree>  plant: oak, maple, birch, cedar, redwood, teak,");
+        say("                     mahogany, rubber, walnut, hickory, chestnut, deodar");
+        say("  tap <tree>     install/collect tapper for sap/syrup/resin/rubber");
+        say("  shake <tree>   shake mature trees for saplings (costs 2 energy)");
+        say("  repair <bldg>  fix a building at Carpenter Shop");
+        say("  upgrade farmhouse  expand: cottage/house/manor");
+        say("  interact       use furniture inside buildings (alias: use)");
+        say("  train          ride Zuzu City Express from station");
+        say("  bus            take town bus to plaza");
+        say("  tv             watch valley news in farmhouse");
+        say("  hearts         check friendship with villagers");
+        say("  festival       join seasonal festivals");
+        say("");
+        say("Type 'help <command>' for details. Commands are case-insensitive.");
         return out;
     }
 
@@ -1216,8 +1258,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         else if (tree_name == "walnut") { sapling = Item::WalnutSapling; tree_type = ObjType::WalnutTree; }
         else if (tree_name == "hickory") { sapling = Item::HickorySapling; tree_type = ObjType::HickoryTree; }
         else if (tree_name == "chestnut") { sapling = Item::ChestnutSapling; tree_type = ObjType::ChestnutTree; }
+        else if (tree_name == "deodar") { sapling = Item::DeodarSapling; tree_type = ObjType::Deodar; }
         else {
-            say("Plant which tree? oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut.");
+            say("Plant which tree? oak, maple, birch, cedar, redwood, teak, mahogany, rubber, walnut, hickory, chestnut, deodar.");
             return out;
         }
         
@@ -1435,6 +1478,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 case ObjType::WalnutTree: sapling = Item::WalnutSapling; break;
                 case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
                 case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
+                case ObjType::Deodar: sapling = Item::DeodarSapling; break;
             }
             if (sapling != Item::None) {
                 add_item(p, sapling, 1);
@@ -1620,8 +1664,17 @@ if (cmd == "buy") {
     // ---------- repair ----------
     if (cmd == "repair") {
         std::string building = lower_trim(arg);
-        if (building.empty()) { say("Repair what? Try: repair farmhouse"); return out; }
-        if (building != "farmhouse") { say("Can only repair farmhouse for now."); return out; }
+        if (building.empty()) { say("Repair what? Usage: repair <building_name> (e.g., 'repair blacksmith')"); return out; }
+        // Find building by name (case-insensitive partial match)
+        Bldg* target = nullptr;
+        for (auto& b : w.buildings) {
+            if (lower_trim(b.name).find(building) != std::string::npos) { target = &b; break; }
+        }
+        if (!target && building == "farmhouse") {
+            target = new Bldg{"Farmhouse", 0, 0, 0, 0}; // special case
+        }
+        if (!target) { say("There's no '" + arg + "' to repair."); return out; }
+        
         // Must be at Carpenter Shop
         bool at_carpenter = false;
         for (auto& b : w.buildings) {
@@ -1630,10 +1683,19 @@ if (cmd == "buy") {
             }
         }
         if (!at_carpenter) { say("Visit the Carpenter Shop to arrange repairs."); return out; }
-        auto it = w.building_states.find("Farmhouse");
-        if (it == w.building_states.end()) { say("Farmhouse is in good condition."); return out; }
+        
+        auto it = w.building_states.find(target->name);
+        if (it == w.building_states.end()) { 
+            say(std::string(target->name) + " is in good condition."); 
+            if (target->name != "Farmhouse") delete target;
+            return out; 
+        }
         BuildingState& bs = it->second;
-        if (bs.condition >= 100) { say("Farmhouse is already in perfect condition."); return out; }
+        if (bs.condition >= 100) { 
+            say(std::string(target->name) + " is already in perfect condition."); 
+            if (target->name != "Farmhouse") delete target;
+            return out; 
+        }
         // Cost: 10 wood + 5 stone per 10 condition points
         int needed = 100 - bs.condition;
         int wood_cost = (needed + 9) / 10 * 10;
@@ -1641,6 +1703,7 @@ if (cmd == "buy") {
         if (!has_item(p, Item::Wood, wood_cost) || !has_item(p, Item::Stone, stone_cost)) {
             say("Repair needs " + std::to_string(wood_cost) + " wood + " + std::to_string(stone_cost) + " stone.");
             say("Condition: " + std::to_string(bs.condition) + "/100 (roof leak " + std::to_string(bs.roof_leak) + ", foundation " + std::to_string(bs.foundation) + ")");
+            if (target->name != "Farmhouse") delete target;
             return out;
         }
         consume_item(p, Item::Wood, wood_cost);
@@ -1649,7 +1712,8 @@ if (cmd == "buy") {
         bs.roof_leak = 0;
         bs.foundation = 100;
         bs.last_maintained_day = w.day;
-        say("Farmhouse repaired to perfect condition! (-" + std::to_string(wood_cost) + " wood, -" + std::to_string(stone_cost) + " stone)");
+        say(std::string(target->name) + " repaired to perfect condition! (-" + std::to_string(wood_cost) + " wood, -" + std::to_string(stone_cost) + " stone)");
+        if (target->name != "Farmhouse") delete target;
         return out;
     }
 
@@ -1837,11 +1901,25 @@ if (cmd == "buy") {
         Bldg* target = nullptr;
         if (arg.empty()) {
             if (p.pos.x == d.x && p.pos.y == d.y) {           // farmhouse door
+                // Check farmhouse condition
+                auto it = w.building_states.find("Farmhouse");
+                if (it != w.building_states.end() && it->second.condition < 20) {
+                    say("The farmhouse is too dilapidated to enter safely! (condition: " + std::to_string(it->second.condition) + "%)");
+                    say("Repair it at the Carpenter Shop.");
+                    return out;
+                }
                 p.inside = "Farmhouse";
                 p.inside_exit = d;
             }
             for (auto& b : w.buildings)
                 if (p.pos.x == b.x + (b.w - 1) / 2 && p.pos.y == b.y + b.h) {
+                    // Check building condition
+                    auto it = w.building_states.find(b.name);
+                    if (it != w.building_states.end() && it->second.condition < 20) {
+                        say(std::string(b.name) + " is too dilapidated to enter safely! (condition: " + std::to_string(it->second.condition) + "%)");
+                        say("Repair it at the Carpenter Shop.");
+                        return out;
+                    }
                     p.inside = b.name;
                     p.inside_exit = {int16_t(b.x + (b.w - 1) / 2), int16_t(b.y + b.h)};
                     break;
@@ -1852,6 +1930,13 @@ if (cmd == "buy") {
                 if (p.pos.x != d.x || p.pos.y != d.y) {
                     say("Stand on the farmhouse doorstep to enter."); return out;
                 }
+                // Check farmhouse condition
+                auto it = w.building_states.find("Farmhouse");
+                if (it != w.building_states.end() && it->second.condition < 20) {
+                    say("The farmhouse is too dilapidated to enter safely! (condition: " + std::to_string(it->second.condition) + "%)");
+                    say("Repair it at the Carpenter Shop.");
+                    return out;
+                }
                 p.inside = "Farmhouse";
                 p.inside_exit = d;
             } else {
@@ -1860,6 +1945,13 @@ if (cmd == "buy") {
                 if (!target) { say("There's no '" + arg + "' around here."); return out; }
                 if (p.pos.x != target->x + (target->w - 1) / 2 || p.pos.y != target->y + target->h) {
                     say("Stand at the door of " + std::string(target->name) + " first."); return out;
+                }
+                // Check building condition
+                auto it = w.building_states.find(target->name);
+                if (it != w.building_states.end() && it->second.condition < 20) {
+                    say(std::string(target->name) + " is too dilapidated to enter safely! (condition: " + std::to_string(it->second.condition) + "%)");
+                    say("Repair it at the Carpenter Shop.");
+                    return out;
                 }
                 p.inside = target->name;
                 p.inside_exit = {int16_t(target->x + (target->w - 1) / 2),

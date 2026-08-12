@@ -636,7 +636,7 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 ## R14. A2 interiors: do them right for all buildings
 - [x] [R14.1][Q] Ask the user to confirm layouts per building (group by district: civic, commerce, residential, lakefront, docks, rail/bus). Get sign-off on ASCII schemas for each room (size, furniture count, light sources, NPC location).
 - [x] [R14.2..R14.21][A] All 22 building interiors implemented with rich, multi-floor designs:
-  - **Civic (6)**: Town Center (2F), Clinic, Museum (2F), Old Mill, Stardrop Saloon (2F - tavern + guest rooms)
+  - **Civic (6)**: Town Center (2F), Clinic, Museum (2F), Old Mill, Stardrop Saloon (3F - tavern + guest rooms + owner's quarters)
   - **Commerce (5)**: Blacksmith, General Store, Market, Carpenter Shop, Pet Shop
   - **Residential (4)**: Willow House, Maple House, Rowan Cottage, Hawthorne Cottage
   - **Travel (2)**: Bus Stop, Railway Station (2F)

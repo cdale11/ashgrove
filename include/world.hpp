@@ -51,10 +51,12 @@ enum class Item : uint16_t {
     ApricotSapling = 75, OrangeSapling = 76, BananaSapling = 77, MangoSapling = 78,
     PlumSapling = 79, PearSapling = 80, FigSapling = 81, AvocadoSapling = 82,
     LemonSapling = 83, LimeSapling = 84, GrapefruitSapling = 85, PersimmonSapling = 86,
-    Apple = 87, Cherry = 88, Peach = 89, Pomegranate = 90,
-    Apricot = 91, Orange = 92, Banana = 93, Mango = 94,
-    Plum = 95, Pear = 96, Fig = 97, Avocado = 98,
-    Lemon = 99, Lime = 100, Grapefruit = 101, Persimmon = 102,
+    DeodarSapling = 87,  // Indian Deodar (Cedar deodara)
+    Apple = 90, Cherry = 91, Peach = 92, Pomegranate = 93,
+    Apricot = 94, Orange = 95, Banana = 96, Mango = 97,
+    Plum = 98, Pear = 99, Fig = 100, Avocado = 101,
+    Lemon = 102, Lime = 103, Grapefruit = 104, Persimmon = 105,
+    DeodarCone = 106, DeodarResin = 107, DeodarOil = 108,
     // Tree products
     Sap = 110, Resin = 111, Rubber = 112, Bark = 113, Hardwood = 114,
     MapleSyrup = 115, OakResin = 116, PineTar = 117,
@@ -63,12 +65,12 @@ enum class Item : uint16_t {
     RedwoodSapling = 124, TeakSapling = 125, MahoganySapling = 126, RubberTreeSapling = 127,
     WalnutSapling = 128, HickorySapling = 129, ChestnutSapling = 130,
     // Timber products
-    OakLog = 131, MapleLog = 132, BirchLog = 133, CedarLog = 134,
-    RedwoodLog = 135, TeakLog = 136, MahoganyLog = 137, RubberLog = 138,
-    WalnutLog = 139, HickoryLog = 140, ChestnutLog = 141,
-    Lumber = 142, Plank = 143, Plywood = 144,
+    OakLog = 140, MapleLog = 141, BirchLog = 142, CedarLog = 143,
+    RedwoodLog = 144, TeakLog = 145, MahoganyLog = 146, RubberLog = 147,
+    WalnutLog = 148, HickoryLog = 149, ChestnutLog = 150, DeodarLog = 151,
+    Lumber = 152, Plank = 153, Plywood = 154,
     // Nuts
-    Walnut = 145, HickoryNut = 146, Chestnut = 147, Acorn = 148,
+    Walnut = 155, HickoryNut = 156, Chestnut = 157, Acorn = 158,
 };
 
 struct ItemDef {
@@ -113,20 +115,22 @@ inline ItemDef const& item_def(Item it) {
         /* 75 */ {"Apricot Sapling",3,2000,0,0},{"Orange Sapling",3,4000,0,0},{"Banana Sapling",3,5000,0,0},{"Mango Sapling",3,5000,0,0},
         /* 79 */ {"Plum Sapling",3,2600,0,0},{"Pear Sapling",3,3000,0,0},{"Fig Sapling",3,3000,0,0},{"Avocado Sapling",3,5000,0,0},
         /* 83 */ {"Lemon Sapling",3,2000,0,0},{"Lime Sapling",3,2000,0,0},{"Grapefruit Sapling",3,2600,0,0},{"Persimmon Sapling",3,3000,0,0},
-        /* 87 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
-        /* 91 */ {"Apricot",2,-1,50,0},{"Orange",2,-1,100,0},{"Banana",2,-1,150,0},{"Mango",2,-1,130,0},
-        /* 95 */ {"Plum",2,-1,80,0},{"Pear",2,-1,100,0},{"Fig",2,-1,90,0},{"Avocado",2,-1,150,0},
-        /* 99 */ {"Lemon",2,-1,50,0},{"Lime",2,-1,40,0},{"Grapefruit",2,-1,80,0},{"Persimmon",2,-1,120,0},
+        /* 87 */ {"Deodar Sapling",3,5000,0,0},
+        /* 90 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
+        /* 94 */ {"Apricot",2,-1,50,0},{"Orange",2,-1,100,0},{"Banana",2,-1,150,0},{"Mango",2,-1,130,0},
+        /* 98 */ {"Plum",2,-1,80,0},{"Pear",2,-1,100,0},{"Fig",2,-1,90,0},{"Avocado",2,-1,150,0},
+        /* 102 */ {"Lemon",2,-1,50,0},{"Lime",2,-1,40,0},{"Grapefruit",2,-1,80,0},{"Persimmon",2,-1,120,0},
+        /* 106 */ {"Deodar Cone",2,-1,30,0},{"Deodar Resin",3,-1,20,0},{"Deodar Oil",3,-1,100,0},
         /* 110 */ {"Sap",3,-1,2,0},{"Resin",3,-1,5,0},{"Rubber",3,-1,10,0},{"Bark",3,-1,3,0},{"Hardwood",3,-1,15,0},
         /* 115 */ {"Maple Syrup",2,-1,200,0},{"Oak Resin",3,-1,15,0},{"Pine Tar",3,-1,10,0},
         /* 120 */ {"Oak Sapling",3,200,0,0},{"Maple Sapling",3,200,0,0},{"Birch Sapling",3,150,0,0},{"Cedar Sapling",3,300,0,0},
         /* 124 */ {"Redwood Sapling",3,500,0,0},{"Teak Sapling",3,1000,0,0},{"Mahogany Sapling",3,1000,0,0},{"Rubber Tree Sapling",3,500,0,0},
         /* 128 */ {"Walnut Sapling",3,400,0,0},{"Hickory Sapling",3,400,0,0},{"Chestnut Sapling",3,500,0,0},
-        /* 131 */ {"Oak Log",3,-1,50,0},{"Maple Log",3,-1,60,0},{"Birch Log",3,-1,40,0},{"Cedar Log",3,-1,80,0},
-        /* 135 */ {"Redwood Log",3,-1,200,0},{"Teak Log",3,-1,300,0},{"Mahogany Log",3,-1,300,0},{"Rubber Log",3,-1,100,0},
-        /* 139 */ {"Walnut Log",3,-1,100,0},{"Hickory Log",3,-1,120,0},{"Chestnut Log",3,-1,100,0},
-        /* 142 */ {"Lumber",3,-1,20,0},{"Plank",3,-1,40,0},{"Plywood",3,-1,80,0},
-        /* 145 */ {"Walnut",2,-1,30,0},{"Hickory Nut",2,-1,25,0},{"Chestnut",2,-1,20,0},{"Acorn",3,-1,1,0},
+        /* 140 */ {"Oak Log",3,-1,50,0},{"Maple Log",3,-1,60,0},{"Birch Log",3,-1,40,0},{"Cedar Log",3,-1,80,0},
+        /* 144 */ {"Redwood Log",3,-1,200,0},{"Teak Log",3,-1,300,0},{"Mahogany Log",3,-1,300,0},{"Rubber Log",3,-1,100,0},
+        /* 148 */ {"Walnut Log",3,-1,100,0},{"Hickory Log",3,-1,120,0},{"Chestnut Log",3,-1,100,0},{"Deodar Log",3,-1,150,0},
+        /* 152 */ {"Lumber",3,-1,20,0},{"Plank",3,-1,40,0},{"Plywood",3,-1,80,0},
+        /* 155 */ {"Walnut",2,-1,30,0},{"Hickory Nut",2,-1,25,0},{"Chestnut",2,-1,20,0},{"Acorn",3,-1,1,0},
     };
     uint16_t i = static_cast<uint16_t>(it);
     return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
@@ -304,7 +308,7 @@ enum class ObjType : uint8_t {
     Sprinkler = 13, Statue, LeafLitter, Scarecrow, Composter,
     // Forestation trees
     Oak = 18, Maple, Birch, Cedar, Redwood, Teak, Mahogany, RubberTree,
-    WalnutTree, HickoryTree, ChestnutTree,
+    WalnutTree, HickoryTree, ChestnutTree, Deodar,
 };
 static inline bool is_machine(ObjType t) { return t == ObjType::Sprinkler || t == ObjType::Composter; }
 static inline bool is_tree(ObjType t) {
@@ -312,7 +316,8 @@ static inline bool is_tree(ObjType t) {
            t == ObjType::Oak || t == ObjType::Maple || t == ObjType::Birch ||
            t == ObjType::Cedar || t == ObjType::Redwood || t == ObjType::Teak ||
            t == ObjType::Mahogany || t == ObjType::RubberTree ||
-           t == ObjType::WalnutTree || t == ObjType::HickoryTree || t == ObjType::ChestnutTree;
+           t == ObjType::WalnutTree || t == ObjType::HickoryTree || t == ObjType::ChestnutTree ||
+           t == ObjType::Deodar;
 }
 static inline Item tree_log_item(ObjType t) {
     switch (t) {
@@ -329,6 +334,7 @@ static inline Item tree_log_item(ObjType t) {
         case ObjType::WalnutTree: return Item::WalnutLog;
         case ObjType::HickoryTree: return Item::HickoryLog;
         case ObjType::ChestnutTree: return Item::ChestnutLog;
+        case ObjType::Deodar: return Item::DeodarLog;
         default: return Item::Wood;
     }
 }
@@ -340,6 +346,7 @@ static inline Item tree_sap_item(ObjType t) {
         case ObjType::RubberTree: return Item::Rubber;
         case ObjType::Birch: return Item::Sap;
         case ObjType::Cedar: return Item::Resin;
+        case ObjType::Deodar: return Item::DeodarResin;
         default: return Item::Sap;
     }
 }
@@ -359,6 +366,7 @@ static inline const char* obj_type_name(ObjType t) {
         case ObjType::WalnutTree: return "walnut";
         case ObjType::HickoryTree: return "hickory";
         case ObjType::ChestnutTree: return "chestnut";
+        case ObjType::Deodar: return "deodar";
         case ObjType::Stump: return "stump";
         default: return "object";
     }
