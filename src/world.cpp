@@ -732,17 +732,18 @@ void init_interiors(World& world) {
         "##   ##",
     });
 
-    // Stardrop Saloon (3x3) - 2 floors: tavern + rooms
+    // Stardrop Saloon (3x3) - 3 floors: tavern + guest rooms + owner's quarters
     room("Stardrop Saloon", {
         "############",
-        "#BBBB.BBBB.#",  // Bar counter
+        "#BBBB.BBBB.#",  // Bar counter (B=bar)
         "#..........#",
-        "#..TT.TT..#",  // Tables
+        "#..TT.TT..#",  // Tables (T=table)
         "#..........#",
-        "#..TT.TT..#",
+        "#..PP.PP..#",  // Private booths (P=booth)
         "#..........#",
-        "#..KK..KK.#",  // Kitchen
-        "#..<>......#",  // Stairs up to rooms
+        "#..KK..KK.#",  // Kitchen (K=kitchen)
+        "#..SS..SS.#",  // Stage (S=stage)
+        "#..<>......#",  // Stairs up
         "##      ##",
     }, {
         {   // Floor 1 - Guest rooms
@@ -754,6 +755,20 @@ void init_interiors(World& world) {
             "#..BB....BB#",
             "#..........#",
             "#..BB....BB#",
+            "#..........#",
+            "#..<>......#",  // Stairs up
+            "##      ##",
+        },
+        {   // Floor 2 - Owner's quarters (Gus) + attic storage
+            "############",
+            "#B..V..S...#",  // Gus's bed, TV, shelf
+            "#..........#",
+            "#..KK..KK..#",  // Small kitchenette
+            "#..........#",
+            "#..DD..DD..#",  // Desk + dresser
+            "#..........#",
+            "#..AA..AA..#",  // Attic storage (A=archive)
+            "#..........#",
             "#..<>......#",  // Stairs down
             "##      ##",
         }
