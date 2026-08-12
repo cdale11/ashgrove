@@ -559,8 +559,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  buy <item>     buy at the shop (type 'shop')");
         say("  sell <item>    sell produce/items");
         say("  craft <item>  make things from resources (bread)");
-        say("  place <thing>  build a structure: place sprinkler (2 Iron + 1 Gold)");
+        say("  place <thing>  build a structure: place sprinkler (2 Iron + 1 Gold), place scarecrow");
         say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
+        say("  upgrade farmhouse  expand to cottage (10,000g + 350 wood, at Carpenter Shop)");
         say("  enter [<name>] step into a building (stand at its door)");
         say("  exit           leave the building you're in (alias: leave)");
         say("  interact       use what's around you inside (alias: use)");
@@ -585,10 +586,12 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             std::to_string(season_day(w.day)) + " · " + weather_of_day_name(w.day));
         say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
             "   Money: " + std::to_string(p.money) + "g");
-        // Building condition
+        // Building condition + farmhouse level
+        const char* level_names[] = {"", "Starter", "Cottage", "House", "Manor"};
+        say("Farmhouse: Level " + std::to_string(w.farmhouse_level) + " (" + level_names[w.farmhouse_level] + ")");
         auto it = w.building_states.find("Farmhouse");
         if (it != w.building_states.end()) {
-            say("Farmhouse: roof " + std::to_string(it->second.roof_leak) +
+            say("  Condition: roof " + std::to_string(it->second.roof_leak) +
                 " foundation " + std::to_string(it->second.foundation) +
                 " condition " + std::to_string(it->second.condition));
         }
@@ -997,7 +1000,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     // ---------- planting ----------
     if (cmd == "plant" || cmd == "planting") {
         const CropDef* crop = crop_def(arg.c_str());
-        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, apple, cherry, peach, pomegranate."); return out; }
+        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, apple, cherry, peach, pomegranate, apricot, orange, banana, mango."); return out; }
         int season = season_index(w.day);
         if (season == 3) { say("The soil is frozen solid. Nothing grows in winter."); return out; }
         if (season < crop->min_season || season > crop->max_season) {
@@ -1340,6 +1343,57 @@ if (cmd == "buy") {
         return out;
     }
 
+    // ---------- upgrade farmhouse ----------
+    if (cmd == "upgrade" && lower_trim(arg).find("farmhouse") != std::string::npos) {
+        // Must be at Carpenter Shop
+        bool at_carpenter = false;
+        for (auto& b : w.buildings) {
+            if (b.name == "Carpenter Shop" && p.pos.x == b.x + (b.w - 1) / 2 && p.pos.y == b.y + b.h) {
+                at_carpenter = true; break;
+            }
+        }
+        if (!at_carpenter) { say("Visit the Carpenter Shop to upgrade your farmhouse."); return out; }
+        
+        if (w.farmhouse_level >= 4) { say("Your farmhouse is already at the maximum level (Manor)."); return out; }
+        
+        int next_level = w.farmhouse_level + 1;
+        int gold_cost = 0, wood_cost = 0, stone_cost = 0;
+        const char* level_name = "";
+        
+        switch (next_level) {
+            case 2: // Cottage
+                level_name = "Cottage";
+                gold_cost = 10000; wood_cost = 350; stone_cost = 0;
+                break;
+            case 3: // House
+                level_name = "House";
+                gold_cost = 50000; wood_cost = 450; stone_cost = 200;
+                break;
+            case 4: // Manor
+                level_name = "Manor";
+                gold_cost = 100000; wood_cost = 600; stone_cost = 300;
+                break;
+        }
+        
+        if (p.money < gold_cost || !has_item(p, Item::Wood, wood_cost) || !has_item(p, Item::Stone, stone_cost)) {
+            say("Upgrade to " + std::string(level_name) + " costs " + std::to_string(gold_cost) + "g, " + 
+                std::to_string(wood_cost) + " wood" + (stone_cost > 0 ? ", " + std::to_string(stone_cost) + " stone" : "") + ".");
+            say("Current level: " + std::to_string(w.farmhouse_level) + " (Starter=1, Cottage=2, House=3, Manor=4)");
+            return out;
+        }
+        
+        p.money -= gold_cost;
+        consume_item(p, Item::Wood, wood_cost);
+        if (stone_cost > 0) consume_item(p, Item::Stone, stone_cost);
+        w.farmhouse_level = next_level;
+        
+        say("Farmhouse upgraded to " + std::string(level_name) + "! (-" + std::to_string(gold_cost) + "g, -" + 
+            std::to_string(wood_cost) + " wood" + (stone_cost > 0 ? ", -" + std::to_string(stone_cost) + " stone" : "") + ")");
+        say("New rooms added: " + std::string(next_level == 2 ? "Kitchen + Bedroom" : next_level == 3 ? "Cellar + Study" : "Nursery + Verandah"));
+        say("Use 'enter farmhouse' to see the expanded interior.");
+        return out;
+    }
+
     // ---------- eat ----------
     if (cmd == "eat") {
         static const std::unordered_map<std::string, std::pair<Item, int>> foods = {
@@ -1348,11 +1402,18 @@ if (cmd == "buy") {
             {"cauliflower", {Item::Cauliflower, 30}}, {"corn", {Item::Corn, 30}},
             {"tomato", {Item::Tomato, 20}}, {"wheat", {Item::Wheat, 10}},
             {"blueberry", {Item::Blueberry, 20}},
+            {"green bean", {Item::GreenBean, 15}}, {"hops", {Item::Hops, 10}},
+            {"strawberry", {Item::Strawberry, 20}}, {"melon", {Item::Melon, 30}},
+            {"pumpkin", {Item::Pumpkin, 40}}, {"red cabbage", {Item::RedCabbage, 25}},
+            {"apple", {Item::Apple, 25}}, {"cherry", {Item::Cherry, 20}},
+            {"peach", {Item::Peach, 30}}, {"pomegranate", {Item::Pomegranate, 30}},
+            {"apricot", {Item::Apricot, 15}}, {"orange", {Item::Orange, 25}},
+            {"banana", {Item::Banana, 30}}, {"mango", {Item::Mango, 25}},
             {"forage", {Item::Forage, 25}}, {"fish", {Item::Fish, 20}},
         };
         auto it = foods.find(arg);
         if (it == foods.end()) {
-            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, forage, fish.");
+            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, forage, fish.");
             return out;
         }
         int slot = find_slot(p, it->second.first);

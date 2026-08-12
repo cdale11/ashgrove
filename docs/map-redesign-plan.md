@@ -623,9 +623,9 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R11.3][A] Build, smoke-test, commit `feat: trellis crops + fruit trees`.
 
 ## R12. A5 farmhouse upgrade level 2
-- [R12.1][A] Add `FarmhouseLevel` to `World` state (1, 2, 3, 4).
-- [R12.2][A] Add `upgrade farmhouse` command at the Carpenter Shop. Cost: 10,000g + 350 wood. Expands interior to add kitchen + bedroom.
-- [R12.3][A] Build, smoke-test, commit `feat: farmhouse upgrade level 2 (cottage)`.
+- [x] [R12.1][A] Add `FarmhouseLevel` to `World` state (1, 2, 3, 4).
+- [x] [R12.2][A] Add `upgrade farmhouse` command at the Carpenter Shop. Cost: 10,000g + 350 wood. Expands interior to add kitchen + bedroom. Also added levels 3 (House) and 4 (Manor) with costs.
+- [x] [R12.3][A] Build, smoke-test, commit `feat: farmhouse upgrade level 2 (cottage) + more crops/fruit trees`.
 
 ## R13. A4 farming: composting + wind-pollination + moon-phase
 - [R13.1][A] Add `Composter` machine. Place on farm, throw weeds/fiber in, harvest fertilizer after 4 days.

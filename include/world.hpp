@@ -31,17 +31,21 @@ enum class Item : uint16_t {
     ParsnipSeeds = 10, PotatoSeeds = 11, CauliflowerSeeds = 12,
     CornSeeds = 13, TomatoSeeds = 14, WheatSeeds = 15, BlueberrySeeds = 16,
     GreenBeanSeeds = 17, HopsSeeds = 18,
-    Parsnip = 20, Potato = 21, Cauliflower = 22,
-    Corn = 23, Tomato = 24, Wheat = 25, Blueberry = 26,
-    GreenBean = 27, Hops = 28,
+    StrawberrySeeds = 19, MelonSeeds = 20, PumpkinSeeds = 21, RedCabbageSeeds = 22,
+    Parsnip = 25, Potato = 26, Cauliflower = 27,
+    Corn = 28, Tomato = 29, Wheat = 30, Blueberry = 31,
+    GreenBean = 32, Hops = 33,
+    Strawberry = 34, Melon = 35, Pumpkin = 36, RedCabbage = 37,
     CopperOre = 6, IronOre = 7, GoldOre = 8, IridiumOre = 9,
     CopperBar = 17, IronBar = 18, GoldBar = 19,
-    Wood = 30, Stone = 31, Fiber = 32,
-    Fish = 33, Forage = 34, Bread = 35,
-    FertilizerBasic = 36, FertilizerQuality = 37, FertilizerPremium = 38,
-    Scarecrow = 39,
-    AppleSapling = 40, CherrySapling = 41, PeachSapling = 42, PomegranateSapling = 43,
-    Apple = 44, Cherry = 45, Peach = 46, Pomegranate = 47,
+    Wood = 40, Stone = 41, Fiber = 42,
+    Fish = 43, Forage = 44, Bread = 45,
+    FertilizerBasic = 46, FertilizerQuality = 47, FertilizerPremium = 48,
+    Scarecrow = 49,
+    AppleSapling = 50, CherrySapling = 51, PeachSapling = 52, PomegranateSapling = 53,
+    ApricotSapling = 54, OrangeSapling = 55, BananaSapling = 56, MangoSapling = 57,
+    Apple = 58, Cherry = 59, Peach = 60, Pomegranate = 61,
+    Apricot = 62, Orange = 63, Banana = 64, Mango = 65,
 };
 
 struct ItemDef {
@@ -62,18 +66,23 @@ inline ItemDef const& item_def(Item it) {
         /* 10 */ {"Parsnip Seeds",1,20,0,0},{"Potato Seeds",1,50,0,0},{"Cauliflower Seeds",1,80,0,0},
         /* 13 */ {"Corn Seeds",1,150,0,0},{"Tomato Seeds",1,50,0,0},{"Wheat Seeds",1,10,0,0},
                 {"Blueberry Seeds",1,80,0,0},
+        /* 17 */ {"Green Bean Seeds",1,60,0,0},{"Hops Seeds",1,60,0,0},{"Strawberry Seeds",1,100,0,0},
+        /* 20 */ {"Melon Seeds",1,80,0,0},{"Pumpkin Seeds",1,100,0,0},{"Red Cabbage Seeds",1,100,0,0},
         /* 17-19 */ {"Copper Bar",3,-1,2,0},{"Iron Bar",3,-1,4,0},{"Gold Bar",3,-1,8,0},
-        /* 20 */ {"Parsnip",2,-1,35,0},{"Potato",2,-1,80,0},{"Cauliflower",2,-1,175,0},
-        /* 23 */ {"Corn",2,-1,110,0},{"Tomato",2,-1,120,0},{"Wheat",2,-1,25,0},
+        /* 25 */ {"Parsnip",2,-1,35,0},{"Potato",2,-1,80,0},{"Cauliflower",2,-1,175,0},
+        /* 28 */ {"Corn",2,-1,110,0},{"Tomato",2,-1,120,0},{"Wheat",2,-1,25,0},
                 {"Blueberry",2,-1,100,0},
-        /* 27-29 */ {"-",0,0,0,0},{"-",0,0,0,0},{"-",0,0,0,0},
-        /* 30 */ {"Wood",3,-1,2,0},{"Stone",3,-1,2,0},{"Fiber",3,-1,1,0},
-        /* 33 */ {"Fish",3,-1,0,0},{"Forage",3,-1,0,0},
-        /* 35 */ {"Bread",2,5,0,0},
-        /* 36 */ {"Fertilizer Basic",3,100,0,0},{"Fertilizer Quality",3,200,0,0},{"Fertilizer Premium",3,400,0,0},
-        /* 39 */ {"Scarecrow",3,500,0,0},
-        /* 40 */ {"Apple Sapling",3,4000,0,0},{"Cherry Sapling",3,3400,0,0},{"Peach Sapling",3,6000,0,0},{"Pomegranate Sapling",3,6000,0,0},
-        /* 44 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
+        /* 32 */ {"Green Bean",2,-1,40,0},{"Hops",2,-1,25,0},
+        /* 34 */ {"Strawberry",2,-1,120,0},{"Melon",2,-1,250,0},{"Pumpkin",2,-1,320,0},{"Red Cabbage",2,-1,260,0},
+        /* 40 */ {"Wood",3,-1,2,0},{"Stone",3,-1,2,0},{"Fiber",3,-1,1,0},
+        /* 43 */ {"Fish",3,-1,0,0},{"Forage",3,-1,0,0},
+        /* 45 */ {"Bread",2,5,0,0},
+        /* 46 */ {"Fertilizer Basic",3,100,0,0},{"Fertilizer Quality",3,200,0,0},{"Fertilizer Premium",3,400,0,0},
+        /* 49 */ {"Scarecrow",3,500,0,0},
+        /* 50 */ {"Apple Sapling",3,4000,0,0},{"Cherry Sapling",3,3400,0,0},{"Peach Sapling",3,6000,0,0},{"Pomegranate Sapling",3,6000,0,0},
+        /* 54 */ {"Apricot Sapling",3,2000,0,0},{"Orange Sapling",3,4000,0,0},{"Banana Sapling",3,5000,0,0},{"Mango Sapling",3,5000,0,0},
+        /* 58 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
+        /* 62 */ {"Apricot",2,-1,50,0},{"Orange",2,-1,100,0},{"Banana",2,-1,150,0},{"Mango",2,-1,130,0},
     };
     uint16_t i = static_cast<uint16_t>(it);
     return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
@@ -102,10 +111,18 @@ inline CropDef const* crop_def(const char* name) {
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
         {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
         {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"strawberry", Item::StrawberrySeeds, Item::Strawberry, 100, 120, 8, 0, 2},
+        {"melon", Item::MelonSeeds, Item::Melon, 80, 250, 12, 1, 1},
+        {"pumpkin", Item::PumpkinSeeds, Item::Pumpkin, 100, 320, 13, 2, 2},
+        {"red cabbage", Item::RedCabbageSeeds, Item::RedCabbage, 100, 260, 9, 2, 2},
         {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
         {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
         {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
         {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
+        {"apricot", Item::ApricotSapling, Item::Apricot, 2000, 50, 28, 0, 0},
+        {"orange", Item::OrangeSapling, Item::Orange, 4000, 100, 28, 0, 0},
+        {"banana", Item::BananaSapling, Item::Banana, 5000, 150, 28, 0, 0},
+        {"mango", Item::MangoSapling, Item::Mango, 5000, 130, 28, 0, 0},
     };
     std::string nm(name);
     // normalize: "parsnip seeds" -> "parsnip", "parsnips" -> "parsnip"
@@ -128,10 +145,18 @@ inline CropDef const* crop_def(Item produce) {
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
         {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
         {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"strawberry", Item::StrawberrySeeds, Item::Strawberry, 100, 120, 8, 0, 2},
+        {"melon", Item::MelonSeeds, Item::Melon, 80, 250, 12, 1, 1},
+        {"pumpkin", Item::PumpkinSeeds, Item::Pumpkin, 100, 320, 13, 2, 2},
+        {"red cabbage", Item::RedCabbageSeeds, Item::RedCabbage, 100, 260, 9, 2, 2},
         {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
         {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
         {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
         {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
+        {"apricot", Item::ApricotSapling, Item::Apricot, 2000, 50, 28, 0, 0},
+        {"orange", Item::OrangeSapling, Item::Orange, 4000, 100, 28, 0, 0},
+        {"banana", Item::BananaSapling, Item::Banana, 5000, 150, 28, 0, 0},
+        {"mango", Item::MangoSapling, Item::Mango, 5000, 130, 28, 0, 0},
     };
     for (auto& c : crops)
         if (c.produce == produce) return &c;
@@ -149,10 +174,18 @@ inline CropDef const* crop_by_seed(Item seed) {
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
         {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
         {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"strawberry", Item::StrawberrySeeds, Item::Strawberry, 100, 120, 8, 0, 2},
+        {"melon", Item::MelonSeeds, Item::Melon, 80, 250, 12, 1, 1},
+        {"pumpkin", Item::PumpkinSeeds, Item::Pumpkin, 100, 320, 13, 2, 2},
+        {"red cabbage", Item::RedCabbageSeeds, Item::RedCabbage, 100, 260, 9, 2, 2},
         {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
         {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
         {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
         {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
+        {"apricot", Item::ApricotSapling, Item::Apricot, 2000, 50, 28, 0, 0},
+        {"orange", Item::OrangeSapling, Item::Orange, 4000, 100, 28, 0, 0},
+        {"banana", Item::BananaSapling, Item::Banana, 5000, 150, 28, 0, 0},
+        {"mango", Item::MangoSapling, Item::Mango, 5000, 130, 28, 0, 0},
     };
     for (auto& c : crops)
         if (c.seed == seed) return &c;
@@ -267,6 +300,9 @@ struct World {
     uint32_t day = 1;
     float day_seconds = 0.0f;   // seconds since 6:00 AM
     static constexpr float DAY_LENGTH_S = 800.0f; // 20h @ 40s per game hour
+
+    // Farmhouse upgrade level (1=starter, 2=cottage, 3=house, 4=manor)
+    uint8_t farmhouse_level = 1;
 
     Vec2 house_tl{38, 78};
 
