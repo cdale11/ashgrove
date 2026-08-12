@@ -593,11 +593,11 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R6.5][A] Build, smoke-test, commit `feat: client renders cobble + seasonal trees + new buildings`.
 
 ## R7. Farmhouse interior redesign (A2 template)
-- [R7.1][Q] Ask the user: confirm Farmhouse level-1 interior layout (5×7 dimensions, furniture set: bed, TV, table, stove, rug, shelf, window). Confirm ASCII layout before writing.
-- [R7.2][A] Rewrite `Farmhouse` interior in `init_interiors()` with the agreed layout.
-- [R7.3][A] Make each piece of furniture interactive via new `interior_interactables` table (small for v1: bed→sleep, TV→forecast, stove→cook bread from wheat, table→read journal).
-- [R7.4][A] Client: render interior on the minimap panel when player is `inside`. New `renderMinimapInterior(room, px, py)` function.
-- [R7.5][A] Build, smoke-test that entering/exiting works, commit `feat: redesigned farmhouse interior + minimap swap`.
+- [x] [R7.1][Q] Ask the user: confirm Farmhouse level-1 interior layout — **Expanded to 7×9 traditional farmhouse** with bed, TV, table, stove, counter, fridge, shelf, chair.
+- [x] [R7.2][A] Rewrite `Farmhouse` interior in `init_interiors()` with the agreed 7×9 layout.
+- [x] [R7.3][A] Make each piece of furniture interactive via `interact` command (bed→sleep, TV→forecast, stove→cook, counter→prep, fridge→store, shelf→browse, table→dine, chair→sit).
+- [ ] [R7.4][A] Client: render interior on the minimap panel when player is `inside`. New `renderMinimapInterior(room, px, py)` function.
+- [ ] [R7.5][A] Build, smoke-test that entering/exiting works, commit `feat: redesigned farmhouse interior + minimap swap`.
 
 ## R8. Farmhouse weathering + maintenance (A1, Farmhouse only)
 - [R8.1][A] Add `BuildingState` struct + per-day decay hook in `World::tick()`. Rainy days → `roof_leak += 1` on Farmhouse. Winter → `foundation -= 0.2/day`.

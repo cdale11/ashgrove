@@ -658,9 +658,13 @@ void init_interiors(World& world) {
     };
     room("Farmhouse", {
         "#######",
-        "#B.TV.#",
+        "#B.V..#",
         "#.....#",
-        "#.S...#",
+        "#.T...#",
+        "#.G...#",
+        "#..S.C#",
+        "#..F.X#",
+        "#.....#",
         "##   ##",
     });
     room("General Store", {

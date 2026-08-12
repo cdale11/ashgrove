@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `README.md` with project overview, architecture, build instructions, design philosophy
 - `CHANGELOG.md` (this file)
 
+## [0.6.2] - 2026-08-12
+
+### Fixed — Compiler Warning Cleanup
+- All C-style casts replaced with `static_cast<>` (C++ Core Guidelines ES.49)
+- Sign conversions fixed: `int8_t`/`uint8_t`, `int16_t`/`int`, `uint64_t`/`uint32_t`
+- Array index sign conversions: `int` → `size_t`/`array::size_type` for `std::array<InvSlot,12>` and interior room vectors
+- JSON deserialization: explicit casts for `hp`, `ore`, `stage`, `days_left`, `count`
+- Server now builds clean with `-Wconversion -Wsign-conversion -Wold-style-cast -Werror=return-type -Werror=non-virtual-dtor`
+
+### Added — Documentation
+- `README.md`: Architecture, build instructions, design philosophy, parallelism strategy
+- `CHANGELOG.md`: Full version history from v0.1.0
+
 ## [0.6.1] - 2026-08-12
 
 ### Added — Build System & Parallelism Infrastructure

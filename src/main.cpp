@@ -1274,13 +1274,80 @@ if (cmd == "buy") {
             return out;
         }
         const std::string& b = p.inside;
-        if (b == "Farmhouse") {
-            advance_day(w);
-            say("You crawl into bed and sleep...");
-            say("--- Day " + std::to_string(w.day) + " · " +
-                std::string(season_name(season_index(w.day))) + " ---");
-            say("You wake up refreshed. Energy restored.");
-        } else if (b == "General Store" || b == "Market") {
+        auto rit = w.interiors.find(b);
+        if (rit != w.interiors.end()) {
+            const InteriorRoom& room = rit->second;
+            // Check adjacent furniture for context-specific interaction
+            char here = room.rows[p.iny][p.inx];
+            std::vector<std::pair<char, std::string>> adjacent;
+            for (auto [ox, oy, dir] : std::vector<std::tuple<int,int,std::string>>{{0,-1,"north"},{0,1,"south"},{-1,0,"west"},{1,0,"east"}}) {
+                int tx = p.inx + ox, ty = p.iny + oy;
+                if (tx < 0 || tx >= room.w || ty < 0 || ty >= room.h) continue;
+                char ch = room.rows[ty][tx];
+                if (ch != '.' && ch != ' ' && ch != 'P' && ch != '#') {
+                    adjacent.emplace_back(ch, dir);
+                }
+            }
+            // Farmhouse furniture interactions
+            if (b == "Farmhouse") {
+                for (auto [ch, dir] : adjacent) {
+                    if (ch == 'B') { // Bed
+                        advance_day(w);
+                        say("You crawl into bed and sleep...");
+                        say("--- Day " + std::to_string(w.day) + " · " +
+                            std::string(season_name(season_index(w.day))) + " ---");
+                        say("You wake up refreshed. Energy restored.");
+                        return out;
+                    } else if (ch == 'V') { // TV
+                        say(std::string("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"));
+                        say("    STARDROP VALLEY LOCAL NEWS 68");
+                        say(std::string("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"));
+                        say("Anchor: \"Good morning, Valley! This is ..."
+                            + std::string(season_name(season_index(w.day)))
+                            + " " + std::to_string(season_day(w.day)) + ".\"");
+                        int nd = weather_of_day(w.day + 1) == 1;
+                        say("Weather: Tomorrow's forecast — " +
+                            (nd ? std::string(weather_of_day_name(w.day + 1)) + ", bring a coat."
+                                : std::string(weather_of_day_name(w.day + 1)) + ", skies will clear."));
+                        std::vector<std::string> tips = {
+                            "SPRING: Blueberry seeds (80g) sell for 100g — plant in Spring for a fat Summer harvest.",
+                            "SUMMER: Preserve your blueberries & tomatoes in kegs. Quality stars sell for more.",
+                            "FALL: Grapes hang heavy. Harvest before the first frost.",
+                            "WINTER: The Travelling Cart visits Thurs–Sun this week. Prices are slashed.",
+                        };
+                        say("Correspondent: \"" + tips[season_index(w.day)] + "\"");
+                        say("\"And now, the Stardew Valley Fair is coming...\"");
+                        return out;
+                    } else if (ch == 'S') { // Stove
+                        say("The stove is warm. You could cook something here. (Use 'cook <recipe>')");
+                        return out;
+                    } else if (ch == 'C') { // Counter
+                        say("A clean kitchen counter. Good for food prep.");
+                        return out;
+                    } else if (ch == 'F') { // Fridge
+                        say("The fridge hums quietly. Stores perishables. (Not yet implemented)");
+                        return out;
+                    } else if (ch == 'X') { // Shelf
+                        say("Shelves hold jars, preserves, and cookbooks. (Not yet implemented)");
+                        return out;
+                    } else if (ch == 'T') { // Table
+                        say("The dining table is set. A place for meals and journaling.");
+                        return out;
+                    } else if (ch == 'G') { // Chair
+                        say("You pull out a chair and sit. Comfortable.");
+                        return out;
+                    }
+                }
+                // Default Farmhouse interaction (sleep)
+                advance_day(w);
+                say("You crawl into bed and sleep...");
+                say("--- Day " + std::to_string(w.day) + " · " +
+                    std::string(season_name(season_index(w.day))) + " ---");
+                say("You wake up refreshed. Energy restored.");
+                return out;
+            }
+        }
+        if (b == "General Store" || b == "Market") {
             say("Pierre's Seed Shop  (" + std::string(season_name(season_index(w.day))) + " prices):");
             say("  parsnip 20g · potato 50g · cauliflower 80g · corn 150g (summer/fall)");
             say("  tomato 50g (summer) · wheat 10g (spring..winter) · blueberry 80g (spring..fall)");
