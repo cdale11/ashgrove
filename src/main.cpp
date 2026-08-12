@@ -109,8 +109,23 @@ static void advance_day(World& w) {
         p.gifted_today.clear();
     }
 
-    // Building weathering & maintenance (Farmhouse first ship)
+    // Fruit trees: produce once per season after maturing (28 days)
     int season = season_index(w.day);
+    for (auto& cell : w.cells) {
+        if (cell.crop.is_crop() && cell.crop.is_fruit_tree && cell.crop.days_left == 0) {
+            // Fruit tree is mature (days_left == 0)
+            // Check if it hasn't produced this season yet
+            if (cell.crop.last_harvest_season != season) {
+                // Produce fruit
+                cell.crop.last_harvest_season = season;
+                // Fruit is ready to harvest (stage 3)
+                cell.crop.stage = 3;
+                cell.crop.watered = rain;
+            }
+        }
+    }
+
+    // Building weathering & maintenance (Farmhouse first ship)
     bool winter = (season == 3);
     for (auto& [name, bs] : w.building_states) {
         if (name != "Farmhouse") continue; // First ship: only Farmhouse decays
@@ -318,6 +333,18 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             c.crop.stage = 0;
             c.crop.days_left = static_cast<int8_t>(cd->days);
             c.crop.watered = false;
+            c.crop.is_trellis = false;
+            c.crop.is_fruit_tree = false;
+            c.crop.last_harvest_season = -1;
+            // Trellis crops: green bean, hops
+            if (cd->produce == Item::GreenBean || cd->produce == Item::Hops) {
+                c.crop.is_trellis = true;
+            }
+            // Fruit trees: apple, cherry, peach, pomegranate
+            if (cd->produce == Item::Apple || cd->produce == Item::Cherry ||
+                cd->produce == Item::Peach || cd->produce == Item::Pomegranate) {
+                c.crop.is_fruit_tree = true;
+            }
             return "Planted";
         }
     }
@@ -520,7 +547,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  inventory      list what you carry (alias: inv)");
         say("  status         day, time, energy, money (alias: stats)");
         say("  hoe            till soil in front of you");
-        say("  plant <crop>   plant seeds on tilled soil");
+        say("  plant <crop>   plant seeds on tilled soil (parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, apple, cherry, peach, pomegranate)");
         say("  water          water the soil in front of you");
         say("  harvest        pick a ripe crop");
         say("  axe            chop a tree   |   pick  mine a rock");
@@ -970,7 +997,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     // ---------- planting ----------
     if (cmd == "plant" || cmd == "planting") {
         const CropDef* crop = crop_def(arg.c_str());
-        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat or blueberry."); return out; }
+        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, apple, cherry, peach, pomegranate."); return out; }
         int season = season_index(w.day);
         if (season == 3) { say("The soil is frozen solid. Nothing grows in winter."); return out; }
         if (season < crop->min_season || season > crop->max_season) {
@@ -1036,6 +1063,18 @@ c.crop.stage = 0;
         if (!c.crop.is_crop()) { say("No crop there."); return out; }
         if (c.crop.stage < 3 || c.crop.days_left > 0) { say("The crop isn't ready yet."); return out; }
         Item produce = c.crop.crop;
+        // Fruit trees: don't remove the crop, just mark as harvested this season
+        if (c.crop.is_fruit_tree) {
+            // Already marked as harvested in advance_day (last_harvest_season = current season)
+            // Just give the fruit
+            add_item(p, produce, 1);
+            p.money += item_def(produce).sell;
+            say("You harvest a " + std::string(item_def(produce).name) + " from the tree! +" +
+                std::to_string(item_def(produce).sell) + "g");
+            say("The tree will produce again next season.");
+            return out;
+        }
+        // Regular crops: remove after harvest
         c.crop = Crop{};
         add_item(p, produce, 1);
         p.money += item_def(produce).sell;

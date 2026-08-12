@@ -610,17 +610,17 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R9.1][A] Add `ObjType::LeafLitter` (overlay) and a per-day autumn hook that scatters leaf litter adjacent to deciduous trees in Whisper Wood.
 - [x] [R9.2][A] Add `Rabbit` NPCs (non-hostile, data in the existing NPC array using a `kind` field). 2 rabbits near the farm. At dawn they eat one adjacent un-harvested crop if no fence.
 - [x] [R9.3][A] Add `weather` chance of `foggy` in autumn mornings; fog reduces `look` output to 1-tile radius (adjacent only). `clear` later in day.
-- [ ] [R9.4][A] Build, smoke-test, commit `feat: living world — leaf litter, rabbits, autumn fog`.
+- [x] [R9.4][A] Build, smoke-test, commit `feat: living world — leaf litter, rabbits, autumn fog`.
 
 ## R10. A4 farming: scarecrow + fertilizer
-- [R10.1][A] Add scarecrow (object) + crow overnight logic: each night, un-scarecrowed mature crops have 5% chance each to be eaten by crows. Scout scarecrow covers a 17×17 area; quality scarecrow 99-tile.
-- [R10.2][A] Add fertilizer tiers (Basic, Quality, Premium). New `Item::FertilizerBasic` etc. Applied to tilled soil before planting.
-- [R10.3][A] Build, smoke-test, commit `feat: scarecrow + fertilizer tiers`.
+- [x] [R10.1][A] Add scarecrow (object) + crow overnight logic: each night, un-scarecrowed mature crops have 5% chance each to be eaten by crows. Scout scarecrow covers a 17×17 area; quality scarecrow 99-tile.
+- [x] [R10.2][A] Add fertilizer tiers (Basic, Quality, Premium). New `Item::FertilizerBasic` etc. Applied to tilled soil before planting.
+- [x] [R10.3][A] Build, smoke-test, commit `feat: scarecrow + fertilizer tiers`.
 
 ## R11. A4 farming: trellis crops + fruit trees
-- [R11.1][A] Add trellis crops (green beans, hops). Impassable tiles. Mature-harvestable.
-- [R11.2][A] Add fruit trees (apple, cherry, peach, pomegranate). Take 28 days to mature, produce once/season after that.
-- [R11.3][A] Build, smoke-test, commit `feat: trellis crops + fruit trees`.
+- [x] [R11.1][A] Add trellis crops (green beans, hops). Impassable tiles. Mature-harvestable.
+- [x] [R11.2][A] Add fruit trees (apple, cherry, peach, pomegranate). Take 28 days to mature, produce once/season after that.
+- [x] [R11.3][A] Build, smoke-test, commit `feat: trellis crops + fruit trees`.
 
 ## R12. A5 farmhouse upgrade level 2
 - [R12.1][A] Add `FarmhouseLevel` to `World` state (1, 2, 3, 4).

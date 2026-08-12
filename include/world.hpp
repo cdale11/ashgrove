@@ -30,14 +30,18 @@ enum class Item : uint16_t {
     Hoe = 1, WateringCan = 2, Axe = 3, Pickaxe = 4, Scythe = 5,
     ParsnipSeeds = 10, PotatoSeeds = 11, CauliflowerSeeds = 12,
     CornSeeds = 13, TomatoSeeds = 14, WheatSeeds = 15, BlueberrySeeds = 16,
+    GreenBeanSeeds = 17, HopsSeeds = 18,
     Parsnip = 20, Potato = 21, Cauliflower = 22,
     Corn = 23, Tomato = 24, Wheat = 25, Blueberry = 26,
+    GreenBean = 27, Hops = 28,
     CopperOre = 6, IronOre = 7, GoldOre = 8, IridiumOre = 9,
     CopperBar = 17, IronBar = 18, GoldBar = 19,
     Wood = 30, Stone = 31, Fiber = 32,
     Fish = 33, Forage = 34, Bread = 35,
     FertilizerBasic = 36, FertilizerQuality = 37, FertilizerPremium = 38,
     Scarecrow = 39,
+    AppleSapling = 40, CherrySapling = 41, PeachSapling = 42, PomegranateSapling = 43,
+    Apple = 44, Cherry = 45, Peach = 46, Pomegranate = 47,
 };
 
 struct ItemDef {
@@ -68,6 +72,8 @@ inline ItemDef const& item_def(Item it) {
         /* 35 */ {"Bread",2,5,0,0},
         /* 36 */ {"Fertilizer Basic",3,100,0,0},{"Fertilizer Quality",3,200,0,0},{"Fertilizer Premium",3,400,0,0},
         /* 39 */ {"Scarecrow",3,500,0,0},
+        /* 40 */ {"Apple Sapling",3,4000,0,0},{"Cherry Sapling",3,3400,0,0},{"Peach Sapling",3,6000,0,0},{"Pomegranate Sapling",3,6000,0,0},
+        /* 44 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
     };
     uint16_t i = static_cast<uint16_t>(it);
     return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
@@ -94,6 +100,12 @@ inline CropDef const* crop_def(const char* name) {
         {"tomato", Item::TomatoSeeds, Item::Tomato, 50, 120, 10, 1, 1},
         {"wheat", Item::WheatSeeds, Item::Wheat, 10, 25, 4, 0, 3},
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
+        {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
+        {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
+        {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
+        {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
+        {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
     };
     std::string nm(name);
     // normalize: "parsnip seeds" -> "parsnip", "parsnips" -> "parsnip"
@@ -114,6 +126,12 @@ inline CropDef const* crop_def(Item produce) {
         {"tomato", Item::TomatoSeeds, Item::Tomato, 50, 120, 10, 1, 1},
         {"wheat", Item::WheatSeeds, Item::Wheat, 10, 25, 4, 0, 3},
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
+        {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
+        {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
+        {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
+        {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
+        {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
     };
     for (auto& c : crops)
         if (c.produce == produce) return &c;
@@ -129,6 +147,12 @@ inline CropDef const* crop_by_seed(Item seed) {
         {"tomato", Item::TomatoSeeds, Item::Tomato, 50, 120, 10, 1, 1},
         {"wheat", Item::WheatSeeds, Item::Wheat, 10, 25, 4, 0, 3},
         {"blueberry", Item::BlueberrySeeds, Item::Blueberry, 80, 100, 13, 0, 2},
+        {"green bean", Item::GreenBeanSeeds, Item::GreenBean, 60, 40, 10, 0, 2},
+        {"hops", Item::HopsSeeds, Item::Hops, 60, 25, 11, 1, 1},
+        {"apple", Item::AppleSapling, Item::Apple, 4000, 100, 28, 0, 0},
+        {"cherry", Item::CherrySapling, Item::Cherry, 3400, 80, 28, 0, 0},
+        {"peach", Item::PeachSapling, Item::Peach, 6000, 140, 28, 0, 0},
+        {"pomegranate", Item::PomegranateSapling, Item::Pomegranate, 6000, 140, 28, 0, 0},
     };
     for (auto& c : crops)
         if (c.seed == seed) return &c;
@@ -186,6 +210,11 @@ struct Crop {
     uint8_t stage = 0;        // 0..3 (sprite index)
     int8_t days_left = 0;     // days until mature
     bool watered = false;
+    // Trellis crops (green bean, hops) are impassable when growing
+    // Fruit trees (apple, cherry, peach, pomegranate) produce seasonally
+    bool is_trellis = false;
+    bool is_fruit_tree = false;
+    int8_t last_harvest_season = -1; // for fruit trees: season when last harvested
     bool is_crop() const { return crop != Item::None; }
 };
 
@@ -254,10 +283,14 @@ struct World {
         if (t == Tile::Water || t == Tile::WaterNorth || t == Tile::WaterSouth ||
             t == Tile::WaterEast || t == Tile::WaterWest) return false;
         ObjType o = at(x, y).obj.type;
-        return o != ObjType::Tree && o != ObjType::Rock && o != ObjType::Stump &&
-               o != ObjType::FencePost && o != ObjType::FenceRail &&
-               o != ObjType::Pine && o != ObjType::Building &&
-               o != ObjType::Sprinkler && o != ObjType::Statue;
+        if (o == ObjType::Tree || o == ObjType::Rock || o == ObjType::Stump ||
+            o == ObjType::FencePost || o == ObjType::FenceRail ||
+            o == ObjType::Pine || o == ObjType::Building ||
+            o == ObjType::Sprinkler || o == ObjType::Statue) return false;
+        // Trellis crops (green bean, hops) are impassable
+        const Crop& crop = at(x, y).crop;
+        if (crop.is_crop() && crop.is_trellis) return false;
+        return true;
     }
     bool walkable(Vec2 p) const { return walkable(p.x, p.y); }
 
