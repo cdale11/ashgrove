@@ -127,6 +127,38 @@ static void advance_day(World& w) {
         }
     }
 
+    // R9.1: Autumn leaf litter - scatter near deciduous trees in Whisper Wood
+    if (season == 2) { // Fall
+        std::mt19937 rng(w.day * 12345 + 67890);
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        for (int y = 16; y < 74; ++y) {
+            for (int x = 4; x < 22; ++x) {
+                if (!w.in_bounds(x, y)) continue;
+                Cell& c = w.at(x, y);
+                // Only on grass/dirt tiles near deciduous trees (Tree, not Pine)
+                if (c.obj.type != ObjType::None) continue;
+                if (c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Dirt) continue;
+                // Check adjacent for deciduous tree
+                bool near_tree = false;
+                for (int dy = -1; dy <= 1 && !near_tree; ++dy) {
+                    for (int dx = -1; dx <= 1 && !near_tree; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx, ny = y + dy;
+                        if (!w.in_bounds(nx, ny)) continue;
+                        Cell& nc = w.at(nx, ny);
+                        if (nc.obj.type == ObjType::Tree) near_tree = true;
+                    }
+                }
+                if (near_tree && dist(rng) < 0.15f) {
+                    c.obj = {ObjType::LeafLitter, 1};
+                }
+            }
+        }
+    }
+
+    // R9.3: Autumn morning fog - handled in weather system, look command checks this
+    // (foggy weather flag stored in world, checked by look command)
+
     save_world(w, "save.json");
 }
 
@@ -751,6 +783,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             std::string(region_at(w, p.pos.x, p.pos.y)) + ".");
         say("It's a " + std::string(weather_of_day_name(w.day)) + " " +
             std::string(season_name(season)) + " " + std::string(part) + ".");
+        // R9.3: Foggy weather reduces visibility
+        bool foggy = (weather_of_day(w.day) == 2);
+        if (foggy) say("A thick fog clings to the valley. You can barely see a few feet ahead.");
         if (c.tile == Tile::Grass || c.tile == Tile::GrassVar)
             say("Wild grass rustles in the breeze.");
         if (c.tile == Tile::Tilled) say("Freshly tilled soil.");
@@ -802,14 +837,18 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say("Nearby: " + near[0]);
             for (size_t i = 1; i < near.size(); ++i) say("         " + near[i]);
         }
-        // NPCs in earshot
+        // NPCs in earshot - limited in fog
         std::vector<std::string> folks;
         for (auto& n : w.npcs) {
             int dist = std::abs(int(n.pos.x) - p.pos.x) + std::abs(int(n.pos.y) - p.pos.y);
-            if (dist <= 3)
+            if (foggy) {
+                if (dist <= 1) // Only adjacent in fog
+                    folks.push_back(n.name + " (right here)");
+            } else if (dist <= 3) {
                 folks.push_back(n.name + (dist <= 1 ? " (right here)" :
                     " to the " + std::string(n.pos.y < p.pos.y ? "north" : n.pos.y > p.pos.y ? "south" :
-                                            n.pos.x > p.pos.x ? "east" : "west")));
+                                                n.pos.x > p.pos.x ? "east" : "west")));
+            }
         }
         for (auto& f : folks) say("You see " + f + ". Try 'talk " + f.substr(0, f.find(' ')) + "'.");
         return out;

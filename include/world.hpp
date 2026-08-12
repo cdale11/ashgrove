@@ -134,6 +134,7 @@ inline CropDef const* crop_by_seed(Item seed) {
 // ---- NPCs ----
 struct NPC {
     std::string name;
+    std::string kind = "villager"; // "villager", "rabbit", etc.
     uint8_t color = 1;         // 1..5 sprite color (index into NPC list; color >palette clamps via %)
     Vec2 pos;
     Vec2 way[2];

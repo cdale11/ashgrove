@@ -607,10 +607,10 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [ ] [R8.5][A] Build, smoke-test, commit `feat: farmhouse weathering + repair (first ship of A1)`.
 
 ## R9. Living world proof-of-concept (A6)
-- [R9.1][A] Add `Tile::LeafLitter` (overlay) and a per-day autumn hook that scatters leaf litter adjacent to deciduous trees in Whisper Wood.
-- [R9.2][A] Add `Rabbit` NPCs (non-hostile, data in the existing NPC array using a `kind` field). 2 rabbits near the farm. At dawn they eat one adjacent un-harvested crop if no fence.
-- [R9.3][A] Add `weather` chance of `foggy` in autumn mornings; fog reduces `look` output to 1-tile radius. `clear` later in day.
-- [R9.4][A] Build, smoke-test, commit `feat: living world — leaf litter, rabbits, autumn fog`.
+- [x] [R9.1][A] Add `ObjType::LeafLitter` (overlay) and a per-day autumn hook that scatters leaf litter adjacent to deciduous trees in Whisper Wood.
+- [x] [R9.2][A] Add `Rabbit` NPCs (non-hostile, data in the existing NPC array using a `kind` field). 2 rabbits near the farm. At dawn they eat one adjacent un-harvested crop if no fence.
+- [x] [R9.3][A] Add `weather` chance of `foggy` in autumn mornings; fog reduces `look` output to 1-tile radius (adjacent only). `clear` later in day.
+- [ ] [R9.4][A] Build, smoke-test, commit `feat: living world — leaf litter, rabbits, autumn fog`.
 
 ## R10. A4 farming: scarecrow + fertilizer
 - [R10.1][A] Add scarecrow (object) + crow overnight logic: each night, un-scarecrowed mature crops have 5% chance each to be eaten by crows. Scout scarecrow covers a 17×17 area; quality scarecrow 99-tile.

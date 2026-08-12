@@ -797,11 +797,21 @@ const char* season_name(int s) {
 }
 
 int weather_of_day(uint32_t day) {
+    int season = season_index(day);
+    // ~20% rainy days, plus autumn foggy mornings
+    if (season == 2) { // Fall
+        int r = ((day * 2654435761u) >> 16) % 10;
+        if (r < 2) return 2; // 20% foggy
+        if (r < 4) return 1; // 20% rainy
+        return 0;
+    }
     return (((day * 2654435761u) >> 16) % 5) == 0 ? 1 : 0;   // ~20% rainy days
 }
 
 const char* weather_of_day_name(uint32_t day) {
-    return weather_of_day(day) ? "Rainy" : "Sunny";
+    int w = weather_of_day(day);
+    if (w == 2) return "Foggy";
+    return w ? "Rainy" : "Sunny";
 }
 
 int npc_at(const World& w, int x, int y) {
@@ -840,9 +850,10 @@ const char* region_at(const World& w, int x, int y) {
 // ---- NPC patrols ----
 void init_npcs(World& world) {
     world.npcs.clear();
-    auto add_npc = [&](std::string name, uint8_t color, Vec2 a, Vec2 b) {
+    auto add_npc = [&](std::string name, std::string kind, uint8_t color, Vec2 a, Vec2 b) {
         NPC n;
         n.name = name;
+        n.kind = kind;
         n.color = color;
         n.pos = a;
         n.way[0] = a;
@@ -850,11 +861,14 @@ void init_npcs(World& world) {
         n.next_move_ms = 0;
         world.npcs.push_back(n);
     };
-    add_npc("Leah", 1, {21, 40}, {21, 40});          // Willow House door (Birch Court)
-    add_npc("Abigail", 2, {27, 40}, {27, 40});        // Maple House door (Birch Court)
-    add_npc("Elliot", 3, {51, 40}, {51, 40});         // Rowan Cottage door (Maple Court)
-    add_npc("Robin", 4, {51, 24}, {51, 24});          // Carpenter Shop (commerce row)
-    add_npc("Evelyn", 5, {94, 24}, {95, 23});         // Tearoom shore (Lake Aurora)
+    add_npc("Leah", "villager", 1, {21, 40}, {21, 40});          // Willow House door (Birch Court)
+    add_npc("Abigail", "villager", 2, {27, 40}, {27, 40});        // Maple House door (Birch Court)
+    add_npc("Elliot", "villager", 3, {51, 40}, {51, 40});         // Rowan Cottage door (Maple Court)
+    add_npc("Robin", "villager", 4, {51, 24}, {51, 24});          // Carpenter Shop (commerce row)
+    add_npc("Evelyn", "villager", 5, {94, 24}, {95, 23});         // Tearoom shore (Lake Aurora)
+    // R9.2: Rabbits near the farm (wildlife, kind="rabbit")
+    add_npc("Cottontail", "rabbit", 2, {35, 75}, {38, 75});       // Near farm, west side
+    add_npc("Thumper", "rabbit", 3, {45, 75}, {48, 75});          // Near farm, east side
 }
 
 // ---- NPC daily schedules ----
