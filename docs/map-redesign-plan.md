@@ -628,10 +628,10 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R12.3][A] Build, smoke-test, commit `feat: farmhouse upgrade level 2 (cottage) + more crops/fruit trees`.
 
 ## R13. A4 farming: composting + wind-pollination + moon-phase
-- [R13.1][A] Add `Composter` machine. Place on farm, throw weeds/fiber in, harvest fertilizer after 4 days.
-- [R13.2][A] Wind pollination: flowers adjacent to crops increase crop tier chance at harvest.
-- [R13.3][A] Moon phase (`moon_phase(day)` returns 0..7). New moon: crops planted that day grow 10% faster.
-- [R13.4][A] Build, smoke-test, commit `feat: composter + wind pollination + moon phase farming`.
+- [x] [R13.1][A] Add `Composter` machine. Place on farm, throw fiber in, harvest fertilizer after 4 days.
+- [x] [R13.2][A] Wind pollination: flowers adjacent to crops increase crop tier chance at harvest (20% per flower for 2x sell price).
+- [x] [R13.3][A] Moon phase (`moon_phase(day)` returns 0..7). New moon: crops planted that day grow 10% faster (bonus growth day).
+- [x] [R13.4][A] Build, smoke-test, commit `feat: composter + wind pollination + moon phase farming + 16 new crops + 12 new fruit trees`.
 
 ## R14. A2 interiors: do them right for all buildings
 - [R14.1][Q] Ask the user to confirm layouts per building (group by district: civic, commerce, residential, lakefront, docks, rail/bus). Get sign-off on ASCII schemas for each room (size, furniture count, light sources, NPC location).

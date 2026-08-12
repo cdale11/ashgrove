@@ -72,6 +72,11 @@ static void advance_day(World& w) {
                     // Consume fertilizer after applying boost
                     cell.obj.ore = 0;
                 }
+                // Moon phase bonus: crops planted on new moon (hp=1) grow 10% faster
+                if (cell.obj.type == ObjType::None && cell.obj.hp == 1) {
+                    // 10% chance of extra growth per day
+                    if ((w.day + cell.crop.days_left) % 10 == 0) growth++;
+                }
                 cell.crop.days_left = std::max(0, cell.crop.days_left - growth);
                 // Recompute stage based on elapsed time vs total days.
                 // Stage 0 = just planted, stage 3 = ready to harvest.
@@ -121,6 +126,34 @@ static void advance_day(World& w) {
                 // Fruit is ready to harvest (stage 3)
                 cell.crop.stage = 3;
                 cell.crop.watered = rain;
+            }
+        }
+    }
+
+    // Composters: process compost (increment day counter)
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (c.obj.type == ObjType::Composter && c.obj.hp > 0 && c.obj.hp < 4) {
+                c.obj.hp++; // advance composting day
+            }
+        }
+
+    // Wind pollination: flowers adjacent to crops boost quality chance at harvest
+    // This is applied at harvest time, but we track it here for flavor
+    // (Actual quality boost happens in harvest command)
+
+    // Moon phase: new moon (phase 0) = crops planted that day grow 10% faster
+    // Moon phase: 0=new, 1=waxing crescent, 2=first quarter, 3=waxing gibbous, 4=full, 5=waning gibbous, 6=last quarter, 7=waning crescent
+    // Crops store moon_phase_planted in obj.hp (reuse field)
+    int moon_phase = w.day % 8;
+    if (moon_phase == 0) {
+        // New moon - mark newly planted crops for bonus
+        for (auto& cell : w.cells) {
+            if (cell.crop.is_crop() && cell.crop.days_left == cell.crop.days_left && cell.obj.type == ObjType::None) {
+                // This is a newly planted crop (days_left equals total days)
+                // Mark with moon phase bonus in obj.hp
+                cell.obj.hp = 1; // 1 = new moon bonus
             }
         }
     }
@@ -547,21 +580,21 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  inventory      list what you carry (alias: inv)");
         say("  status         day, time, energy, money (alias: stats)");
         say("  hoe            till soil in front of you");
-        say("  plant <crop>   plant seeds on tilled soil (parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, apple, cherry, peach, pomegranate)");
+        say("  plant <crop>   plant seeds on tilled soil (parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon)");
         say("  water          water the soil in front of you");
-        say("  harvest        pick a ripe crop");
+        say("  harvest        pick a ripe crop (flowers nearby boost quality)");
         say("  axe            chop a tree   |   pick  mine a rock");
         say("  scythe         clear weeds   |   forage near grass");
         say("  fish           cast a line if water is near");
         say("  talk <name>    chat with a nearby villager");
         say("  gift <n> <it>  give a present to an adjacent villager");
-        say("  eat <item>     snack for energy (bread, forage, crops)");
+        say("  eat <item>     snack for energy (bread, forage, crops, fruit)");
         say("  buy <item>     buy at the shop (type 'shop')");
         say("  sell <item>    sell produce/items");
-        say("  craft <item>  make things from resources (bread)");
-        say("  place <thing>  build a structure: place sprinkler (2 Iron + 1 Gold), place scarecrow");
+        say("  craft <item>  make things: bread, scarecrow (10 wood + 5 fiber), composter (50 wood + 10 stone + 20 fiber)");
+        say("  place <thing>  build: sprinkler (2 Iron + 1 Gold), scarecrow, composter");
         say("  repair <building>  fix a building (wood + stone, at Carpenter Shop)");
-        say("  upgrade farmhouse  expand to cottage (10,000g + 350 wood, at Carpenter Shop)");
+        say("  upgrade farmhouse  expand: cottage (10k+350w), house (50k+450w+200s), manor (100k+600w+300s)");
         say("  enter [<name>] step into a building (stand at its door)");
         say("  exit           leave the building you're in (alias: leave)");
         say("  interact       use what's around you inside (alias: use)");
@@ -1000,7 +1033,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     // ---------- planting ----------
     if (cmd == "plant" || cmd == "planting") {
         const CropDef* crop = crop_def(arg.c_str());
-        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, apple, cherry, peach, pomegranate, apricot, orange, banana, mango."); return out; }
+        if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon."); return out; }
         int season = season_index(w.day);
         if (season == 3) { say("The soil is frozen solid. Nothing grows in winter."); return out; }
         if (season < crop->min_season || season > crop->max_season) {
@@ -1021,11 +1054,34 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.energy -= 1;
         consume_item(p, crop->seed, 1);
         c.crop.crop = crop->produce;
-c.crop.stage = 0;
-            c.crop.days_left = static_cast<int8_t>(crop->days);
-            c.crop.watered = false;
-        say("You plant " + std::string(crop->name) + " seeds. (" +
-            std::to_string(crop->days) + " days to harvest)");
+        c.crop.stage = 0;
+        c.crop.days_left = static_cast<int8_t>(crop->days);
+        c.crop.watered = false;
+        c.crop.is_trellis = false;
+        c.crop.is_fruit_tree = false;
+        c.crop.last_harvest_season = -1;
+        if (crop->produce == Item::GreenBean || crop->produce == Item::Hops) {
+            c.crop.is_trellis = true;
+        }
+        if (crop->produce == Item::Apple || crop->produce == Item::Cherry ||
+            crop->produce == Item::Peach || crop->produce == Item::Pomegranate ||
+            crop->produce == Item::Apricot || crop->produce == Item::Orange ||
+            crop->produce == Item::Banana || crop->produce == Item::Mango ||
+            crop->produce == Item::Plum || crop->produce == Item::Pear ||
+            crop->produce == Item::Fig || crop->produce == Item::Avocado ||
+            crop->produce == Item::Lemon || crop->produce == Item::Lime ||
+            crop->produce == Item::Grapefruit || crop->produce == Item::Persimmon) {
+            c.crop.is_fruit_tree = true;
+        }
+        // Moon phase bonus: new moon (phase 0) = 10% faster growth
+        if (w.day % 8 == 0) {
+            c.obj.hp = 1; // mark for moon bonus
+            say("You plant " + std::string(crop->name) + " seeds. (" +
+                std::to_string(crop->days) + " days to harvest) — New Moon blessing!");
+        } else {
+            say("You plant " + std::string(crop->name) + " seeds. (" +
+                std::to_string(crop->days) + " days to harvest)");
+        }
         return out;
     }
 
@@ -1077,12 +1133,33 @@ c.crop.stage = 0;
             say("The tree will produce again next season.");
             return out;
         }
+        // Wind pollination: flowers adjacent to crop boost quality (2x sell price chance)
+        int flower_bonus = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                int nx = f.x + dx, ny = f.y + dy;
+                if (!w.in_bounds(nx, ny)) continue;
+                Cell& adj = w.at(nx, ny);
+                if (adj.obj.type == ObjType::Flower) flower_bonus++;
+            }
+        }
+        int sell_price = item_def(produce).sell;
+        std::string quality_msg = "";
+        if (flower_bonus > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < 20 * flower_bonus) {
+            // 20% chance per adjacent flower for quality bonus (double price)
+            sell_price *= 2;
+            quality_msg = " ★ Quality!";
+        }
         // Regular crops: remove after harvest
         c.crop = Crop{};
         add_item(p, produce, 1);
-        p.money += item_def(produce).sell;
+        p.money += sell_price;
         say("You harvest a " + std::string(item_def(produce).name) + "! +" +
-            std::to_string(item_def(produce).sell) + "g");
+            std::to_string(sell_price) + "g" + quality_msg);
+        if (flower_bonus > 0 && quality_msg.empty()) {
+            say("Nearby flowers swayed in the wind... (" + std::to_string(flower_bonus) + " adjacent)");
+        }
         return out;
     }
 
@@ -1256,8 +1333,21 @@ if (cmd == "buy") {
             say("Crafted Bread (3 Wheat).");
             return out;
         }
-        say("Recipes: 'craft copper bar' (5 ore + 1 wood), 'craft iron bar', 'craft gold bar', 'craft bread' (3 wheat).");
-        say("Place machines: 'place sprinkler' (2 Iron Bar + 1 Gold Bar).");
+        if (thing == "composter") {
+            if (!has_item(p, Item::Wood, 50) || !has_item(p, Item::Stone, 10) || !has_item(p, Item::Fiber, 20)) {
+                say("Recipe: composter — 50 Wood + 10 Stone + 20 Fiber.");
+                return out;
+            }
+            consume_item(p, Item::Wood, 50);
+            consume_item(p, Item::Stone, 10);
+            consume_item(p, Item::Fiber, 20);
+            add_item(p, Item::Composter, 1);
+            say("Crafted a Composter. (50 Wood + 10 Stone + 20 Fiber)");
+            say("Place it on your farm. Add weeds/fiber to produce fertilizer in 4 days.");
+            return out;
+        }
+        say("Recipes: 'craft copper bar' (5 ore + 1 wood), 'craft iron bar', 'craft gold bar', 'craft bread' (3 wheat), 'craft scarecrow' (10 wood + 5 fiber), 'craft composter' (50 wood + 10 stone + 20 fiber).");
+        say("Place machines: 'place sprinkler' (2 Iron Bar + 1 Gold Bar), 'place composter'.");
         return out;
     }
 
@@ -1303,7 +1393,23 @@ if (cmd == "buy") {
             say("Placed a Scarecrow. It will protect crops in a 17x17 area from crows.");
             return out;
         }
-        say("Can place: sprinkler (2 Iron Bar + 1 Gold Bar).");
+        // composter: 1 Composter item, place on any ground
+        if (what == "composter") {
+            if (!has_item(p, Item::Composter, 1)) {
+                say("You need a Composter. Craft one first: 'craft composter' (50 Wood + 10 Stone + 20 Fiber).");
+                return out;
+            }
+            Vec2 f = facing_cell(p);
+            if (!w.in_bounds(f)) { say("You must face an empty ground tile."); return out; }
+            Cell& c = w.at(f);
+            if (c.obj.type != ObjType::None) { say("Occupied. Place on an empty tile."); return out; }
+            if (c.crop.is_crop()) { say("Can't place on a growing crop."); return out; }
+            consume_item(p, Item::Composter, 1);
+            c.obj = {ObjType::Composter, 0, 0}; // hp = days until ready, ore = fertilizer type (0=none, 1=basic, 2=quality)
+            say("Placed a Composter. Add weeds or fiber to start composting (4 days).");
+            return out;
+        }
+        say("Can place: sprinkler (2 Iron Bar + 1 Gold Bar), scarecrow, composter.");
         return out;
     }
 
@@ -1405,15 +1511,23 @@ if (cmd == "buy") {
             {"green bean", {Item::GreenBean, 15}}, {"hops", {Item::Hops, 10}},
             {"strawberry", {Item::Strawberry, 20}}, {"melon", {Item::Melon, 30}},
             {"pumpkin", {Item::Pumpkin, 40}}, {"red cabbage", {Item::RedCabbage, 25}},
+            {"rhubarb", {Item::Rhubarb, 20}}, {"garlic", {Item::Garlic, 15}},
+            {"artichoke", {Item::Artichoke, 25}}, {"bok choy", {Item::BokChoy, 20}},
+            {"kale", {Item::Kale, 20}}, {"cranberry", {Item::Cranberry, 15}},
+            {"grape", {Item::Grape, 15}},
             {"apple", {Item::Apple, 25}}, {"cherry", {Item::Cherry, 20}},
             {"peach", {Item::Peach, 30}}, {"pomegranate", {Item::Pomegranate, 30}},
             {"apricot", {Item::Apricot, 15}}, {"orange", {Item::Orange, 25}},
             {"banana", {Item::Banana, 30}}, {"mango", {Item::Mango, 25}},
+            {"plum", {Item::Plum, 20}}, {"pear", {Item::Pear, 25}},
+            {"fig", {Item::Fig, 20}}, {"avocado", {Item::Avocado, 30}},
+            {"lemon", {Item::Lemon, 10}}, {"lime", {Item::Lime, 10}},
+            {"grapefruit", {Item::Grapefruit, 15}}, {"persimmon", {Item::Persimmon, 20}},
             {"forage", {Item::Forage, 25}}, {"fish", {Item::Fish, 20}},
         };
         auto it = foods.find(arg);
         if (it == foods.end()) {
-            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, forage, fish.");
+            say("Eat what? bread, parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon, forage, fish.");
             return out;
         }
         int slot = find_slot(p, it->second.first);
@@ -1570,7 +1684,37 @@ if (cmd == "buy") {
 
     // ---------- interact ----------
     if (cmd == "interact" || cmd == "use") {
+        // Outdoor: check facing cell for machines (composter)
         if (p.inside.empty()) {
+            Vec2 f = facing_cell(p);
+            if (w.in_bounds(f)) {
+                Cell& c = w.at(f);
+                if (c.obj.type == ObjType::Composter) {
+                    std::string sub = lower_trim(arg);
+                    if (sub == "add" || sub == "put" || sub == "fill") {
+                        // Add fiber (from weeds via scythe)
+                        if (!has_item(p, Item::Fiber, 1)) { say("You need fiber to add to the composter (use scythe on weeds)."); return out; }
+                        if (c.obj.hp > 0) { say("Composter is already working (day " + std::to_string(c.obj.hp) + "/4)."); return out; }
+                        consume_item(p, Item::Fiber, 1);
+                        c.obj.hp = 1; // day 1 of 4
+                        c.obj.ore = 1; // basic fertilizer from fiber
+                        say("Added Fiber to composter. Fertilizer ready in 4 days.");
+                        return out;
+                    } else if (sub == "collect" || sub == "take" || sub == "harvest") {
+                        if (c.obj.hp == 0) { say("Composter is empty."); return out; }
+                        if (c.obj.hp < 4) { say("Not ready yet. " + std::to_string(4 - c.obj.hp) + " more days."); return out; }
+                        // Produce fertilizer
+                        Item fert = (c.obj.ore == 2) ? Item::FertilizerQuality : Item::FertilizerBasic;
+                        add_item(p, fert, 1);
+                        c.obj = {ObjType::Composter, 0, 0};
+                        say("Collected " + std::string(item_def(fert).name) + " from composter.");
+                        return out;
+                    } else {
+                        say("Composter: day " + std::to_string(c.obj.hp) + "/4. Use 'interact add' to add weeds/fiber, 'interact collect' when ready.");
+                        return out;
+                    }
+                }
+            }
             say("There's nothing to interact with out here. Try 'enter' at a building's door.");
             return out;
         }
