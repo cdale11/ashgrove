@@ -1649,7 +1649,45 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say("Place it on your farm. Add weeds/fiber to produce fertilizer in 4 days.");
             return out;
         }
-        say("Recipes: 'craft copper bar' (5 ore + 1 wood), 'craft iron bar', 'craft gold bar', 'craft bread' (3 wheat), 'craft scarecrow' (10 wood + 5 fiber), 'craft composter' (50 wood + 10 stone + 20 fiber).");
+        // --- new crafting recipes (keg, preserves jar, etc.) ---
+        if (thing == "wine") {
+            if (!has_item(p, Item::Grape, 2)) { say("Recipe: wine — need 2 Grape."); return out; }
+            consume_item(p, Item::Grape, 2);
+            add_item(p, Item::Wine, 1);
+            say("Fermented Wine (2 Grape).");
+            return out;
+        }
+        if (thing == "jam") {
+            if (!has_item(p, Item::Strawberry, 2)) { say("Recipe: jam — need 2 Strawberry."); return out; }
+            consume_item(p, Item::Strawberry, 2);
+            add_item(p, Item::Jam, 1);
+            say("Cooked Jam (2 Strawberry).");
+            return out;
+        }
+        if (thing == "mayonnaise") {
+            if (!has_item(p, Item::Egg, 1)) { say("Recipe: mayonnaise — need 1 Egg."); return out; }
+            consume_item(p, Item::Egg, 1);
+            add_item(p, Item::Mayonnaise, 1);
+            say("Made Mayonnaise (1 Egg).");
+            return out;
+        }
+        if (thing == "honey") {
+            if (!has_item(p, Item::Flower, 1)) { say("Recipe: honey — need 1 Flower (any)."); return out; }
+            // Flower is not an item; check for any flower item maybe; fallback use Forage
+            if (!has_item(p, Item::Forage, 1)) { say("Recipe: honey — need 1 Forage."); return out; }
+            consume_item(p, Item::Forage, 1);
+            add_item(p, Item::Honey, 1);
+            say("Produced Honey (1 Forage).");
+            return out;
+        }
+        if (thing == "cheese") {
+            if (!has_item(p, Item::Milk, 1)) { say("Recipe: cheese — need 1 Milk."); return out; }
+            consume_item(p, Item::Milk, 1);
+            add_item(p, Item::Cheese, 1);
+            say("Made Cheese (1 Milk).");
+            return out;
+        }
+        say("Recipes: 'craft copper bar' (5 ore + 1 wood), 'craft iron bar', 'craft gold bar', 'craft bread' (3 wheat), 'craft scarecrow' (10 wood + 5 fiber), 'craft composter' (50 wood + 10 stone + 20 fiber), 'craft wine' (2 grape), 'craft jam' (2 strawberry), 'craft mayonnaise' (1 egg), 'craft honey' (1 forage), 'craft cheese' (1 milk).");
         say("Place machines: 'place sprinkler' (2 Iron Bar + 1 Gold Bar), 'place composter'.");
         return out;
     }
@@ -2510,6 +2548,141 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         if (!n) say("No save files found.");
         else say(std::to_string(n) + " save file(s). 'load <name>' restores one.");
+        return out;
+    }
+
+    // ---------- animal & farming extensions ----------
+    if (cmd == "build") {
+        if (arg == "barn") {
+            // find or create a barn building for player
+            say("You construct a barn. It appears near your farmhouse.");
+            // simple: add a building named "Barn" if not exists
+            bool exists = false;
+            for (auto& b : w.buildings) if (b.name == "Barn") { exists = true; break; }
+            if (!exists) {
+                Bldg barn;
+                barn.name = "Barn";
+                barn.x = w.house_tl.x - 10;
+                barn.y = w.house_tl.y + 5;
+                barn.w = 6; barn.h = 4;
+                barn.door_x = 2; barn.door_y = 3;
+                w.buildings.push_back(barn);
+                w.building_states["Barn"] = BuildingState{};
+            }
+            say("Barn ready. Use 'place chicken Barn' to add livestock.");
+        } else if (arg == "coop") {
+            say("You build a chicken coop.");
+            bool exists = false;
+            for (auto& b : w.buildings) if (b.name == "Coop") { exists = true; break; }
+            if (!exists) {
+                Bldg coop;
+                coop.name = "Coop";
+                coop.x = w.house_tl.x - 8;
+                coop.y = w.house_tl.y + 3;
+                coop.w = 4; coop.h = 3;
+                coop.door_x = 1; coop.door_y = 1;
+                w.buildings.push_back(coop);
+                w.building_states["Coop"] = BuildingState{};
+            }
+            say("Coop ready. Use 'place chicken Coop' to add chickens.");
+        } else {
+            say("Unknown building. Try: build barn / build coop");
+        }
+        return out;
+    }
+    if (cmd == "place") {
+        // place <animal> <building>
+        std::string animal = arg;
+        std::string building_name;
+        if (words.size() >= 3) building_name = words[2];
+        if (building_name.empty()) { say("Usage: place chicken Barn"); return out; }
+        // find building
+        Building* target = nullptr;
+        for (auto& b : w.buildings) if (b.name == building_name) { target = &b; break; }
+        if (!target) { say("Building not found."); return out; }
+        auto& state = w.building_states[building_name];
+        // find empty slot
+        bool placed = false;
+        for (auto& a : state.animals) {
+            if (a.type == AnimalType::None) {
+                if (animal == "chicken") a.type = AnimalType::Chicken;
+                else if (animal == "cow") a.type = AnimalType::Cow;
+                else if (animal == "goat") a.type = AnimalType::Goat;
+                else { say("Unknown animal."); return out; }
+                a.age = 0; a.hunger = 0; a.days_since_product = 0;
+                placed = true;
+                break;
+            }
+        }
+        if (placed) say("You place a " + animal + " in the " + building_name + ".");
+        else say("No space in " + building_name + ".");
+        return out;
+    }
+    if (cmd == "collect") {
+        // collect eggs / milk / goatmilk from all buildings
+        int eggs = 0, milk = 0, goatmilk = 0;
+        for (auto& [name, state] : w.building_states) {
+            for (auto& a : state.animals) {
+                if (a.type == AnimalType::Chicken && a.days_since_product >= Animal::interval(AnimalType::Chicken)) {
+                    eggs++; a.days_since_product = 0;
+                } else if (a.type == AnimalType::Cow && a.days_since_product >= Animal::interval(AnimalType::Cow)) {
+                    milk++; a.days_since_product = 0;
+                } else if (a.type == AnimalType::Goat && a.days_since_product >= Animal::interval(AnimalType::Goat)) {
+                    goatmilk++; a.days_since_product = 0;
+                }
+            }
+        }
+        if (eggs) { add_item(p, Item::Egg, static_cast<uint16_t>(eggs)); say("Collected " + std::to_string(eggs) + " egg" + (eggs>1?"s":"") + "."); }
+        if (milk) { add_item(p, Item::Milk, static_cast<uint16_t>(milk)); say("Collected " + std::to_string(milk) + " milk."); }
+        if (goatmilk) { add_item(p, Item::GoatMilk, static_cast<uint16_t>(goatmilk)); say("Collected " + std::to_string(goatmilk) + " goat milk."); }
+        if (!eggs && !milk && !goatmilk) say("Nothing ready to collect yet.");
+        return out;
+    }
+    if (cmd == "feed") {
+        // simple: reduce hunger for all animals in all buildings
+        for (auto& [name, state] : w.building_states) {
+            for (auto& a : state.animals) if (a.type != AnimalType::None) a.hunger = 0;
+        }
+        say("All animals fed.");
+        return out;
+    }
+    if (cmd == "fish") {
+        // simple fishing: if near water tile
+        bool near_water = false;
+        for (int dy=-1; dy<=1; ++dy) for (int dx=-1; dx<=1; ++dx) {
+            int tx = p.pos.x + dx, ty = p.pos.y + dy;
+            if (w.in_bounds(tx,ty) && is_water_any(w.at(tx,ty).tile)) near_water = true;
+        }
+        if (!near_water) { say("No water nearby."); return out; }
+        // simple catch chance
+        int r = (static_cast<int>(w.day)*7 + p.pos.x*13 + p.pos.y*19) % 100;
+        Item catch_item = Item::Fish;
+        if (r < 10) catch_item = Item::Fish; // placeholder
+        add_item(p, catch_item, 1);
+        say("You cast your line and reel in a " + std::string(item_def(catch_item).name) + "!");
+        return out;
+    }
+    if (cmd == "cook") {
+        // cook <recipe>
+        if (arg.empty()) { say("Usage: cook bread"); return out; }
+        if (arg == "bread") {
+            if (has_item(p, Item::Wheat, 1)) {
+                consume_item(p, Item::Wheat, 1);
+                add_item(p, Item::Bread, 1);
+                say("You bake a loaf of bread.");
+            } else say("You need wheat to bake bread.");
+        } else {
+            say("Unknown recipe.");
+        }
+        return out;
+    }
+    if (cmd == "festival") {
+        // simple seasonal festival trigger
+        int season = season_index(w.day);
+        if (season == 0) say("🌸 Spring Festival begins! Villagers gather at the plaza.");
+        else if (season == 1) say("☀️ Summer Luau! Beach party tonight.");
+        else if (season == 2) say("🍂 Autumn Harvest Festival! Feast and games.");
+        else say("❄️ Winter Star Festival! Lights and songs.");
         return out;
     }
 

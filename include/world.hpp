@@ -71,6 +71,7 @@ enum class Item : uint16_t {
     Lumber = 152, Plank = 153, Plywood = 154,
     // Nuts
     Walnut = 155, HickoryNut = 156, Chestnut = 157, Acorn = 158,
+    Wine = 160, Jam = 161, Mayonnaise = 162, Honey = 163, Cheese = 164,
 };
 
 enum class AnimalType : uint8_t { None = 0, Chicken = 1, Cow = 2, Goat = 3 };
@@ -157,6 +158,7 @@ inline ItemDef const& item_def(Item it) {
         {Item::WalnutLog, {"Walnut Log",3,-1,100,0}}, {Item::HickoryLog, {"Hickory Log",3,-1,120,0}}, {Item::ChestnutLog, {"Chestnut Log",3,-1,100,0}}, {Item::DeodarLog, {"Deodar Log",3,-1,150,0}},
         {Item::Lumber, {"Lumber",3,-1,20,0}}, {Item::Plank, {"Plank",3,-1,40,0}}, {Item::Plywood, {"Plywood",3,-1,80,0}},
         {Item::Walnut, {"Walnut",2,-1,30,0}}, {Item::HickoryNut, {"Hickory Nut",2,-1,25,0}}, {Item::Chestnut, {"Chestnut",2,-1,20,0}}, {Item::Acorn, {"Acorn",3,-1,1,0}},
+        {Item::Wine, {"Wine",2,-1,200,0}}, {Item::Jam, {"Jam",2,-1,150,0}}, {Item::Mayonnaise, {"Mayonnaise",2,-1,120,0}}, {Item::Honey, {"Honey",2,-1,180,0}}, {Item::Cheese, {"Cheese",2,-1,250,0}},
     };
     for (auto const& d : defs)
         if (d.id == it) return d.d;
