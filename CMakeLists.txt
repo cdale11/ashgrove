@@ -83,6 +83,7 @@ add_executable(ashgrove_server
   src/main.cpp
   src/server.cpp
   src/world.cpp
+  src/event_bus.cpp
 )
 
 target_include_directories(ashgrove_server PRIVATE
@@ -151,7 +152,7 @@ if(CLANG_FORMAT)
   add_custom_target(format
     COMMAND ${CLANG_FORMAT} -i
       src/main.cpp src/server.cpp src/world.cpp
-      include/world.hpp include/protocol.hpp
+      include/world.hpp include/protocol.hpp include/event_bus.hpp
     COMMENT "Formatting source files with clang-format"
     VERBATIM
   )
