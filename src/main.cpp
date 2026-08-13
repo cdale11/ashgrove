@@ -715,6 +715,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  sell <item>    sell produce/items");
         say("  craft <item>   make: bread, scarecrow, composter");
         say("  place <thing>  build: sprinkler, scarecrow, composter");
+        say("  plots          list buyable/owned plots (alias: deeds)");
+        say("  buy plot <n>   buy a parcel at the Town Center");
         say("  enter [<name>] step into a building at its door");
         say("  exit           leave current building (alias: leave)");
         say("  sleep          rest until morning (near house door)");
@@ -1493,7 +1495,44 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     }
 
     // ---------- shop ----------
-if (cmd == "buy") {
+ if (cmd == "buy") {
+        // R16: buy a parcel of land at the Town Center
+        std::string lower_arg = lower_trim(arg);
+        if (lower_arg == "plot" || lower_arg.rfind("plot ", 0) == 0) {
+            if (p.inside != "Town Center") {
+                say("Plots are sold at the Town Center. Step inside and 'buy plot <name>'.");
+                return out;
+            }
+            if (lower_arg == "plot") {
+                say("Buyable plots:");
+                for (size_t i = 0; i < w.plots.size(); ++i) {
+                    const Plot& pl = w.plots[i];
+                    std::string owner = pl.owner_id ? " (owned)" : "";
+                    say("  " + pl.name + " — " + std::to_string(pl.price) + "g, " + pl.climate + owner);
+                }
+                return out;
+            }
+            std::string want = lower_trim(lower_arg.substr(5));
+            for (size_t i = 0; i < w.plots.size(); ++i) {
+                Plot& pl = w.plots[i];
+                if (lower_trim(pl.name) == want) {
+                    if (pl.owner_id == p.id) { say("You already own the " + pl.name + "."); return out; }
+                    if (pl.owner_id != 0) { say("The " + pl.name + " is already owned."); return out; }
+                    if (p.money < pl.price) {
+                        say("The " + pl.name + " costs " + std::to_string(pl.price) + "g. You can't afford it.");
+                        return out;
+                    }
+                    p.money -= pl.price;
+                    pl.owner_id = p.id;
+                    p.owned_plots.insert(i);
+                    say("You purchase the " + pl.name + " for " + std::to_string(pl.price) + "g. (" + pl.climate + ")");
+                    say("Marked on the deed as plot " + std::to_string(i) + ".");
+                    return out;
+                }
+            }
+            say("No plot named '" + want + "'. 'buy plot' to list available plots.");
+            return out;
+        }
         const CropDef* crop = crop_def(arg.c_str());
         Item seed = crop ? crop->seed : Item::None;
         if (arg == "bread") seed = Item::Bread;
@@ -1657,7 +1696,56 @@ if (cmd == "buy") {
             say("Placed a Composter. Add weeds or fiber to start composting (4 days).");
             return out;
         }
+        // R16: place a farm structure inside one of your owned plots
+        if (what == "barn" || what == "silo" || what == "shed" ||
+            what == "well" || what == "windmill" || what == "scarecrow plot") {
+            // Must be standing inside an owned plot area
+            Plot* plot = nullptr;
+            size_t plot_idx = 0;
+            for (size_t i = 0; i < w.plots.size(); ++i) {
+                Plot& pl = w.plots[i];
+                if (p.pos.x >= pl.x && p.pos.x < pl.x + pl.w &&
+                    p.pos.y >= pl.y && p.pos.y < pl.y + pl.h) { plot = &pl; plot_idx = i; break; }
+            }
+            if (!plot) { say("You must stand inside one of your plots to build there."); return out; }
+            if (plot->owner_id != p.id) { say("You don't own the " + plot->name + "."); return out; }
+            // cost + object type per structure
+            struct SRec { const char* n; int wood, stone, fiber, money; ObjType obj; const char* msg; };
+            static const SRec recs[] = {
+                {"barn", 300, 100, 0, 2000, ObjType::Building, "a sturdy wooden barn with stalls."},
+                {"silo", 100, 50, 0, 500,  ObjType::Building, "a grain silo for storing forage."},
+                {"shed", 150, 40, 20, 750,  ObjType::Building, "a small toolshed."},
+                {"well", 40, 80, 0, 400,    ObjType::Building, "a stone well. Watering costs less energy near it."},
+                {"windmill", 200, 150, 0, 1500, ObjType::Building, "a windmill for milling grain."},
+            };
+            const SRec* rec = nullptr;
+            for (auto& r : recs) if (what == r.n) { rec = &r; break; }
+            if (!rec) { say("Build: barn, silo, shed, well, windmill."); return out; }
+            Vec2 f = facing_cell(p);
+            if (!w.in_bounds(f)) { say("Face an open tile inside the plot to build."); return out; }
+            Cell& c = w.at(f);
+            if (c.obj.type != ObjType::None || c.crop.is_crop()) { say("That tile is occupied. Build on an empty tile."); return out; }
+            if (f.x < plot->x || f.x >= plot->x + plot->w || f.y < plot->y || f.y >= plot->y + plot->h) {
+                say("Build within your plot's boundaries."); return out;
+            }
+            if (p.money < rec->money || !has_item(p, Item::Wood, rec->wood) ||
+                !has_item(p, Item::Stone, rec->stone) || !has_item(p, Item::Fiber, rec->fiber)) {
+                say(std::string("Build " + std::string(rec->n) + ": ") + std::to_string(rec->money) + "g + " +
+                    std::to_string(rec->wood) + " wood + " + std::to_string(rec->stone) + " stone" +
+                    (rec->fiber ? " + " + std::to_string(rec->fiber) + " fiber" : "") + ".");
+                return out;
+            }
+            p.money -= rec->money;
+            consume_item(p, Item::Wood, rec->wood);
+            consume_item(p, Item::Stone, rec->stone);
+            if (rec->fiber) consume_item(p, Item::Fiber, rec->fiber);
+            c.obj = {rec->obj, 255};
+            p.placed_structs.push_back({plot_idx, static_cast<uint8_t>(what == "barn" ? 1 : what == "silo" ? 2 : what == "shed" ? 3 : what == "well" ? 4 : 6), f.x, f.y});
+            say("You build " + std::string(rec->msg) + " on the " + plot->name + ".");
+            return out;
+        }
         say("Can place: sprinkler (2 Iron Bar + 1 Gold Bar), scarecrow, composter.");
+        say("Build on owned plots: barn, silo, shed, well, windmill.");
         return out;
     }
 
@@ -1869,6 +1957,27 @@ if (cmd == "buy") {
             for (int i = 0; i < 5; ++i) bar += (i < h / 2 ? "\xE2\x99\xA5" : "\xC2\xB7");
             say(nm + ": " + bar + "  (" + std::to_string(h) + "/10)");
         }
+        return out;
+    }
+    if (cmd == "plots" || cmd == "deeds") {
+        bool any = false;
+        for (size_t i = 0; i < w.plots.size(); ++i) {
+            const Plot& pl = w.plots[i];
+            std::string owner = pl.owner_id == p.id ? " — YOU OWN THIS" : (pl.owner_id ? " — owned" : "");
+            std::string build;
+            if (pl.owner_id == p.id) {
+                int cnt = 0;
+                for (auto& st : p.placed_structs) if (st.plot_idx == i) ++cnt;
+                for (int yy = pl.y; yy < pl.y + pl.h; ++yy)
+                    for (int xx = pl.x; xx < pl.x + pl.w; ++xx)
+                        if (w.in_bounds(xx, yy) && w.at(xx, yy).obj.type == ObjType::Building) ++cnt;
+                build = ", " + std::to_string(cnt) + " structure(s)";
+            }
+            any = true;
+            say("[" + std::to_string(i) + "] " + pl.name + " @(" + std::to_string(pl.x) + "," + std::to_string(pl.y) +
+                ") " + std::to_string(pl.price) + "g — " + pl.climate + owner + build);
+        }
+        if (!any) say("There are no plots for sale.");
         return out;
     }
     if (cmd == "talk") {

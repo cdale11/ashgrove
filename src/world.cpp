@@ -1423,6 +1423,13 @@ std::string serialize_world(const World& w) {
         json kl = json::array();
         for (auto& lm : p.known_landmarks) kl.push_back(lm);
         pl["known_landmarks"] = kl;
+        json op = json::array();
+        for (auto& o : p.owned_plots) op.push_back(o);
+        pl["owned_plots"] = op;
+        json ps = json::array();
+        for (auto& st : p.placed_structs)
+            ps.push_back({{"plot_idx", st.plot_idx}, {"type", st.type}, {"x", st.x}, {"y", st.y}});
+        pl["placed_structs"] = ps;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -1487,6 +1494,16 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 p.gifted_today.insert(g.get<std::string>());
             for (auto& lm : pl.value("known_landmarks", json::array()))
                 p.known_landmarks.insert(lm.get<std::string>());
+            for (auto& o : pl.value("owned_plots", json::array()))
+                p.owned_plots.insert(o.get<size_t>());
+            for (auto& st : pl.value("placed_structs", json::array())) {
+                Player::PlacedStruct ps;
+                ps.plot_idx = st.value("plot_idx", static_cast<size_t>(0));
+                ps.type = st.value("type", 0);
+                ps.x = st.value("x", 0);
+                ps.y = st.value("y", 0);
+                p.placed_structs.push_back(ps);
+            }
             int i = 0;
             for (auto& s : pl.value("inv", json::array())) {
                 if (i >= 12) break;

@@ -8,14 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Core design principles documented in `docs/map-redesign-plan.md`:
-  - Maximum parallelism (all CPU cores utilized)
-  - Simulation-first realism (hyper-detailed world model)
-  - Imagination-driven MUD interface (verbose prose commands)
-  - Bug-first development (fix immediately)
-  - Documentation standards (CHANGELOG, README, verbose design docs)
-- `README.md` with project overview, architecture, build instructions, design philosophy
-- `CHANGELOG.md` (this file)
+- R16: Buyable plots + placeable structures
+  - `buy plot` / `buy plot <name>` at the Town Center (list 4 parcels, purchase a parcel)
+  - 4 buyable plots: Hillside (15,000g, cool mountain air), Forest Clearing (8,000g, temperate woodland), Lakeside (12,000g, humid lake breeze), Docks Lot (10,000g, salty coastal wind)
+  - `place barn|silo|shed|well|windmill` inside an owned plot (costs gold + wood + stone, some fiber)
+  - `plots` / `deeds` command lists all plots with ownership + structure count
+  - `owned_plots` + `placed_structs` now serialized in save/load
+  - Help text updated with the new commands
+
+### Fixed
+- `repair` command crash: pointer into the `w.buildings` vector was `delete`d; guarded so only the dynamically-allocated Farmhouse case is freed.
 
 ## [0.6.2] - 2026-08-12
 

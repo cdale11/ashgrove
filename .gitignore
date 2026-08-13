@@ -13,3 +13,8 @@
 .vscode/
 .idea/
 .DS_Store
+
+# Scratch / test artifacts
+/server.log
+/test_smoke.py
+/test_all.py

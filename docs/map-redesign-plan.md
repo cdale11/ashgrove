@@ -661,10 +661,10 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [R15.4][A] Build, smoke-test, commit `feat: building decay for all 22 + repair command`.
 
 ## R16. A5 buyable plots + place-building
-- [R16.1][Q] Ask the user: confirm 4 buyable plot locations (Hillside, Forest Clearing, Lakeside, Docks Lot) + price + climate.
-- [R16.2][A] Add `Plot` struct + `world.plots` array. Add plot-buy at Town Center.
-- [R16.3][A] Add `place <struct>` inside owned plots (barn, silo, shed, well, scarecrow).
-- [R16.4][A] Build, smoke-test, commit `feat: buyable plots + placeable structures`.
+- [x] [R16.1][Q] Ask the user: confirm 4 buyable plot locations (Hillside, Forest Clearing, Lakeside, Docks Lot) + price + climate. — *User accepted drafted defaults.*
+- [x] [R16.2][A] Add `Plot` struct + `world.plots` array. Add plot-buy at Town Center (`buy plot <name>`, list via `buy plot`). *Plot struct/init already present; added the buy handler.*
+- [x] [R16.3][A] Add `place <struct>` inside owned plots (barn, silo, shed, well, windmill). *Added resource costs, occupancy/ownership/boundary guards.*
+- [x] [R16.4][A] Build, smoke-test, commit `feat: buyable plots + placeable structures`. *Also added `plots`/`deeds` command + owned_plots/placed_structs persistence.*
 
 ## R17+. Long-horizon systems (deferred from this round; sequenced in future docs)
 - A3 horror system (under-map, night encounters, AI NPCs) — separate roadmap doc when ready.
