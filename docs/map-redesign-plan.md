@@ -583,7 +583,7 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
   - Default → single-tile (existing).
 - [x] [R5.3][A] Add landmark-registration hook in `enter` (player learns the building name into `known_landmarks`).
 - [x] [R5.4][A] Update help text. Build, smoke-test.
-- [ ] [R5.5][A] Commit `feat: path-walk to landmarks + multi-tile movement`.
+- [x] [R5.5][A] Commit `feat: path-walk to landmarks + multi-tile movement`. — *Implemented & verified (was landed across earlier commits).*
 
 ## R6. Client rendering for new features (Phase 5)
 - [x] [R6.1][A] Add `Tile::Cobble` case in `getTileTex()` with grey-tan cobblestone gradient.
@@ -596,15 +596,15 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] [R7.1][Q] Ask the user: confirm Farmhouse level-1 interior layout — **Expanded to 7×9 traditional farmhouse** with bed, TV, table, stove, counter, fridge, shelf, chair.
 - [x] [R7.2][A] Rewrite `Farmhouse` interior in `init_interiors()` with the agreed 7×9 layout.
 - [x] [R7.3][A] Make each piece of furniture interactive via `interact` command (bed→sleep, TV→forecast, stove→cook, counter→prep, fridge→store, shelf→browse, table→dine, chair→sit).
-- [ ] [R7.4][A] Client: render interior on the minimap panel when player is `inside`. New `renderMinimapInterior(room, px, py)` function.
-- [ ] [R7.5][A] Build, smoke-test that entering/exiting works, commit `feat: redesigned farmhouse interior + minimap swap`.
+- [x] [R7.4][A] Client: render interior on the minimap panel when player is `inside`. New `renderMinimapInterior(room, px, py)` function. — *Implemented as `renderRoom()` in `assets/index.html` (room panel with FURN_GLYPH, player 🧭 marker, door/wall/floor tiles).*
+- [x] [R7.5][A] Build, smoke-test that entering/exiting works, commit `feat: redesigned farmhouse interior + minimap swap`. — *Enter/exit verified via HTTP API.*
 
 ## R8. Farmhouse weathering + maintenance (A1, Farmhouse only)
 - [x] [R8.1][A] Add `BuildingState` struct + per-day decay hook in `World::tick()`. Rainy days → `roof_leak += 1` on Farmhouse. Winter → `foundation -= 2/day`.
 - [x] [R8.2][A] Add `repair farmhouse` command at the Carpenter Shop. Cost: 10 wood + 5 stone per 10 condition. Restores `condition` to 100.
 - [x] [R8.3][A] Show condition in `status`: "Farmhouse: roof 87, foundation 92, condition 95".
 - [x] [R8.4][A] Add decay-triggered flavor text: rainy night → "The roof groans. A drip lands on the kitchen floor." (logged to server console for players inside)
-- [ ] [R8.5][A] Build, smoke-test, commit `feat: farmhouse weathering + repair (first ship of A1)`.
+- [x] [R8.5][A] Build, smoke-test, commit `feat: farmhouse weathering + repair (first ship of A1)`. — *Weathering (condition/roof_leak/foundation), `repair` command, status display all verified.*
 
 ## R9. Living world proof-of-concept (A6)
 - [x] [R9.1][A] Add `ObjType::LeafLitter` (overlay) and a per-day autumn hook that scatters leaf litter adjacent to deciduous trees in Whisper Wood.
@@ -655,10 +655,10 @@ Legend: `[A]` = agent can do unilaterally. `[Q]` = must ask user before doing th
 - [x] Weeds give random mixed seeds when cut with scythe (15% chance)
 
 ## R15. A1 weathering + maintenance for all 22 buildings
-- [R15.1][A] Wire decay into all 22 `BuildingState` entries. Tune per district (docks buildings decay faster, civic slower, mountain trail buildings need roofwork each winter).
-- [R15.2][A] Add `repair <building>` general command. Carpenter Shop sells materials.
-- [R15.3][A] Building condition < 20 → renders 🏚️ + blocks NPC entry (NPC stays home).
-- [R15.4][A] Build, smoke-test, commit `feat: building decay for all 22 + repair command`.
+- [x] [R15.1][A] Wire decay into all 22 `BuildingState` entries. Tune per district (docks buildings decay faster, civic slower, mountain trail buildings need roofwork each winter).
+- [x] [R15.2][A] Add `repair <building>` general command. Carpenter Shop sells materials.
+- [x] [R15.3][A] Building condition < 20 → renders 🏚️ + blocks NPC entry (NPC stays home).
+- [x] [R15.4][A] Build, smoke-test, commit `feat: building decay for all 22 + repair command`. — *Landed as d92f989; repair crash fixed & verified.*
 
 ## R16. A5 buyable plots + place-building
 - [x] [R16.1][Q] Ask the user: confirm 4 buyable plot locations (Hillside, Forest Clearing, Lakeside, Docks Lot) + price + climate. — *User accepted drafted defaults.*
