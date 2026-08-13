@@ -692,8 +692,8 @@ void init_interiors(World& world) {
         r.building = building;
         r.rows = ground;
         r.floors = upper;
-        r.h = (int16_t)ground.size();
-        r.w = (int16_t)(r.h ? ground[0].size() : 0);
+        r.h = static_cast<int16_t>(ground.size());
+        r.w = static_cast<int16_t>(r.h ? ground[0].size() : 0);
         world.interiors[building] = r;
     };
 
@@ -1137,7 +1137,7 @@ int weather_of_day(uint32_t day) {
     int season = season_index(day);
     // ~20% rainy days, plus autumn foggy mornings
     if (season == 2) { // Fall
-        int r = ((day * 2654435761u) >> 16) % 10;
+        unsigned r = ((day * 2654435761u) >> 16) % 10;
         if (r < 2) return 2; // 20% foggy
         if (r < 4) return 1; // 20% rainy
         return 0;
@@ -1351,26 +1351,26 @@ bool bfs_path(World& world, Vec2 from, Vec2 to, std::vector<Vec2>& out, size_t m
     static constexpr int8_t DY[4] = {0, 0, 1, -1};
     std::vector<int16_t> prev(MAP_W * MAP_H, -1);
     std::deque<uint32_t> q;
-    uint32_t start = from.y * MAP_W + from.x;
-    uint32_t goal = to.y * MAP_W + to.x;
-    prev[start] = start;
+    uint32_t start = static_cast<uint32_t>(from.y) * MAP_W + static_cast<uint32_t>(from.x);
+    uint32_t goal = static_cast<uint32_t>(to.y) * MAP_W + static_cast<uint32_t>(to.x);
+    prev[start] = static_cast<int16_t>(start);
     q.push_back(start);
     while (!q.empty()) {
         uint32_t cur = q.front(); q.pop_front();
         if (cur == goal) break;
-        int cx = cur % MAP_W, cy = cur / MAP_W;
+        int cx = static_cast<int>(cur % MAP_W), cy = static_cast<int>(cur / MAP_W);
         for (int i = 0; i < 4; ++i) {
             int nx = cx + DX[i], ny = cy + DY[i];
             if (!world.in_bounds(nx, ny) || !world.walkable(nx, ny)) continue;
-            if (nx == to.x && ny == to.y) { prev[goal] = cur; cur = goal; q.clear(); break; }
-            uint32_t ni = ny * MAP_W + nx;
-            if (prev[ni] == -1) { prev[ni] = cur; q.push_back(ni); }
+            if (nx == to.x && ny == to.y) { prev[goal] = static_cast<int16_t>(cur); cur = goal; q.clear(); break; }
+            uint32_t ni = static_cast<uint32_t>(ny) * MAP_W + static_cast<uint32_t>(nx);
+            if (prev[ni] == -1) { prev[ni] = static_cast<int16_t>(cur); q.push_back(ni); }
         }
     }
     if (prev[goal] == -1) return false;
     out.clear();
-    for (uint32_t c = goal; c != start && out.size() < max_len; c = prev[c])
-        out.push_back({int16_t(c % MAP_W), int16_t(c / MAP_W)});
+    for (uint32_t c = goal; c != start && out.size() < max_len; c = static_cast<uint32_t>(prev[c]))
+        out.push_back({static_cast<int16_t>(c % MAP_W), static_cast<int16_t>(c / MAP_W)});
     std::reverse(out.begin(), out.end());
     return !out.empty();
 }
@@ -1473,28 +1473,31 @@ std::string serialize_world(const World& w) {
 bool deserialize_world(World& w, const std::string& json_str) {
     try {
         json j = json::parse(json_str);
-        w.day = j.value("day", 1);
+        w.day = static_cast<uint32_t>(j.value("day", 1));
         w.day_seconds = j.value("time", 0.0f);
-        w.next_player_id = j.value("next_player_id", 1);
+        w.next_player_id = static_cast<uint32_t>(j.value("next_player_id", 1));
         w.farmhouse_level = j.value("farmhouse_level", w.farmhouse_level);
         for (auto& pl : j.value("players", json::array())) {
             Player p;
             p.id = pl["id"]; p.pos = {pl["x"], pl["y"]}; p.target = p.pos;
-            p.dir = pl.value("dir", 0);
+            p.dir = static_cast<uint8_t>(pl.value("dir", 0));
             p.energy = pl.value("energy", 270.0f);
             p.money = pl.value("money", 500);
-            p.sel = pl.value("sel", 0);
+            p.sel = static_cast<uint8_t>(pl.value("sel", 0));
             p.name = pl.value("name", "Player");
-            p.max_energy = pl.value("max_energy", 270);
-            p.fest_eggs = pl.value("fest_eggs", 0);
-            p.fest_tries = pl.value("fest_tries", 8);
+            p.max_energy = static_cast<uint16_t>(pl.value("max_energy", 270));
+            p.fest_eggs = static_cast<uint8_t>(pl.value("fest_eggs", 0));
+            p.fest_tries = static_cast<uint8_t>(pl.value("fest_tries", 8));
             p.inside = pl.value("inside", "");
-            p.inx = pl.value("inx", 0);
-            p.iny = pl.value("iny", 0);
+            p.inx = static_cast<int16_t>(pl.value("inx", 0));
+            p.iny = static_cast<int16_t>(pl.value("iny", 0));
             p.train_used = pl.value("train_used", false);
-            p.inside_exit = {(int16_t)pl.value("exit_x", 0), (int16_t)pl.value("exit_y", 0)};
-            for (auto& hn : pl.value("hearts", json::object()).items())
-                p.hearts[hn.key()] = hn.value().get<uint8_t>();
+            p.inside_exit = {static_cast<int16_t>(pl.value("exit_x", 0)), static_cast<int16_t>(pl.value("exit_y", 0))};
+            {
+                json hearts = pl.value("hearts", json::object());
+                for (auto& hn : hearts.items())
+                    p.hearts[hn.key()] = hn.value().get<uint8_t>();
+            }
             for (auto& g : pl.value("gifted_today", json::array()))
                 p.gifted_today.insert(g.get<std::string>());
             for (auto& lm : pl.value("known_landmarks", json::array()))
@@ -1504,16 +1507,16 @@ bool deserialize_world(World& w, const std::string& json_str) {
             for (auto& st : pl.value("placed_structs", json::array())) {
                 Player::PlacedStruct ps;
                 ps.plot_idx = st.value("plot_idx", static_cast<size_t>(0));
-                ps.type = st.value("type", 0);
-                ps.x = st.value("x", 0);
-                ps.y = st.value("y", 0);
+                ps.type = static_cast<uint8_t>(st.value("type", 0));
+                ps.x = static_cast<int16_t>(st.value("x", 0));
+                ps.y = static_cast<int16_t>(st.value("y", 0));
                 p.placed_structs.push_back(ps);
             }
             int i = 0;
             for (auto& s : pl.value("inv", json::array())) {
                 if (i >= 12) break;
                 p.inv[i].item = static_cast<Item>(s.value("item", 0));
-                p.inv[i].count = s.value("count", 0);
+                p.inv[i].count = static_cast<uint16_t>(s.value("count", 0));
                 ++i;
             }
             w.players[p.id] = p;
@@ -1524,26 +1527,26 @@ bool deserialize_world(World& w, const std::string& json_str) {
             Cell& c = w.at(x, y);
             c.tile = static_cast<Tile>(cj.value("tile", static_cast<int>(c.tile)));
             c.obj.type = static_cast<ObjType>(cj.value("obj", 0));
-            c.obj.hp = cj.value("hp", 1);
-            c.obj.ore = cj.value("ore", 0);
+            c.obj.hp = static_cast<uint8_t>(cj.value("hp", 1));
+            c.obj.ore = static_cast<uint8_t>(cj.value("ore", 0));
             if (cj.contains("crop")) {
                 c.crop.crop = static_cast<Item>(cj["crop"]);
-                c.crop.stage = cj.value("stage", 0);
-                c.crop.days_left = cj.value("days_left", 0);
+                c.crop.stage = static_cast<uint8_t>(cj.value("stage", 0));
+                c.crop.days_left = static_cast<int8_t>(cj.value("days_left", 0));
                 c.crop.watered = cj.value("watered", false);
                 c.crop.is_trellis = cj.value("is_trellis", false);
                 c.crop.is_fruit_tree = cj.value("is_fruit_tree", false);
-                c.crop.last_harvest_season = cj.value("last_harvest_season", -1);
+                c.crop.last_harvest_season = static_cast<int8_t>(cj.value("last_harvest_season", -1));
             }
         }
         // Deserialize building states
         if (j.contains("building_states")) {
             for (auto& [name, bs_json] : j["building_states"].items()) {
                 BuildingState bs;
-                bs.condition = bs_json.value("condition", 100);
-                bs.roof_leak = bs_json.value("roof_leak", 0);
-                bs.foundation = bs_json.value("foundation", 100);
-                bs.last_maintained_day = bs_json.value("last_maintained_day", 0);
+                bs.condition = static_cast<uint8_t>(bs_json.value("condition", 100));
+                bs.roof_leak = static_cast<uint8_t>(bs_json.value("roof_leak", 0));
+                bs.foundation = static_cast<uint8_t>(bs_json.value("foundation", 100));
+                bs.last_maintained_day = static_cast<uint32_t>(bs_json.value("last_maintained_day", 0));
                 w.building_states[name] = bs;
             }
         }
@@ -1552,7 +1555,7 @@ bool deserialize_world(World& w, const std::string& json_str) {
             size_t idx = 0;
             for (auto& pj : j["plots"]) {
                 if (idx >= w.plots.size()) break;
-                w.plots[idx].owner_id = pj.value("owner_id", 0);
+                w.plots[idx].owner_id = static_cast<uint32_t>(pj.value("owner_id", 0));
                 ++idx;
             }
         }

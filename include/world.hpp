@@ -399,11 +399,11 @@ struct InteriorRoom {
     // Helper: get floor by index (0 = ground, 1+ = upper)
     const std::vector<std::string>& get_floor(int floor) const {
         if (floor == 0) return rows;
-        if (floor > 0 && floor - 1 < (int)floors.size()) return floors[floor - 1];
+        if (floor > 0 && static_cast<int>(floor - 1) < static_cast<int>(floors.size())) return floors[floor - 1];
         static const std::vector<std::string> empty;
         return empty;
     }
-    int num_floors() const { return 1 + (int)floors.size(); }
+    int num_floors() const { return 1 + static_cast<int>(floors.size()); }
 };
 
 // ---- buyable plots ----

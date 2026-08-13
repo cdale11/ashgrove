@@ -75,9 +75,9 @@ static void advance_day(World& w) {
                 // Moon phase bonus: crops planted on new moon (hp=1) grow 10% faster
                 if (cell.obj.type == ObjType::None && cell.obj.hp == 1) {
                     // 10% chance of extra growth per day
-                    if ((w.day + cell.crop.days_left) % 10 == 0) growth++;
+                    if ((static_cast<int>(w.day) + cell.crop.days_left) % 10 == 0) growth++;
                 }
-                cell.crop.days_left = std::max(0, cell.crop.days_left - growth);
+                cell.crop.days_left = static_cast<int8_t>(std::max(0, static_cast<int>(cell.crop.days_left) - growth));
                 // Recompute stage based on elapsed time vs total days.
                 // Stage 0 = just planted, stage 3 = ready to harvest.
                 const CropDef* cd = crop_def(cell.crop.crop);
@@ -122,7 +122,7 @@ static void advance_day(World& w) {
             // Check if it hasn't produced this season yet
             if (cell.crop.last_harvest_season != season) {
                 // Produce fruit
-                cell.crop.last_harvest_season = season;
+                cell.crop.last_harvest_season = static_cast<int8_t>(season);
                 // Fruit is ready to harvest (stage 3)
                 cell.crop.stage = 3;
                 cell.crop.watered = rain;
@@ -178,7 +178,7 @@ static void advance_day(World& w) {
             }
             if (!is_protected) {
                 // 5% chance of crow eating crop
-                int roll = (w.day + x * 31 + y * 17) % 100; // deterministic
+                int roll = (static_cast<int>(w.day) + x * 31 + y * 17) % 100; // deterministic
                 if (roll < 5) {
                     c.crop = {}; // eaten by crows
                 }
@@ -245,34 +245,34 @@ static void advance_day(World& w) {
                 // Tree growth: small chance to grow (hp increases)
                 if (c.obj.hp < 255) {
                     int growth_chance = (c.obj.hp < 20) ? 5 : (c.obj.hp < 50) ? 3 : 1;
-                    if ((w.day * 7 + x * 13 + y * 19) % 100 < growth_chance) {
+                    if ((static_cast<int>(w.day) * 7 + x * 13 + y * 19) % 100 < static_cast<unsigned>(growth_chance)) {
                         c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
                     }
                 }
             }
             // Stump regrowth: 2% chance per day to become a sapling (hp=1)
             else if (c.obj.type == ObjType::Stump) {
-                if ((w.day * 11 + x * 17 + y * 23) % 100 < 2) {
+                if ((static_cast<int>(w.day) * 11 + x * 17 + y * 23) % 100 < 2) {
                     c.obj = {ObjType::Tree, 1, 0}; // regrow as generic tree
                 }
             }
             // Weed regrowth: on grass/dirt tiles, small chance to spawn weed
             else if (c.obj.type == ObjType::None && 
                      (c.tile == Tile::Grass || c.tile == Tile::GrassVar || c.tile == Tile::Dirt)) {
-                if ((w.day * 13 + x * 19 + y * 29) % 1000 < 5) { // 0.5% chance per day
+                if ((static_cast<int>(w.day) * 13 + x * 19 + y * 29) % 1000 < 5) { // 0.5% chance per day
                     c.obj = {ObjType::Weed, 1, 0};
                 }
             }
             // Tall grass regrowth
             else if (c.obj.type == ObjType::None && c.tile == Tile::Grass) {
-                if ((w.day * 17 + x * 23 + y * 31) % 1000 < 3) { // 0.3% chance
+                if ((static_cast<int>(w.day) * 17 + x * 23 + y * 31) % 1000 < 3) { // 0.3% chance
                     c.obj = {ObjType::TallGrass, 1, 0};
                 }
             }
             // Flower regrowth (spring/summer)
             else if (c.obj.type == ObjType::None && c.tile == Tile::Grass) {
-                int season = season_index(w.day);
-                if ((season == 0 || season == 1) && (w.day * 19 + x * 29 + y * 37) % 1000 < 2) {
+                int flower_season = season_index(w.day);
+                if ((flower_season == 0 || flower_season == 1) && (static_cast<int>(w.day) * 19 + x * 29 + y * 37) % 1000 < 2) {
                     c.obj = {ObjType::Flower, 1, 0};
                 }
             }
@@ -379,13 +379,13 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             add_item(p, Item::DeodarResin, 1);
             log_amount = 6;
         }
-        add_item(p, log, log_amount);
+        add_item(p, log, static_cast<uint16_t>(log_amount));
         // Sapling drop: mature trees (hp > 100) have 20% chance to drop a sapling
         // Use the tree's hp before it became a stump (stored in was hp, but we need to track it)
         // The tree's hp was in c.obj.hp before we changed it to stump
         // We'll use a deterministic check based on position and day
-        int tree_hp_before = (w.day * 7 + tx * 13 + ty * 19) % 255; // deterministic proxy
-        if (tree_hp_before > 100 && (w.day * 11 + tx * 17 + ty * 23) % 100 < 20) {
+        int tree_hp_before = (static_cast<int>(w.day) * 7 + tx * 13 + ty * 19) % 255; // deterministic proxy
+        if (tree_hp_before > 100 && (static_cast<int>(w.day) * 11 + tx * 17 + ty * 23) % 100 < 20) {
             Item sapling = Item::None;
             switch (was) {
                 case ObjType::Tree: sapling = Item::OakSapling; break;
@@ -402,6 +402,7 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
                 case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
                 case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
                 case ObjType::Deodar: sapling = Item::DeodarSapling; break;
+                default: sapling = Item::None; break;
             }
             if (sapling != Item::None) {
                 add_item(p, sapling, 1);
@@ -444,7 +445,7 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         c.obj = FarmObj{};
         add_item(p, Item::Fiber, 1);
         // Weed seed drops: 15% chance for mixed seeds when cutting weeds
-        if (is_weed && (w.day * 7 + tx * 13 + ty * 19) % 100 < 15) {
+        if (is_weed && (static_cast<int>(w.day) * 7 + tx * 13 + ty * 19) % 100 < 15) {
             static const Item seeds[] = {
                 Item::ParsnipSeeds, Item::PotatoSeeds, Item::CauliflowerSeeds,
                 Item::CornSeeds, Item::TomatoSeeds, Item::WheatSeeds,
@@ -454,12 +455,12 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
                 Item::ArtichokeSeeds, Item::BokChoySeeds, Item::KaleSeeds,
                 Item::CranberrySeeds, Item::GrapeSeeds
             };
-            Item seed = seeds[(w.day * 11 + tx * 17 + ty * 23) % 20];
+            Item seed = seeds[(static_cast<int>(w.day) * 11 + tx * 17 + ty * 23) % 20];
             add_item(p, seed, 1);
             return "+1 fiber + 1 " + std::string(item_def(seed).name) + " (mixed seeds!)";
         }
         // Tall grass: 10% chance for hay
-        if (tall && (w.day * 13 + tx * 19 + ty * 23) % 100 < 10) {
+        if (tall && (static_cast<int>(w.day) * 13 + tx * 19 + ty * 23) % 100 < 10) {
             add_item(p, Item::Fiber, 1);
             return "+1 fiber + 1 fiber (hay)";
         }
@@ -584,18 +585,18 @@ static Vec2 facing_cell(Player& p) {
 }
 
 static int find_slot(Player& p, Item it) {
-    for (int i = 0; i < 12; ++i)
-        if (p.inv[i].item == it) return i;
+    for (size_t i = 0; i < p.inv.size(); ++i)
+        if (p.inv[i].item == it) return static_cast<int>(i);
     return -1;
 }
 static int count_item(Player& p, Item it) {
     int n = 0;
-    for (int i = 0; i < 12; ++i) if (p.inv[i].item == it) n += p.inv[i].count;
+    for (size_t i = 0; i < p.inv.size(); ++i) if (p.inv[i].item == it) n += p.inv[i].count;
     return n;
 }
 static bool has_item(Player& p, Item it, int need) { return count_item(p, it) >= need; }
 static void consume_item(Player& p, Item it, int need) {
-    for (int i = 0; i < 12 && need > 0; ++i) if (p.inv[i].item == it) {
+    for (size_t i = 0; i < p.inv.size() && need > 0; ++i) if (p.inv[i].item == it) {
         int t = std::min(need, static_cast<int>(p.inv[i].count));
         p.inv[i].count -= static_cast<uint16_t>(t); need -= t;
         if (p.inv[i].count == 0) p.inv[i].item = Item::None;
@@ -632,13 +633,13 @@ static int gift_taste(const std::string& npc, Item it) {
 static Item item_from_name(const std::string& s) {
     std::string lc = lower_trim(s);
     // exact item name match first (including seeds)
-    for (int i = 1; i <= 35; ++i) {
+    for (int i = 1; i <= 158; ++i) {
         Item it = static_cast<Item>(i);
         std::string nm = lower_trim(item_def(it).name);
         if (nm == lc) return it;
     }
     // plural / "seeds" suffix
-    for (int i = 1; i <= 35; ++i) {
+    for (int i = 1; i <= 158; ++i) {
         Item it = static_cast<Item>(i);
         std::string nm = lower_trim(item_def(it).name);
         if (nm + "s" == lc || nm + " seed" == lc || nm + " seeds" == lc) return it;
@@ -764,7 +765,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     }
     if (cmd == "inventory" || cmd == "inv") {
         bool any = false;
-        for (int i = 0; i < 12; ++i)
+        for (size_t i = 0; i < p.inv.size(); ++i)
             if (p.inv[i].item != Item::None) {
                 any = true;
                 say("  " + std::string(item_def(p.inv[i].item).name) +
@@ -832,7 +833,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 if (bfs_path(w, p.pos, door, path)) {
                     p.path = std::move(path);
                     p.moving = !p.path.empty();
-                    p.move_start_ms = now_ms();
+                    p.move_start_ms = static_cast<uint32_t>(now_ms());
                     int dx = door.x - p.pos.x, dy = door.y - p.pos.y;
                     p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
                     // Register landmark
@@ -861,7 +862,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             if (bfs_path(w, p.pos, door, path)) {
                 p.path = std::move(path);
                 p.moving = !p.path.empty();
-                p.move_start_ms = now_ms();
+                p.move_start_ms = static_cast<uint32_t>(now_ms());
                 int dx = door.x - p.pos.x, dy = door.y - p.pos.y;
                 p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
                 // Register landmark
@@ -916,11 +917,11 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                     p.moving = false;
                     return out;
                 }
-                if (nx < 0 || nx >= r.w || ny < 0 || r.rows[ny][nx] == '#') {
+                if (nx < 0 || nx >= r.w || ny < 0 || r.rows[static_cast<size_t>(ny)][static_cast<size_t>(nx)] == '#') {
                     if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
                     say("A wall stops you."); return out;
                 }
-                char ch = r.rows[ny][nx];
+                char ch = r.rows[static_cast<size_t>(ny)][static_cast<size_t>(nx)];
                 if (ch != '.' && ch != ' ' && ch != 'P') {
                     if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
                     say("Blocked by " + furniture_name(ch) + "."); return out;
@@ -968,14 +969,14 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             if (rit == w.interiors.end()) { p.inside.clear(); return out; }
             const InteriorRoom& r = rit->second;
             say("You are inside the " + p.inside + ".");
-            char here = r.rows[p.iny][p.inx];
+            char here = r.rows[static_cast<size_t>(p.iny)][static_cast<size_t>(p.inx)];
             if (here != '.' && here != ' ' && here != 'P')
                 say("You stand beside " + furniture_name(here) + ".");
             std::vector<std::string> around;
             for (auto [ox, oy, di] : std::vector<std::tuple<int,int,const char*>>{{0,-1,"north"},{0,1,"south"},{-1,0,"west"},{1,0,"east"}}) {
                 int tx = p.inx + ox, ty = p.iny + oy;
                 if (tx < 0 || tx >= r.w || ty < 0 || ty >= r.h) continue;
-                char c = r.rows[ty][tx];
+                char c = r.rows[static_cast<size_t>(ty)][static_cast<size_t>(tx)];
                 if (c == '#') around.push_back("a wall to the " + std::string(di));
                 else if (c != '.' && c != ' ' && c != 'P')
                     around.push_back(furniture_name(c) + " to the " + std::string(di));
@@ -1298,13 +1299,22 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         Item produce = c.crop.crop;
         // Fruit trees: don't remove the crop, just mark as harvested this season
         if (c.crop.is_fruit_tree) {
-            // Already marked as harvested in advance_day (last_harvest_season = current season)
-            // Just give the fruit
+            int season = season_index(w.day);
+            // Only harvestable if the tree has produced fruit this season (set by advance_day).
+            // Prevents re-harvesting the same tree repeatedly in one season.
+            if (c.crop.last_harvest_season != season) {
+                say("The tree has no ripe fruit right now. It will fruit once per season.");
+                return out;
+            }
             add_item(p, produce, 1);
             p.money += item_def(produce).sell;
             say("You harvest a " + std::string(item_def(produce).name) + " from the tree! +" +
                 std::to_string(item_def(produce).sell) + "g");
             say("The tree will produce again next season.");
+            // Mark picked this season: stage<3 blocks re-harvest (checked above), and
+            // last_harvest_season stays == season so advance_day won't re-fruit until the
+            // season changes (when last_harvest_season != season).
+            c.crop.stage = 2;
             return out;
         }
         // Wind pollination: flowers adjacent to crop boost quality (2x sell price chance)
@@ -1320,7 +1330,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         int sell_price = item_def(produce).sell;
         std::string quality_msg = "";
-        if (flower_bonus > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < 20 * flower_bonus) {
+        if (flower_bonus > 0 && (static_cast<int>(w.day) * 7 + f.x * 13 + f.y * 19) % 100 < static_cast<unsigned>(20 * flower_bonus)) {
             // 20% chance per adjacent flower for quality bonus (double price)
             sell_price *= 2;
             quality_msg = " ★ Quality!";
@@ -1467,7 +1477,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.energy -= 2;
         // Shake: 25% chance for sapling from mature trees, 10% from younger
         int chance = (c.obj.hp > 150) ? 25 : (c.obj.hp > 100) ? 20 : (c.obj.hp > 50) ? 10 : 0;
-        if (chance > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < chance) {
+        if (chance > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < static_cast<unsigned>(chance)) {
             Item sapling = Item::None;
             switch (c.obj.type) {
                 case ObjType::Tree: sapling = Item::OakSapling; break;
@@ -1484,6 +1494,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 case ObjType::HickoryTree: sapling = Item::HickorySapling; break;
                 case ObjType::ChestnutTree: sapling = Item::ChestnutSapling; break;
                 case ObjType::Deodar: sapling = Item::DeodarSapling; break;
+                default: sapling = Item::None; break;
             }
             if (sapling != Item::None) {
                 add_item(p, sapling, 1);
@@ -2078,8 +2089,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         // Register this building as a known landmark for path-walking
         p.known_landmarks.insert(p.inside);
         const InteriorRoom& r = rit->second;
-        p.inx = (int16_t)(r.w / 2);
-        p.iny = (int16_t)(r.h - 2);
+        p.inx = static_cast<int16_t>(r.w / 2);
+        p.iny = static_cast<int16_t>(r.h - 2);
         for (int16_t sy = r.h - 2; sy >= 0; --sy) {
             char ch = r.rows[sy][r.w / 2];
             if (ch == '.' || ch == ' ' || ch == 'P') { p.iny = sy; break; }
@@ -2140,7 +2151,6 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (rit != w.interiors.end()) {
             const InteriorRoom& room = rit->second;
             // Check adjacent furniture for context-specific interaction
-            char here = room.rows[p.iny][p.inx];
             std::vector<std::pair<char, std::string>> adjacent;
             for (auto [ox, oy, dir] : std::vector<std::tuple<int,int,std::string>>{{0,-1,"north"},{0,1,"south"},{-1,0,"west"},{1,0,"east"}}) {
                 int tx = p.inx + ox, ty = p.iny + oy;
@@ -2419,7 +2429,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     auto name_ok = [](const std::string& n) {
         if (n.empty() || n.size() > 32) return false;
         for (char c : n)
-            if (!std::isalnum((unsigned char)c) && c != '_' && c != '-') return false;
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') return false;
         return true;
     };
     if (cmd == "save") {
@@ -2507,7 +2517,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
 
 int main(int argc, char** argv) {
     int port = argc > 1 ? std::atoi(argv[1]) : 8080;
-    std::srand((unsigned)std::time(nullptr));
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
     World world;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -2781,7 +2791,7 @@ json cells = json::array();
                     int slot = schedule_slot(n.name, world.day, hour_of_day(world), anchor);
                     if (slot == -1) { step_npc(world, n); continue; }
                     if (slot != n.sched_slot) {
-                        n.sched_slot = (int8_t)slot;
+                        n.sched_slot = static_cast<int8_t>(slot);
                         n.path.clear();
                         n.path_i = 0;
                         if (anchor != n.pos) bfs_path(world, n.pos, anchor, n.path, 512);
