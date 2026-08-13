@@ -2517,6 +2517,23 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     return out;
 }
 
+std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent) {
+    std::vector<std::string> out;
+    auto say = [&](const std::string& s) { out.push_back(s); };
+    std::string action = intent.value("action", "");
+    auto params = intent.value("parameters", nlohmann::json::object());
+
+    // For now, reconstruct a simple command string for fallback handling
+    std::string cmd_str = action;
+    if (!params.empty()) {
+        // naive: append first param value
+        for (auto it = params.begin(); it != params.end(); ++it) {
+            cmd_str += " " + it->dump();
+        }
+    }
+    return handle_cmd(w, p, cmd_str);
+}
+
 int main(int argc, char** argv) {
     int port = argc > 1 ? std::atoi(argv[1]) : 8080;
     std::srand(static_cast<unsigned>(std::time(nullptr)));

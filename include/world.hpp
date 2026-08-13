@@ -43,7 +43,7 @@ enum class Item : uint16_t {
     CopperOre = 6, IronOre = 7, GoldOre = 8, IridiumOre = 9,
     CopperBar = 30, IronBar = 31, GoldBar = 32,
     Wood = 60, Stone = 61, Fiber = 62,
-    Fish = 63, Forage = 64, Bread = 65,
+    Milk = 62, GoatMilk = 63, Egg = 64, Fish = 65, Forage = 66, Bread = 67,
     FertilizerBasic = 66, FertilizerQuality = 67, FertilizerPremium = 68,
     Scarecrow = 69,
     Composter = 70,
@@ -73,6 +73,24 @@ enum class Item : uint16_t {
     Walnut = 155, HickoryNut = 156, Chestnut = 157, Acorn = 158,
 };
 
+enum class AnimalType : uint8_t { None = 0, Chicken = 1, Cow = 2, Goat = 3 };
+
+struct Animal {
+    AnimalType type = AnimalType::None;
+    uint16_t age = 0;            // days lived
+    uint8_t hunger = 0;          // 0‑100, 0 = full
+    uint8_t days_since_product = 0; // days since last product
+    Item product() const {
+        switch (type) {
+            case AnimalType::Chicken: return Item::Egg;
+            case AnimalType::Cow:     return Item::Milk;
+            case AnimalType::Goat:    return Item::GoatMilk;
+            default:                 return Item::None;
+        }
+    }
+    static constexpr uint8_t interval(AnimalType) { return 1; } // daily production like Stardew
+};
+
 struct ItemDef {
     const char* name;
     uint8_t type;        // 0 tool, 1 seed, 2 produce, 3 resource
@@ -80,6 +98,10 @@ struct ItemDef {
     int sell;
     uint8_t energy;      // energy cost to use (tools)
 };
+
+// Forward declaration for command dispatcher
+#include <nlohmann/json.hpp>
+std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent);
 
 inline ItemDef const& item_def(Item it) {
     // Table of {id, def} pairs looked up by id. Using a struct + linear scan
@@ -109,7 +131,7 @@ inline ItemDef const& item_def(Item it) {
         {Item::Rhubarb, {"Rhubarb",2,-1,220,0}}, {Item::Garlic, {"Garlic",2,-1,60,0}}, {Item::Artichoke, {"Artichoke",2,-1,160,0}},
         {Item::BokChoy, {"Bok Choy",2,-1,80,0}}, {Item::Kale, {"Kale",2,-1,110,0}},
         {Item::Cranberry, {"Cranberry",2,-1,75,0}}, {Item::Grape, {"Grape",2,-1,80,0}},
-        {Item::Wood, {"Wood",3,-1,2,0}}, {Item::Stone, {"Stone",3,-1,2,0}}, {Item::Fiber, {"Fiber",3,-1,1,0}},
+        {Item::Wood, {"Wood",3,-1,2,0}}, {Item::Stone, {"Stone",3,-1,2,0}}, {Item::Fiber, {"Fiber",3,-1,1,0}}, {Item::Milk, {"Milk",3,-1,0,0}}, {Item::GoatMilk, {"Goat Milk",3,-1,0,0}}, {Item::Egg, {"Egg",3,-1,0,0}},
         {Item::Fish, {"Fish",3,-1,0,0}}, {Item::Forage, {"Forage",3,-1,0,0}},
         {Item::Bread, {"Bread",2,5,0,0}},
         {Item::FertilizerBasic, {"Fertilizer Basic",3,100,0,0}}, {Item::FertilizerQuality, {"Fertilizer Quality",3,200,0,0}}, {Item::FertilizerPremium, {"Fertilizer Premium",3,400,0,0}},
