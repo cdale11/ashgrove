@@ -96,6 +96,12 @@ add_executable(ashgrove_server
   src/llama_wrapper.cpp
 )
 
+# Include plugin sources
+file(GLOB PLUGIN_SRCS "plugins/*.cpp")
+if(PLUGIN_SRCS)
+  target_sources(ashgrove_server PRIVATE ${PLUGIN_SRCS})
+endif()
+
 target_include_directories(ashgrove_server PRIVATE
   include
   ${httplib_SOURCE_DIR}

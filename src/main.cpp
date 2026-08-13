@@ -2529,8 +2529,64 @@ int main(int argc, char** argv) {
         init_npcs(world);
     }
 
+    // ---- locate or download a GGUF model for the local LLM ----
+    auto find_model = []() -> std::string {
+        // 1) explicit file next to the executable
+        std::vector<std::filesystem::path> candidates = {
+            std::filesystem::current_path() / "models" / "model.gguf",
+            std::filesystem::current_path() / "model.gguf",
+            // llama.cpp source fetched by CMake (may contain example models)
+            std::filesystem::path(__FILE__).parent_path().parent_path() / "_deps" / "llama_cpp-src" / "models"
+        };
+        for (auto& p : candidates) {
+            if (std::filesystem::is_regular_file(p)) return p.string();
+            if (std::filesystem::is_directory(p)) {
+                for (auto& entry : std::filesystem::directory_iterator(p)) {
+                    if (entry.path().extension() == ".gguf") return entry.path().string();
+                }
+            }
+        }
+        return "";
+    };
+
+    auto download_model = [](const std::string& url, const std::string& dst) -> bool {
+        // Very small download helper using httplib (same as join endpoint)
+        std::string host, path;
+        std::string u = url;
+        if (u.rfind("https://",0)==0) u = u.substr(8);
+        else if (u.rfind("http://",0)==0) u = u.substr(7);
+        size_t pos = u.find('/');
+        if (pos == std::string::npos) return false;
+        host = u.substr(0, pos);
+        path = u.substr(pos);
+        httplib::Client cli(host.c_str());
+        cli.set_follow_location(true);
+        auto res = cli.Get(path.c_str());
+        if (!res || res->status != 200) return false;
+        std::ofstream ofs(dst, std::ios::binary);
+        if (!ofs) return false;
+        ofs.write(res->body.data(), res->body.size());
+        return true;
+    };
+
+    constexpr const char* DEFAULT_MODEL_URL =
+        "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf";
+
+    std::string model_path = find_model();
+    if (model_path.empty()) {
+        std::filesystem::create_directories(std::filesystem::current_path() / "models");
+        model_path = (std::filesystem::current_path() / "models" / "model.gguf").string();
+        std::cout << "Downloading default LLM model (" << DEFAULT_MODEL_URL << ") …\n";
+        if (!download_model(DEFAULT_MODEL_URL, model_path)) {
+            std::cerr << "WARNING: model download failed – LLM will run in fallback mode.\n";
+            model_path.clear();
+        }
+    } else {
+        std::cout << "Using LLM model: " << model_path << "\n";
+    }
+
     EventBus bus;
-    LlamaWrapper llama(""); // empty model path -> fallback parser
+    LlamaWrapper llama(model_path);
 
     // precompute static tile map (never changes after gen)
     std::vector<uint8_t> tile_map(MAP_W * MAP_H);
