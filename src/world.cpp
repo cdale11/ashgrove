@@ -1445,6 +1445,9 @@ std::string serialize_world(const World& w) {
                 cj["stage"] = c.crop.stage;
                 cj["days_left"] = c.crop.days_left;
                 cj["watered"] = c.crop.watered;
+                cj["is_trellis"] = c.crop.is_trellis;
+                cj["is_fruit_tree"] = c.crop.is_fruit_tree;
+                cj["last_harvest_season"] = c.crop.last_harvest_season;
             }
             j["cells"].push_back(cj);
         }
@@ -1463,6 +1466,7 @@ std::string serialize_world(const World& w) {
     for (auto& p : w.plots) {
         j["plots"].push_back({{"name", p.name}, {"owner_id", p.owner_id}});
     }
+    j["farmhouse_level"] = w.farmhouse_level;
     return j.dump();
 }
 
@@ -1472,6 +1476,7 @@ bool deserialize_world(World& w, const std::string& json_str) {
         w.day = j.value("day", 1);
         w.day_seconds = j.value("time", 0.0f);
         w.next_player_id = j.value("next_player_id", 1);
+        w.farmhouse_level = j.value("farmhouse_level", w.farmhouse_level);
         for (auto& pl : j.value("players", json::array())) {
             Player p;
             p.id = pl["id"]; p.pos = {pl["x"], pl["y"]}; p.target = p.pos;
@@ -1526,6 +1531,9 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 c.crop.stage = cj.value("stage", 0);
                 c.crop.days_left = cj.value("days_left", 0);
                 c.crop.watered = cj.value("watered", false);
+                c.crop.is_trellis = cj.value("is_trellis", false);
+                c.crop.is_fruit_tree = cj.value("is_fruit_tree", false);
+                c.crop.last_harvest_season = cj.value("last_harvest_season", -1);
             }
         }
         // Deserialize building states

@@ -143,20 +143,8 @@ static void advance_day(World& w) {
     // This is applied at harvest time, but we track it here for flavor
     // (Actual quality boost happens in harvest command)
 
-    // Moon phase: new moon (phase 0) = crops planted that day grow 10% faster
-    // Moon phase: 0=new, 1=waxing crescent, 2=first quarter, 3=waxing gibbous, 4=full, 5=waning gibbous, 6=last quarter, 7=waning crescent
-    // Crops store moon_phase_planted in obj.hp (reuse field)
-    int moon_phase = w.day % 8;
-    if (moon_phase == 0) {
-        // New moon - mark newly planted crops for bonus
-        for (auto& cell : w.cells) {
-            if (cell.crop.is_crop() && cell.crop.days_left == cell.crop.days_left && cell.obj.type == ObjType::None) {
-                // This is a newly planted crop (days_left equals total days)
-                // Mark with moon phase bonus in obj.hp
-                cell.obj.hp = 1; // 1 = new moon bonus
-            }
-        }
-    }
+    // Moon phase bonus is set at plant time (see plant command), not retroactively.
+    // (Actual quality boost happens in harvest command)
 
     // Building weathering & maintenance (all buildings)
     bool winter = (season == 3);
@@ -178,7 +166,7 @@ static void advance_day(World& w) {
     for (int y = 0; y < MAP_H; ++y) {
         for (int x = 0; x < MAP_W; ++x) {
             Cell& c = w.at(x, y);
-            if (!c.crop.is_crop() || c.crop.stage < 3) continue; // only mature crops
+            if (!c.crop.is_crop() || c.crop.is_fruit_tree || c.crop.stage < 3) continue; // only mature crops (fruit trees exempt)
             // Check if protected by scarecrow (17x17 = radius 8 in all directions)
             bool is_protected = false;
             for (int dy = -8; dy <= 8 && !is_protected; ++dy) {
@@ -326,7 +314,8 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
     // ---- harvest ready crop (only when no tool is selected: bare-hand gesture) ----
     // Other tools must use the explicit "harvest" command so a Hoe/Axe swing on
     // a ripe tile doesn't double-pay the sell price and then clear the tile.
-    if (tool == Item::None && c.crop.is_crop() && c.crop.stage == 3 && c.crop.days_left <= 0) {
+    if (tool == Item::None && c.crop.is_crop() && !c.crop.is_fruit_tree &&
+        c.crop.stage == 3 && c.crop.days_left <= 0) {
         Item produce = c.crop.crop;
         c.crop = Crop{};
         add_item(p, produce, 1);
@@ -558,7 +547,21 @@ static const char* obj_name(ObjType o) {
     case ObjType::Sprinkler:  return "an irrigation sprinkler";
     case ObjType::Statue: return "a carved stone statue";
     case ObjType::LeafLitter: return "a drift of fallen leaves";
-    default: return nullptr;
+    case ObjType::Scarecrow: return "a scarecrow";
+    case ObjType::Composter: return "a composter";
+    case ObjType::Oak: return "an oak tree";
+    case ObjType::Maple: return "a maple tree";
+    case ObjType::Birch: return "a birch tree";
+    case ObjType::Cedar: return "a cedar tree";
+    case ObjType::Redwood: return "a mighty redwood";
+    case ObjType::Teak: return "a teak tree";
+    case ObjType::Mahogany: return "a mahogany tree";
+    case ObjType::RubberTree: return "a rubber tree";
+    case ObjType::WalnutTree: return "a walnut tree";
+    case ObjType::HickoryTree: return "a hickory tree";
+    case ObjType::ChestnutTree: return "a chestnut tree";
+    case ObjType::Deodar: return "a deodar cedar tree";
+    default: return "something";
     }
 }
 
@@ -795,8 +798,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "go" || cmd == "move" || dirs.count(cmd)) {
         std::string d = (cmd == "go" || cmd == "move") ? arg : cmd;
         
-        // Check for "go to <landmark>" syntax
-        if (d == "to" && !arg.empty()) {
+        // Check for "go to <landmark>" syntax (d is the raw arg, may start with "to ")
+        if (d.rfind("to", 0) == 0 && !arg.empty()) {
             // Parse "go to <landmark>" - the arg contains "to <landmark>"
             std::string landmark = arg;
             size_t pos = landmark.find(' ');
@@ -1238,7 +1241,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         // Fertilizer improves crop yield/speed: apply quality modifier
         // Basic: +1 stage speed, Quality: +2, Premium: +3
         int bonus = (fert == Item::FertilizerBasic) ? 1 : (fert == Item::FertilizerQuality) ? 2 : 3;
-        c.obj = {ObjType::None, static_cast<uint8_t>(bonus + 1), 255}; // Store bonus in ore field
+        c.obj = {ObjType::None, 0, static_cast<uint8_t>(bonus + 1)}; // Store bonus in ore field
         say("Applied " + std::string(item_def(fert).name) + ". Crops here will grow faster.");
         return out;
     }
@@ -1968,9 +1971,6 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             if (pl.owner_id == p.id) {
                 int cnt = 0;
                 for (auto& st : p.placed_structs) if (st.plot_idx == i) ++cnt;
-                for (int yy = pl.y; yy < pl.y + pl.h; ++yy)
-                    for (int xx = pl.x; xx < pl.x + pl.w; ++xx)
-                        if (w.in_bounds(xx, yy) && w.at(xx, yy).obj.type == ObjType::Building) ++cnt;
                 build = ", " + std::to_string(cnt) + " structure(s)";
             }
             any = true;

@@ -41,7 +41,7 @@ enum class Item : uint16_t {
     Rhubarb = 48, Garlic = 49, Artichoke = 50, BokChoy = 51, Kale = 52,
     Cranberry = 53, Grape = 54,
     CopperOre = 6, IronOre = 7, GoldOre = 8, IridiumOre = 9,
-    CopperBar = 17, IronBar = 18, GoldBar = 19,
+    CopperBar = 30, IronBar = 31, GoldBar = 32,
     Wood = 60, Stone = 61, Fiber = 62,
     Fish = 63, Forage = 64, Bread = 65,
     FertilizerBasic = 66, FertilizerQuality = 67, FertilizerPremium = 68,
@@ -82,58 +82,63 @@ struct ItemDef {
 };
 
 inline ItemDef const& item_def(Item it) {
-    static const ItemDef defs[] = {
-        /* 0  */ {"None",0,0,0,0},
-        /* 1  */ {"Hoe",0,-1,0,2},{"Watering Can",0,-1,0,2},{"Axe",0,-1,0,5},
-        /* 4  */ {"Pickaxe",0,-1,0,5},{"Scythe",0,-1,0,2},
-        /* 6-9  */ {"Copper Ore",3,-1,15,0},{"Iron Ore",3,-1,30,0},
-                    {"Gold Ore",3,-1,60,0},{"Iridium Ore",3,-1,150,0},
-        /* 10 */ {"Parsnip Seeds",1,20,0,0},{"Potato Seeds",1,50,0,0},{"Cauliflower Seeds",1,80,0,0},
-        /* 13 */ {"Corn Seeds",1,150,0,0},{"Tomato Seeds",1,50,0,0},{"Wheat Seeds",1,10,0,0},
-                {"Blueberry Seeds",1,80,0,0},
-        /* 17 */ {"Green Bean Seeds",1,60,0,0},{"Hops Seeds",1,60,0,0},{"Strawberry Seeds",1,100,0,0},
-        /* 20 */ {"Melon Seeds",1,80,0,0},{"Pumpkin Seeds",1,100,0,0},{"Red Cabbage Seeds",1,100,0,0},
-        /* 23 */ {"Rhubarb Seeds",1,100,0,0},{"Garlic Seeds",1,40,0,0},{"Artichoke Seeds",1,30,0,0},
-                {"Bok Choy Seeds",1,50,0,0},{"Kale Seeds",1,70,0,0},
-        /* 28 */ {"Cranberry Seeds",1,240,0,0},{"Grape Seeds",1,60,0,0},
-        /* 17-19 */ {"Copper Bar",3,-1,2,0},{"Iron Bar",3,-1,4,0},{"Gold Bar",3,-1,8,0},
-        /* 35 */ {"Parsnip",2,-1,35,0},{"Potato",2,-1,80,0},{"Cauliflower",2,-1,175,0},
-        /* 38 */ {"Corn",2,-1,110,0},{"Tomato",2,-1,120,0},{"Wheat",2,-1,25,0},
-                {"Blueberry",2,-1,100,0},
-        /* 42 */ {"Green Bean",2,-1,40,0},{"Hops",2,-1,25,0},
-        /* 44 */ {"Strawberry",2,-1,120,0},{"Melon",2,-1,250,0},{"Pumpkin",2,-1,320,0},{"Red Cabbage",2,-1,260,0},
-        /* 48 */ {"Rhubarb",2,-1,220,0},{"Garlic",2,-1,60,0},{"Artichoke",2,-1,160,0},
-                {"Bok Choy",2,-1,80,0},{"Kale",2,-1,110,0},
-        /* 53 */ {"Cranberry",2,-1,75,0},{"Grape",2,-1,80,0},
-        /* 60 */ {"Wood",3,-1,2,0},{"Stone",3,-1,2,0},{"Fiber",3,-1,1,0},
-        /* 63 */ {"Fish",3,-1,0,0},{"Forage",3,-1,0,0},
-        /* 65 */ {"Bread",2,5,0,0},
-        /* 66 */ {"Fertilizer Basic",3,100,0,0},{"Fertilizer Quality",3,200,0,0},{"Fertilizer Premium",3,400,0,0},
-        /* 69 */ {"Scarecrow",3,500,0,0},
-        /* 70 */ {"Composter",3,1000,0,0},
-        /* 71 */ {"Apple Sapling",3,4000,0,0},{"Cherry Sapling",3,3400,0,0},{"Peach Sapling",3,6000,0,0},{"Pomegranate Sapling",3,6000,0,0},
-        /* 75 */ {"Apricot Sapling",3,2000,0,0},{"Orange Sapling",3,4000,0,0},{"Banana Sapling",3,5000,0,0},{"Mango Sapling",3,5000,0,0},
-        /* 79 */ {"Plum Sapling",3,2600,0,0},{"Pear Sapling",3,3000,0,0},{"Fig Sapling",3,3000,0,0},{"Avocado Sapling",3,5000,0,0},
-        /* 83 */ {"Lemon Sapling",3,2000,0,0},{"Lime Sapling",3,2000,0,0},{"Grapefruit Sapling",3,2600,0,0},{"Persimmon Sapling",3,3000,0,0},
-        /* 87 */ {"Deodar Sapling",3,5000,0,0},
-        /* 90 */ {"Apple",2,-1,100,0},{"Cherry",2,-1,80,0},{"Peach",2,-1,140,0},{"Pomegranate",2,-1,140,0},
-        /* 94 */ {"Apricot",2,-1,50,0},{"Orange",2,-1,100,0},{"Banana",2,-1,150,0},{"Mango",2,-1,130,0},
-        /* 98 */ {"Plum",2,-1,80,0},{"Pear",2,-1,100,0},{"Fig",2,-1,90,0},{"Avocado",2,-1,150,0},
-        /* 102 */ {"Lemon",2,-1,50,0},{"Lime",2,-1,40,0},{"Grapefruit",2,-1,80,0},{"Persimmon",2,-1,120,0},
-        /* 106 */ {"Deodar Cone",2,-1,30,0},{"Deodar Resin",3,-1,20,0},{"Deodar Oil",3,-1,100,0},
-        /* 110 */ {"Sap",3,-1,2,0},{"Resin",3,-1,5,0},{"Rubber",3,-1,10,0},{"Bark",3,-1,3,0},{"Hardwood",3,-1,15,0},
-        /* 115 */ {"Maple Syrup",2,-1,200,0},{"Oak Resin",3,-1,15,0},{"Pine Tar",3,-1,10,0},
-        /* 120 */ {"Oak Sapling",3,200,0,0},{"Maple Sapling",3,200,0,0},{"Birch Sapling",3,150,0,0},{"Cedar Sapling",3,300,0,0},
-        /* 124 */ {"Redwood Sapling",3,500,0,0},{"Teak Sapling",3,1000,0,0},{"Mahogany Sapling",3,1000,0,0},{"Rubber Tree Sapling",3,500,0,0},
-        /* 128 */ {"Walnut Sapling",3,400,0,0},{"Hickory Sapling",3,400,0,0},{"Chestnut Sapling",3,500,0,0},
-        /* 140 */ {"Oak Log",3,-1,50,0},{"Maple Log",3,-1,60,0},{"Birch Log",3,-1,40,0},{"Cedar Log",3,-1,80,0},
-        /* 144 */ {"Redwood Log",3,-1,200,0},{"Teak Log",3,-1,300,0},{"Mahogany Log",3,-1,300,0},{"Rubber Log",3,-1,100,0},
-        /* 148 */ {"Walnut Log",3,-1,100,0},{"Hickory Log",3,-1,120,0},{"Chestnut Log",3,-1,100,0},{"Deodar Log",3,-1,150,0},
-        /* 152 */ {"Lumber",3,-1,20,0},{"Plank",3,-1,40,0},{"Plywood",3,-1,80,0},
-        /* 155 */ {"Walnut",2,-1,30,0},{"Hickory Nut",2,-1,25,0},{"Chestnut",2,-1,20,0},{"Acorn",3,-1,1,0},
+    // Table of {id, def} pairs looked up by id. Using a struct + linear scan
+    // (instead of array indexing) keeps every item aligned to its enum id even
+    // where enum values have gaps, so names/buy/sell/energy are always correct.
+    struct Def { Item id; ItemDef d; };
+    static const Def defs[] = {
+        {Item::None, {"None",0,0,0,0}},
+        {Item::Hoe, {"Hoe",0,-1,0,2}}, {Item::WateringCan, {"Watering Can",0,-1,0,2}}, {Item::Axe, {"Axe",0,-1,0,5}},
+        {Item::Pickaxe, {"Pickaxe",0,-1,0,5}}, {Item::Scythe, {"Scythe",0,-1,0,2}},
+        {Item::CopperOre, {"Copper Ore",3,-1,15,0}}, {Item::IronOre, {"Iron Ore",3,-1,30,0}},
+        {Item::GoldOre, {"Gold Ore",3,-1,60,0}}, {Item::IridiumOre, {"Iridium Ore",3,-1,150,0}},
+        {Item::ParsnipSeeds, {"Parsnip Seeds",1,20,0,0}}, {Item::PotatoSeeds, {"Potato Seeds",1,50,0,0}}, {Item::CauliflowerSeeds, {"Cauliflower Seeds",1,80,0,0}},
+        {Item::CornSeeds, {"Corn Seeds",1,150,0,0}}, {Item::TomatoSeeds, {"Tomato Seeds",1,50,0,0}}, {Item::WheatSeeds, {"Wheat Seeds",1,10,0,0}},
+        {Item::BlueberrySeeds, {"Blueberry Seeds",1,80,0,0}},
+        {Item::GreenBeanSeeds, {"Green Bean Seeds",1,60,0,0}}, {Item::HopsSeeds, {"Hops Seeds",1,60,0,0}}, {Item::StrawberrySeeds, {"Strawberry Seeds",1,100,0,0}},
+        {Item::MelonSeeds, {"Melon Seeds",1,80,0,0}}, {Item::PumpkinSeeds, {"Pumpkin Seeds",1,100,0,0}}, {Item::RedCabbageSeeds, {"Red Cabbage Seeds",1,100,0,0}},
+        {Item::RhubarbSeeds, {"Rhubarb Seeds",1,100,0,0}}, {Item::GarlicSeeds, {"Garlic Seeds",1,40,0,0}}, {Item::ArtichokeSeeds, {"Artichoke Seeds",1,30,0,0}},
+        {Item::BokChoySeeds, {"Bok Choy Seeds",1,50,0,0}}, {Item::KaleSeeds, {"Kale Seeds",1,70,0,0}},
+        {Item::CranberrySeeds, {"Cranberry Seeds",1,240,0,0}}, {Item::GrapeSeeds, {"Grape Seeds",1,60,0,0}},
+        {Item::CopperBar, {"Copper Bar",3,-1,2,0}}, {Item::IronBar, {"Iron Bar",3,-1,4,0}}, {Item::GoldBar, {"Gold Bar",3,-1,8,0}},
+        {Item::Parsnip, {"Parsnip",2,-1,35,0}}, {Item::Potato, {"Potato",2,-1,80,0}}, {Item::Cauliflower, {"Cauliflower",2,-1,175,0}},
+        {Item::Corn, {"Corn",2,-1,110,0}}, {Item::Tomato, {"Tomato",2,-1,120,0}}, {Item::Wheat, {"Wheat",2,-1,25,0}},
+        {Item::Blueberry, {"Blueberry",2,-1,100,0}},
+        {Item::GreenBean, {"Green Bean",2,-1,40,0}}, {Item::Hops, {"Hops",2,-1,25,0}},
+        {Item::Strawberry, {"Strawberry",2,-1,120,0}}, {Item::Melon, {"Melon",2,-1,250,0}}, {Item::Pumpkin, {"Pumpkin",2,-1,320,0}}, {Item::RedCabbage, {"Red Cabbage",2,-1,260,0}},
+        {Item::Rhubarb, {"Rhubarb",2,-1,220,0}}, {Item::Garlic, {"Garlic",2,-1,60,0}}, {Item::Artichoke, {"Artichoke",2,-1,160,0}},
+        {Item::BokChoy, {"Bok Choy",2,-1,80,0}}, {Item::Kale, {"Kale",2,-1,110,0}},
+        {Item::Cranberry, {"Cranberry",2,-1,75,0}}, {Item::Grape, {"Grape",2,-1,80,0}},
+        {Item::Wood, {"Wood",3,-1,2,0}}, {Item::Stone, {"Stone",3,-1,2,0}}, {Item::Fiber, {"Fiber",3,-1,1,0}},
+        {Item::Fish, {"Fish",3,-1,0,0}}, {Item::Forage, {"Forage",3,-1,0,0}},
+        {Item::Bread, {"Bread",2,5,0,0}},
+        {Item::FertilizerBasic, {"Fertilizer Basic",3,100,0,0}}, {Item::FertilizerQuality, {"Fertilizer Quality",3,200,0,0}}, {Item::FertilizerPremium, {"Fertilizer Premium",3,400,0,0}},
+        {Item::Scarecrow, {"Scarecrow",3,500,0,0}},
+        {Item::Composter, {"Composter",3,1000,0,0}},
+        {Item::AppleSapling, {"Apple Sapling",3,4000,0,0}}, {Item::CherrySapling, {"Cherry Sapling",3,3400,0,0}}, {Item::PeachSapling, {"Peach Sapling",3,6000,0,0}}, {Item::PomegranateSapling, {"Pomegranate Sapling",3,6000,0,0}},
+        {Item::ApricotSapling, {"Apricot Sapling",3,2000,0,0}}, {Item::OrangeSapling, {"Orange Sapling",3,4000,0,0}}, {Item::BananaSapling, {"Banana Sapling",3,5000,0,0}}, {Item::MangoSapling, {"Mango Sapling",3,5000,0,0}},
+        {Item::PlumSapling, {"Plum Sapling",3,2600,0,0}}, {Item::PearSapling, {"Pear Sapling",3,3000,0,0}}, {Item::FigSapling, {"Fig Sapling",3,3000,0,0}}, {Item::AvocadoSapling, {"Avocado Sapling",3,5000,0,0}},
+        {Item::LemonSapling, {"Lemon Sapling",3,2000,0,0}}, {Item::LimeSapling, {"Lime Sapling",3,2000,0,0}}, {Item::GrapefruitSapling, {"Grapefruit Sapling",3,2600,0,0}}, {Item::PersimmonSapling, {"Persimmon Sapling",3,3000,0,0}},
+        {Item::DeodarSapling, {"Deodar Sapling",3,5000,0,0}},
+        {Item::Apple, {"Apple",2,-1,100,0}}, {Item::Cherry, {"Cherry",2,-1,80,0}}, {Item::Peach, {"Peach",2,-1,140,0}}, {Item::Pomegranate, {"Pomegranate",2,-1,140,0}},
+        {Item::Apricot, {"Apricot",2,-1,50,0}}, {Item::Orange, {"Orange",2,-1,100,0}}, {Item::Banana, {"Banana",2,-1,150,0}}, {Item::Mango, {"Mango",2,-1,130,0}},
+        {Item::Plum, {"Plum",2,-1,80,0}}, {Item::Pear, {"Pear",2,-1,100,0}}, {Item::Fig, {"Fig",2,-1,90,0}}, {Item::Avocado, {"Avocado",2,-1,150,0}},
+        {Item::Lemon, {"Lemon",2,-1,50,0}}, {Item::Lime, {"Lime",2,-1,40,0}}, {Item::Grapefruit, {"Grapefruit",2,-1,80,0}}, {Item::Persimmon, {"Persimmon",2,-1,120,0}},
+        {Item::DeodarCone, {"Deodar Cone",2,-1,30,0}}, {Item::DeodarResin, {"Deodar Resin",3,-1,20,0}}, {Item::DeodarOil, {"Deodar Oil",3,-1,100,0}},
+        {Item::Sap, {"Sap",3,-1,2,0}}, {Item::Resin, {"Resin",3,-1,5,0}}, {Item::Rubber, {"Rubber",3,-1,10,0}}, {Item::Bark, {"Bark",3,-1,3,0}}, {Item::Hardwood, {"Hardwood",3,-1,15,0}},
+        {Item::MapleSyrup, {"Maple Syrup",2,-1,200,0}}, {Item::OakResin, {"Oak Resin",3,-1,15,0}}, {Item::PineTar, {"Pine Tar",3,-1,10,0}},
+        {Item::OakSapling, {"Oak Sapling",3,200,0,0}}, {Item::MapleSapling, {"Maple Sapling",3,200,0,0}}, {Item::BirchSapling, {"Birch Sapling",3,150,0,0}}, {Item::CedarSapling, {"Cedar Sapling",3,300,0,0}},
+        {Item::RedwoodSapling, {"Redwood Sapling",3,500,0,0}}, {Item::TeakSapling, {"Teak Sapling",3,1000,0,0}}, {Item::MahoganySapling, {"Mahogany Sapling",3,1000,0,0}}, {Item::RubberTreeSapling, {"Rubber Tree Sapling",3,500,0,0}},
+        {Item::WalnutSapling, {"Walnut Sapling",3,400,0,0}}, {Item::HickorySapling, {"Hickory Sapling",3,400,0,0}}, {Item::ChestnutSapling, {"Chestnut Sapling",3,500,0,0}},
+        {Item::OakLog, {"Oak Log",3,-1,50,0}}, {Item::MapleLog, {"Maple Log",3,-1,60,0}}, {Item::BirchLog, {"Birch Log",3,-1,40,0}}, {Item::CedarLog, {"Cedar Log",3,-1,80,0}},
+        {Item::RedwoodLog, {"Redwood Log",3,-1,200,0}}, {Item::TeakLog, {"Teak Log",3,-1,300,0}}, {Item::MahoganyLog, {"Mahogany Log",3,-1,300,0}}, {Item::RubberLog, {"Rubber Log",3,-1,100,0}},
+        {Item::WalnutLog, {"Walnut Log",3,-1,100,0}}, {Item::HickoryLog, {"Hickory Log",3,-1,120,0}}, {Item::ChestnutLog, {"Chestnut Log",3,-1,100,0}}, {Item::DeodarLog, {"Deodar Log",3,-1,150,0}},
+        {Item::Lumber, {"Lumber",3,-1,20,0}}, {Item::Plank, {"Plank",3,-1,40,0}}, {Item::Plywood, {"Plywood",3,-1,80,0}},
+        {Item::Walnut, {"Walnut",2,-1,30,0}}, {Item::HickoryNut, {"Hickory Nut",2,-1,25,0}}, {Item::Chestnut, {"Chestnut",2,-1,20,0}}, {Item::Acorn, {"Acorn",3,-1,1,0}},
     };
-    uint16_t i = static_cast<uint16_t>(it);
-    return i < sizeof(defs)/sizeof(defs[0]) ? defs[i] : defs[0];
+    for (auto const& d : defs)
+        if (d.id == it) return d.d;
+    return defs[0].d;
 }
 
 // ---- crops (seed -> produce) ----
@@ -542,7 +547,7 @@ bool is_festival_day(uint32_t day);          // Egg Festival: Spring 13
 int  schedule_slot(const std::string& name, uint32_t day, int hour, Vec2& anchor);
 std::string forage_table(int season, int& count);       // fills count
 std::string fish_table(int season, int& count);         // fills count
-bool bfs_path(World& world, Vec2 from, Vec2 to, std::vector<Vec2>& out, size_t max_len = 64);
+bool bfs_path(World& world, Vec2 from, Vec2 to, std::vector<Vec2>& out, size_t max_len = 512);
 std::string serialize_world(const World& w);
 bool deserialize_world(World& w, const std::string& json_str);
 void add_item(Player& p, Item item, uint16_t count);     // first free slot, else adds to existing
