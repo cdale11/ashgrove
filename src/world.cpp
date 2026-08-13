@@ -451,6 +451,11 @@ void generate_world(World& world) {
 
     place_buildings(world);
     init_interiors(world);
+    // Initialize building states for all placed buildings (default condition = 100)
+    for (auto& b : world.buildings) {
+        world.building_states[b.name] = {100, 0, 100, 0};
+    }
+    init_plots(world);
     resolve_water_edges(world);
 
     // ---- docks boardwalk (south ocean shore, east of river mouth) ----
@@ -642,6 +647,26 @@ void place_buildings(World& world) {
             c.tile = Tile::Dirt;
             c.obj = FarmObj{};
         }
+}
+
+// ---- buyable plots (R16) ----
+void init_plots(World& world) {
+    world.plots = {
+        {"Hillside",       104, 28, 6, 6,  15000, "cool mountain air"},
+        {"Forest Clearing",  4, 46, 6, 6,   8000, "temperate woodland"},
+        {"Lakeside",        92, 30, 6, 6,  12000, "humid lake breeze"},
+        {"Docks Lot",      100, 76, 6, 6,  10000, "salty coastal wind"},
+    };
+    // Clear the plot areas: flatten to grass, remove obstacles
+    for (auto& p : world.plots)
+        for (int y = p.y; y < p.y + p.h; ++y)
+            for (int x = p.x; x < p.x + p.w; ++x) {
+                if (!world.in_bounds(x, y)) continue;
+                Cell& c = world.at(x, y);
+                c.tile = Tile::Grass;
+                c.obj = FarmObj{};
+                c.crop = Crop{};
+            }
 }
 
 // interior furniture: '#' wall, '.' floor, letters = furnishings, ' ' = doorway.
@@ -1418,6 +1443,11 @@ std::string serialize_world(const World& w) {
             {"last_maintained_day", bs.last_maintained_day}
         };
     }
+    // Serialize plots (R16)
+    j["plots"] = json::array();
+    for (auto& p : w.plots) {
+        j["plots"].push_back({{"name", p.name}, {"owner_id", p.owner_id}});
+    }
     return j.dump();
 }
 
@@ -1482,6 +1512,15 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 bs.foundation = bs_json.value("foundation", 100);
                 bs.last_maintained_day = bs_json.value("last_maintained_day", 0);
                 w.building_states[name] = bs;
+            }
+        }
+        // Deserialize plots (R16)
+        if (j.contains("plots") && !w.plots.empty()) {
+            size_t idx = 0;
+            for (auto& pj : j["plots"]) {
+                if (idx >= w.plots.size()) break;
+                w.plots[idx].owner_id = pj.value("owner_id", 0);
+                ++idx;
             }
         }
         return true;
