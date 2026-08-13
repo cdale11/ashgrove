@@ -142,7 +142,10 @@ Listeners subscribe via `EventBus::subscribe<Topic>(callback)`. Decouples system
 5. **Maintain parallelism** – New code respects the thread‑pool architecture.
 6. **Emergence over hard‑coding** – Event‑driven interactions preferred.
 7. **Skill & tool freedom** – Agents may use/download skills as needed; document usage in PR.
-8. **Simplify for the player** – Text commands are the UI; NLP handles complexity; minimap is reference only.
+8. **Agent‑initiated suggestions** – The agent is encouraged to propose improvements, refactorings, or new features based on its own analysis of the codebase and roadmap.
+9. **Extensive skill usage** – Agents should leverage available OpenCode skills whenever they are applicable, and may download additional skills if required to accomplish a task.
+10. **Modular, organized code** – Keep the codebase modular, follow existing patterns, and maintain clear separation of concerns to facilitate development, maintenance, and collaboration.
+11. **Simplify for the player** – Text commands are the UI; NLP handles complexity; minimap is reference only.
 
 ---
 
