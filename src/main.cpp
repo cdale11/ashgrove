@@ -2533,8 +2533,13 @@ int main(int argc, char** argv) {
     auto find_model = []() -> std::string {
         // 1) explicit file next to the executable
         std::vector<std::filesystem::path> candidates = {
+            // Preferred Gemma-4b model
+            std::filesystem::path("/home/umang/llama.cpp/models/gemma-4-E4B-it-Q4_K_M.gguf"),
             std::filesystem::current_path() / "models" / "model.gguf",
             std::filesystem::current_path() / "model.gguf",
+            // local llama.cpp checkout (user may have models there)
+            std::filesystem::path("/home/umang/llama.cpp/qwen2.5-coder-3b-instruct-q4_k_m.gguf"),
+            std::filesystem::path("/home/umang/llama.cpp/models/qwen2.5-coder-3b-instruct-q4_k_m.gguf"),
             // llama.cpp source fetched by CMake (may contain example models)
             std::filesystem::path(__FILE__).parent_path().parent_path() / "_deps" / "llama_cpp-src" / "models"
         };
