@@ -332,9 +332,9 @@ Add `Tile::Cobble = 13` to `include/world.hpp`. Add render rule for it in `asset
 ```
 
 ## Confirmation checklist
-- [ ] User confirms plan above matches their intent
-- [ ] Proceed phase by phase, getting user feedback at each phase boundary
-- [ ] Don't try to write all 7 phases in one go; verify compile + browser render after phase 2
+- [x] User confirms plan above matches their intent
+- [x] Proceed phase by phase, getting user feedback at each phase boundary
+- [x] Don't try to write all 7 phases in one go; verify compile + browser render after phase 2
 
 ---
 
