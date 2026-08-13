@@ -1667,11 +1667,13 @@ if (cmd == "buy") {
         if (building.empty()) { say("Repair what? Usage: repair <building_name> (e.g., 'repair blacksmith')"); return out; }
         // Find building by name (case-insensitive partial match)
         Bldg* target = nullptr;
+        bool target_is_dynamic = false;
         for (auto& b : w.buildings) {
             if (lower_trim(b.name).find(building) != std::string::npos) { target = &b; break; }
         }
         if (!target && building == "farmhouse") {
             target = new Bldg{"Farmhouse", 0, 0, 0, 0}; // special case
+            target_is_dynamic = true;
         }
         if (!target) { say("There's no '" + arg + "' to repair."); return out; }
         
@@ -1682,18 +1684,22 @@ if (cmd == "buy") {
                 at_carpenter = true; break;
             }
         }
-        if (!at_carpenter) { say("Visit the Carpenter Shop to arrange repairs."); return out; }
+        if (!at_carpenter) { 
+            if (target_is_dynamic) delete target;
+            say("Visit the Carpenter Shop to arrange repairs."); 
+            return out; 
+        }
         
         auto it = w.building_states.find(target->name);
         if (it == w.building_states.end()) { 
             say(std::string(target->name) + " is in good condition."); 
-            if (target->name != "Farmhouse") delete target;
+            if (target_is_dynamic) delete target;
             return out; 
         }
         BuildingState& bs = it->second;
         if (bs.condition >= 100) { 
             say(std::string(target->name) + " is already in perfect condition."); 
-            if (target->name != "Farmhouse") delete target;
+            if (target_is_dynamic) delete target;
             return out; 
         }
         // Cost: 10 wood + 5 stone per 10 condition points
@@ -1703,7 +1709,7 @@ if (cmd == "buy") {
         if (!has_item(p, Item::Wood, wood_cost) || !has_item(p, Item::Stone, stone_cost)) {
             say("Repair needs " + std::to_string(wood_cost) + " wood + " + std::to_string(stone_cost) + " stone.");
             say("Condition: " + std::to_string(bs.condition) + "/100 (roof leak " + std::to_string(bs.roof_leak) + ", foundation " + std::to_string(bs.foundation) + ")");
-            if (target->name != "Farmhouse") delete target;
+            if (target_is_dynamic) delete target;
             return out;
         }
         consume_item(p, Item::Wood, wood_cost);
@@ -1713,7 +1719,7 @@ if (cmd == "buy") {
         bs.foundation = 100;
         bs.last_maintained_day = w.day;
         say(std::string(target->name) + " repaired to perfect condition! (-" + std::to_string(wood_cost) + " wood, -" + std::to_string(stone_cost) + " stone)");
-        if (target->name != "Farmhouse") delete target;
+        if (target_is_dynamic) delete target;
         return out;
     }
 
