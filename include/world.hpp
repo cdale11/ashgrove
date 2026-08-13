@@ -401,6 +401,15 @@ struct InteriorRoom {
     int num_floors() const { return 1 + (int)floors.size(); }
 };
 
+// ---- buyable plots ----
+struct Plot {
+    std::string name;
+    int16_t x, y, w, h;       // plot area on the map
+    int price;                // purchase price in gold
+    const char* climate;      // climate description
+    uint32_t owner_id = 0;    // 0 = unowned; player.id when bought
+};
+
 struct FarmObj { ObjType type = ObjType::None; uint8_t hp = 0; uint8_t ore = 0; };
 
 struct Crop {
@@ -451,6 +460,15 @@ struct Player {
     uint8_t fest_tries = 8;
     // Known landmarks for fast-travel / path-walking (building names player has entered)
     std::set<std::string> known_landmarks;
+    // Owned plots (indices into world.plots)
+    std::set<size_t> owned_plots;
+	// Structures placed on plots: (plot_index, structure_type, tile_x, tile_y)
+    struct PlacedStruct {
+        size_t plot_idx = 0;
+        uint8_t type = 0;   // 1=barn, 2=silo, 3=shed, 4=well, 5=scarecrow, 6=windmill
+        int16_t x = 0, y = 0;
+    };
+    std::vector<PlacedStruct> placed_structs;
 };
 
 // ---- world ----
@@ -461,6 +479,7 @@ struct World {
     std::vector<Bldg> buildings;
     std::unordered_map<std::string, InteriorRoom> interiors;
     std::unordered_map<std::string, BuildingState> building_states;
+    std::vector<Plot> plots;   // buyable plots (R16)
     uint32_t next_player_id = 1;
     uint32_t day = 1;
     float day_seconds = 0.0f;   // seconds since 6:00 AM
@@ -507,6 +526,7 @@ void init_npcs(World& world);
 void place_buildings(World& world);
 void clear_paths(World& world);   // keep bridges + doorways passable (post-scatter)
 void init_interiors(World& world);
+void init_plots(World& world);     // R16: buyable plots
 int  hour_of_day(const World& w);      // 6..26 (26 == 2:00 AM)
 const char* clock_str(const World& w); // "Day 3 · 10:40 AM"
 int  season_index(uint32_t day);       // 0 spring .. 3 winter

@@ -565,6 +565,14 @@ void clear_paths(World& world) {
             for (int xx = dx - 1; xx <= dx + 1; ++xx)
                 clear_cell(xx, yy);
     }
+    // keep the farmhouse doorstep clear too (the farmhouse isn't in the building
+    // table, so scatter/ore passes can leave a rock right on its door tile)
+    {
+        Vec2 d = world.door();
+        for (int yy = d.y - 1; yy <= d.y + 1; ++yy)
+            for (int xx = d.x - 1; xx <= d.x + 1; ++xx)
+                clear_cell(xx, yy);
+    }
 }
 
 void resolve_water_edges(World& world) {
@@ -608,9 +616,9 @@ void place_buildings(World& world) {
         // travel
         {"Bus Stop", 8, 14, 2, 2},
         {"Railway Station", 108, 10, 9, 6},
-        // farm outbuildings (on the farm plot, south)
-        {"Hawthorn Barn", 38, 80, 3, 3},
-        {"Glasshouse", 50, 80, 2, 2},
+        // farm outbuildings (on the farm plot, clear of the farmhouse + doorstep)
+        {"Hawthorn Barn", 30, 80, 3, 3},
+        {"Glasshouse", 34, 80, 2, 2},
         // lakefront district (NE)
         {"Tearoom", 90, 22, 2, 2},
         {"Observatory", 110, 4, 2, 2},
