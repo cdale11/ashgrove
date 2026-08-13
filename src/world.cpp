@@ -451,6 +451,22 @@ void generate_world(World& world) {
 
     place_buildings(world);
     init_interiors(world);
+    // Ensure every building has at least a minimal interior so entering never falls back
+    for (auto& b : world.buildings) {
+        if (world.interiors.find(b.name) == world.interiors.end()) {
+            InteriorRoom r;
+            r.building = b.name;
+            // simple 3x3 floor with doorway at bottom centre
+            r.rows = {
+                "#####",
+                "#...#",
+                "## ##",
+            };
+            r.h = static_cast<int16_t>(r.rows.size());
+            r.w = static_cast<int16_t>(r.rows[0].size());
+            world.interiors[b.name] = std::move(r);
+        }
+    }
     // Initialize building states for all placed buildings (default condition = 100)
     for (auto& b : world.buildings) {
         world.building_states[b.name] = {100, 0, 100, 0};
