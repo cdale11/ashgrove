@@ -1,5 +1,7 @@
 #include "world.hpp"
 #include "protocol.hpp"
+#include "event_bus.hpp"
+#include "llama_wrapper.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -2527,6 +2529,9 @@ int main(int argc, char** argv) {
         init_npcs(world);
     }
 
+    EventBus bus;
+    LlamaWrapper llama(""); // empty model path -> fallback parser
+
     // precompute static tile map (never changes after gen)
     std::vector<uint8_t> tile_map(MAP_W * MAP_H);
     for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[i] = static_cast<uint8_t>(world.cells[i].tile);
@@ -2713,6 +2718,14 @@ json cells = json::array();
         json j = json::parse(req.body);
         uint32_t pid = j.value("player_id", 0);
         std::string cmd = j.value("cmd", "");
+        // Parse through local LLM (fallback to raw if unavailable)
+        if (auto intent = llama.parse_command(cmd)) {
+            json intent_json = {
+                {"action", intent->action},
+                {"parameters", intent->parameters}
+            };
+            bus.publish(EventTopic::PlayerCmd, intent_json.dump());
+        }
         std::lock_guard<std::mutex> lock(g_mutex);
         json resp = {{"lines", json::array()}};
         if (auto it = world.players.find(pid); it != world.players.end()) {
