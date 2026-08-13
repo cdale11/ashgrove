@@ -76,6 +76,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# llama.cpp (static library for local LLM)
+FetchContent_Declare(
+  llama_cpp
+  GIT_REPOSITORY https://github.com/ggerganov/llama.cpp
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(llama_cpp)
+
 # ---------------------------------------------------------------------------
 # Target: ashgrove_server
 # ---------------------------------------------------------------------------
@@ -85,16 +93,19 @@ add_executable(ashgrove_server
   src/world.cpp
   src/event_bus.cpp
   src/plugin.cpp
+  src/llama_wrapper.cpp
 )
 
 target_include_directories(ashgrove_server PRIVATE
   include
   ${httplib_SOURCE_DIR}
   ${nlohmann_json_SOURCE_DIR}/include
+  ${llama_cpp_SOURCE_DIR}
 )
 
 target_link_libraries(ashgrove_server PRIVATE
   Threads::Threads
+  llama
 )
 
 target_compile_options(ashgrove_server PRIVATE
@@ -153,7 +164,7 @@ if(CLANG_FORMAT)
   add_custom_target(format
     COMMAND ${CLANG_FORMAT} -i
       src/main.cpp src/server.cpp src/world.cpp
-      include/world.hpp include/protocol.hpp include/event_bus.hpp include/plugin.hpp
+      include/world.hpp include/protocol.hpp include/event_bus.hpp include/plugin.hpp include/llama_wrapper.hpp
     COMMENT "Formatting source files with clang-format"
     VERBATIM
   )
