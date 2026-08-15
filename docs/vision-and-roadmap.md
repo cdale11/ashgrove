@@ -103,6 +103,9 @@ Ashgrove Server
 > 
 > **Phase 5 status**: All five deliverables implemented (quest generator, job board, living economy, event-driven rewards, dynamic pricing). See
 > `docs/shipped-features.md` §23. 5 quest types (fetch/deliver/investigate/ritual/kill), 4 job types, 17+ market commodities with seasonal pricing, auto-generation with 3-day expiry.
+> 
+> **Phase 6 status**: All five deliverables implemented (under-map basement after midnight, random night-event narratives, sanity meter with perception filters, Higurashi/DDLC/Disco-Elysium narrative overlays, PIXI fog/shadows/glitch/audio). See
+> `docs/shipped-features.md` §24. 4 perception tiers; basement gated on hour ≥ 24; 8 scripted night-event chapters; serialized sanity + night-event log; new `/horror` + `/basement` endpoints; client sanity bar, vignette, fog, glitch, and procedural drone audio.
 | **2 – Advanced Crafting & Machines** | Processing & automation depth. | • Kegs, Preserves Jars, Mayonnaise Machine.<br>• Bee houses & honey production.<br>• Casks for cellar aging (wine, cheese).<br>• Sprinkler pressure, greenhouse, quality sprinklers.<br>• Skill perks (Tiller, Agriculturist). | 3‑4 weeks |
 | **3 – Social & NPC Relationships** | Rich, LLM‑enhanced social layer. | • Heart‑system persistence (0‑14 hearts).<br>• Gift‑preference tables (love/like/neutral/dislike/hate).<br>• LLM‑driven dialogue with fallback scripts.<br>• Marriage, divorce, children, roommate events.<br>• NPC schedules adapt to player friendship. | 3‑4 weeks |
 | **4 – Town & Map Expansion** | Procedural outskirts + authored core. | • Procgen region generator (forest, hills, caves, ruins).<br>• Buyable plots, construction via text DSL.<br>• New interior rooms (barn, greenhouse, cellar, shrine).<br>• Seamless transition from 128×96 authored map to infinite procgen. | 3‑4 weeks |

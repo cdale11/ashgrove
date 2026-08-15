@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <sstream>
+#include <random>
 #include <cctype>
 #include <ctime>
 
@@ -114,6 +115,7 @@ static void advance_day(World& w) {
         p.moving = false;
         p.path.clear();
         p.gifted_today.clear();
+        w.tick_sanity(p);
     }
 
     // Fruit trees: produce once per season after maturing (28 days)
@@ -1051,6 +1053,17 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         else if (reg == "Mulberry Lane") say("The village high street. Dusty wagons, old lanterns.");
         else if (reg == "Whisper Wood") say("Old-growth forest crowds the stream. Forage thrives in the shade.");
         else if (reg == "East Moor") say("Open meadowland. Rabbits dart between the grasses.");
+        // Phase 6: perception filters at low sanity
+        int ptier = w.perception_tier(p);
+        if (ptier >= 1) { std::string f = w.horror_flavor(p); if (!f.empty()) say(f); }
+        if (ptier >= 2) {
+            // Distorted vision: a "false" neighbor the player thinks they see.
+            static const char* phantom[] = {"a figure standing at the treeline", "a face at a dark window",
+                                            "the scarecrow closer than before", "a shape that is not there"};
+            std::mt19937 hrng(p.id * 977u + w.day);
+            say("You think you see " + std::string(phantom[hrng() % 4]) + ". It is gone when you look again.");
+        }
+        if (ptier >= 3) { std::string v = w.internal_voice(p); if (!v.empty()) say(v); }
         // notable neighbors
         std::vector<std::string> near;
         for (int dy = -1; dy <= 1; ++dy)
@@ -2140,12 +2153,33 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     }
     if (cmd == "exit" || cmd == "leave") {
         if (p.inside.empty()) { say("You're outside already."); return out; }
+        if (p.inside == "Basement") { w.leave_basement(p); say("You climb back up the stairs into the night air."); return out; }
         say("You step out the door.");
         p.inside.clear();
         p.pos = p.inside_exit;
         p.target = p.pos;
         p.path.clear();
         p.moving = false;
+        return out;
+    }
+
+    // ---------- basement (Phase 6: hidden under-map, only after midnight) ----------
+    if (cmd == "basement") {
+        if (p.inside == "Basement") {
+            say("You are already in the basement. 'exit' to return above."); return out;
+        }
+        int hour = hour_of_day(w);
+        if (hour < 24) {
+            say("A faint draft rises from beneath the floorboards, but the way stays shut.");
+            if (!p.secrets_found.empty()) say("(Something remembers the last time you went down. It waits for midnight.)");
+            return out;
+        }
+        // After midnight (24 = 12:00 AM, up to 26 = 2:00 AM) the hatch yields.
+        say("The floorboards shift. A cold stairwell opens beneath the farmhouse.");
+        say("You descend into the dark.");
+        w.trigger_basement(p);
+        say("The basement is damp and wrong. The walls remember your footsteps.");
+        say("A voice like your own whispers: \"You keep coming back. Why do you keep coming back?\"");
         return out;
     }
 
@@ -2391,10 +2425,23 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say("You're not near your bed. Find the house door."); return out;
         }
         std::string old_season = season_name(season_index(w.day));
+        int sleep_hour = hour_of_day(w);   // before day rolls over
         advance_day(w);
         std::string new_season = season_name(season_index(w.day));
         int nextWeather = weather_of_day(w.day);
         say("Zzz...");
+        // Phase 6: the night has its own story. Every sleep after midnight can
+        // surface a chapter of the hidden narrative.
+        if (sleep_hour >= 22) {
+            std::string ev = w.roll_night_event();
+            std::istringstream evss(ev);
+            std::string line;
+            while (std::getline(evss, line)) {
+                if (!line.empty()) say(line);
+            }
+            if (p.night_event_log.size() > 12) p.night_event_log.erase(p.night_event_log.begin());
+            p.night_event_log.push_back(ev);
+        }
         say("--- Day " + std::to_string(w.day) + " · " + std::string(new_season) + " ---");
         say(clock_str(w));
         if (new_season != old_season)
@@ -2847,6 +2894,7 @@ int main(int argc, char** argv) {
                 {"region", region_at(world, p.pos.x, p.pos.y)},
                 {"inside", p.inside}, {"inx", p.inx}, {"iny", p.iny},
                 {"inv", inv},
+                {"sanity", p.sanity}, {"sanity_tier", world.perception_tier(p)},
             });
         // attach friendship hearts
         json hearts = json::object();
@@ -3270,6 +3318,71 @@ json cells = json::array();
                         " (base: " + std::to_string(mp.base_price) + "g, supply: " + std::to_string(mp.supply) + ", demand: " + std::to_string(mp.demand) + ")";
                     resp["lines"].push_back(line);
                 }
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- horror: sanity + narrative state (Phase 6) ----
+    svr.Post("/horror", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            resp["sanity"] = p.sanity;
+            resp["max_sanity"] = p.max_sanity;
+            resp["tier"] = world.perception_tier(p);
+            resp["basement_unlocked"] = world.basement_unlocked;
+            resp["basement_visits"] = world.basement_visits;
+            resp["horror_cycle"] = world.horror_cycle;
+            resp["active_horror"] = world.active_horror;
+            json sec = json::array();
+            for (auto& s : p.secrets_found) sec.push_back(s);
+            resp["secrets"] = sec;
+            json log = json::array();
+            for (auto& e : p.night_event_log) log.push_back(e);
+            resp["night_log"] = log;
+            std::string tiername = world.perception_tier(p) == 0 ? "Sane" :
+                                   world.perception_tier(p) == 1 ? "Uneasy" :
+                                   world.perception_tier(p) == 2 ? "Strained" : "Fractured";
+            resp["lines"].push_back("Sanity: " + std::to_string(static_cast<int>(p.sanity)) + "/" + std::to_string(static_cast<int>(p.max_sanity)) + " (" + tiername + ")");
+            resp["lines"].push_back("Basement visits: " + std::to_string(world.basement_visits) + " · Cycle: " + std::to_string(world.horror_cycle));
+            if (!world.active_horror.empty()) resp["lines"].push_back("Current narrative: " + world.active_horror);
+            resp["lines"].push_back("Known secrets (" + std::to_string(p.secrets_found.size()) + "):");
+            if (p.secrets_found.empty()) resp["lines"].push_back("  none yet — the truth is still buried");
+            else for (auto& s : p.secrets_found) resp["lines"].push_back("  · " + s);
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- basement: enter/leave the hidden under-map (Phase 6) ----
+    svr.Post("/basement", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        std::string sub = j.value("subcmd", "enter");
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            if (sub == "leave" || sub == "exit") {
+                if (p.inside != "Basement") { resp["lines"].push_back("You're not in the basement."); }
+                else { world.leave_basement(p); resp["lines"].push_back("You climb back up into the night air."); }
+            } else if (p.inside == "Basement") {
+                resp["lines"].push_back("You are already in the basement.");
+            } else if (hour_of_day(world) < 24) {
+                resp["lines"].push_back("The hatch under the floorboards stays shut until midnight.");
+            } else {
+                resp["lines"].push_back("The floorboards shift. A cold stairwell opens beneath the farmhouse.");
+                resp["lines"].push_back("You descend into the dark.");
+                world.trigger_basement(p);
+                resp["lines"].push_back("The basement is damp and wrong. The walls remember your footsteps.");
+                resp["lines"].push_back("A voice like your own whispers: \"You keep coming back.\"");
             }
         } else {
             resp["lines"].push_back("No farmer found. Rejoin the game.");

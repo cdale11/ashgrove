@@ -424,6 +424,7 @@ enum class InteriorType : uint8_t {
     BarnInterior = 6, CoopInterior = 7, ShedInterior = 8, SiloInterior = 9,
     WellInterior = 10, WindmillInterior = 11, CabinInterior = 12,
     RuinInterior = 13, CaveInterior = 14, ShrineInterior = 15,
+    Basement = 16,
 };
 
 // ---- interiors ----
@@ -546,6 +547,14 @@ struct Player {
         int16_t x = 0, y = 0;
     };
     std::vector<PlacedStruct> placed_structs;
+    // ---- Phase 6: Sanity & Horror ----
+    float sanity = 100.0f;      // 0..100 meter; low = perception distortion
+    float max_sanity = 100.0f;
+    uint32_t last_sanity_day = 0;
+    // Chapters of the hidden narrative the player has experienced (cyclical secrets).
+    std::vector<std::string> secrets_found;
+    // Night-event log (chapter-style), most recent last.
+    std::vector<std::string> night_event_log;
 };
 
 // ---- world ----
@@ -698,6 +707,14 @@ struct World {
     uint32_t next_quest_id = 1;
     uint32_t next_job_id = 1;
 
+    // Phase 6: Horror & Narrative state
+    // A "basement" hidden under the map, reachable only after midnight (hour >= 24).
+    bool basement_unlocked = false;   // discovered the hatch this run
+    uint32_t basement_visits = 0;
+    uint32_t horror_cycle = 0;        // Higurashi-style loop count
+    std::string active_horror;        // current narrative event id ("" = none)
+    std::string last_night_event;     // last generated night-event text
+
     // Quest/Job methods
     void generate_daily_quests(Player& p);
     void update_market_prices();
@@ -705,6 +722,19 @@ struct World {
     bool complete_quest(Player& p, const std::string& quest_id);
     bool start_job(Player& p, const std::string& job_id);
     void generate_daily_quests_if_needed(Player& p); // Auto-generate on first access
+
+    // Phase 6: Horror & Narrative
+    void tick_sanity(Player& p);        // daily sanity drift (call in advance_day)
+    void restore_sanity(Player& p, float amt);
+    void damage_sanity(Player& p, float amt);
+    // Perception tier for a player's sanity: 0=sane,1=uneasy,2=strained,3=fractured
+    int perception_tier(const Player& p) const;
+    std::string roll_night_event();     // chapter-style scripted night event (deterministic)
+    void trigger_basement(Player& p);   // enter the hidden basement (after midnight)
+    void leave_basement(Player& p);
+    std::string horror_flavor(const Player& p) const; // ambient horror line at low sanity
+    std::string internal_voice(const Player& p) const; // Disco-Elysium-style inner monologue
+    void find_secret(Player& p, const std::string& secret); // Higurashi secret discovery
 
     // Core map walkable (chunk 0,0)
     bool walkable(int x, int y) const {

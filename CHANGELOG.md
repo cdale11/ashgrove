@@ -88,6 +88,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Event-driven reward scaling**: Rewards scale with target count and world state
 - **Commands**: `quest`, `job`, `market`
 
+### Added — Phase 6: Horror & Narrative Overlays
+- **Sanity meter**: Per-player 0–100 sanity (serialized), daily drift tied to time of day, weather, and being in the basement. Restored by calm daylight or by finding secrets.
+- **Perception tiers**: 4 tiers (Sane → Uneasy → Strained → Fractured) derived from sanity; drive horror flavor text, phantom sightings, and Disco-Elysium-style internal voices in `look`.
+- **Under-map basement**: `basement` command + `/basement` endpoint; the hatch under the farmhouse only opens after midnight (hour ≥ 24). Entering drains sanity, increments the horror cycle (Higurashi-style), and can be left via `exit`.
+- **Night events**: Sleeping at/after 22:00 rolls a chapter-style scripted night event (deterministic, sampled from season + weather + day), appended to a per-player `night_event_log` and surfaced on wake.
+- **Fourth-wall / internal voices**: At strained/fractured sanity, `internal_voice()` injects self-aware monologue lines (DDLC-style) into command output.
+- **Higurashi cyclical secrets**: `find_secret()` records discovered secrets; each secret restores a little sanity.
+- **HTTP**: new `/horror` (sanity + narrative state) and `/basement` (enter/leave) endpoints; `/state` and `/join` now include `sanity` / `sanity_tier`.
+- **PIXI client**: SANITY readout in the topbar; night vignette shadow, drifting fog (stronger in basement/at low sanity), glitch scanline overlay scaled to sanity tier, and procedural Web Audio drone cues (no assets).
+
 ### Fixed
 - **Bridge run logic**: Fixed bridge generation for roads crossing water.
 - **Memory management**: Fixed `has_item` helper in world.cpp for DSL construction.

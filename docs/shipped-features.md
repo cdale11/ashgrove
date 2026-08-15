@@ -423,6 +423,50 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 
 ---
 
+## 24. Phase 6: Horror & Narrative Overlays
+
+### Sanity Meter
+- Per-player `sanity` (0–100) + `max_sanity`, serialized in saves.
+- Daily drift in `tick_sanity`: drains past 22:00 and harder past midnight, slightly on rainy days, and steeply inside the basement; recovers during calm daylight (8:00–18:00).
+- `restore_sanity` / `damage_sanity` helpers; `find_secret()` restores a little clarity.
+
+### Perception Filters
+- 4 tiers derived from sanity via `perception_tier()`: **Sane (≥75) → Uneasy (50) → Strained (25) → Fractured (<25)**.
+- `look` gains ambient horror flavor at Uneasy+, phantom sightings at Strained, and fractured-state internal voices at Fractured.
+- Exposed to the client as `sanity` / `sanity_tier` in `/state`.
+
+### Under-Map Basement
+- The hatch under the farmhouse is reachable only after midnight (hour ≥ 24).
+- `basement` command and `/basement` HTTP endpoint (subcmd `enter`/`leave`).
+- Entering drains 10 sanity, unlocks `basement_unlocked`, increments `basement_visits` and `horror_cycle` (Higurashi-style looping), and places the player in the `Basement` interior.
+- `exit`/`leave` returns the player above ground.
+
+### Night Events (Chapter-Style)
+- Sleeping at/after 22:00 rolls a deterministic chapter-style night event (`roll_night_event()`), sampling season, weather, and day.
+- Titles include "The Hollow Well", "The Clock Stops", "The House That Breathes", etc.
+- Appended to a per-player `night_event_log` (bounded at 12) and displayed on waking.
+
+### Fourth-Wall / Internal Voices
+- At Strained/Fractured sanity, `internal_voice()` injects Disco-Elysium/DDLC-style self-aware monologue lines into command output.
+
+### Higurashi-Style Cyclical Secrets
+- `find_secret()` records named secrets per player; each restores sanity.
+
+### Client (PIXI) Effects
+- **SANITY** readout in the topbar (color-coded by tier).
+- **Night vignette shadow** growing after 20:00.
+- **Drifting fog** bands at night, in the basement, or at low sanity (stronger with strain).
+- **Glitch scanline overlay** scaled to sanity tier (0 → 0.85 opacity).
+- **Web Audio drone cues** (procedural, no assets) that thicken and detune as sanity drops.
+
+### Commands/Endpoints Added
+- `basement` (command) — enter the hidden under-map after midnight
+- `POST /horror` — sanity, tier, basement visits, cycle, active narrative, secrets, night log
+- `POST /basement` — subcmd `enter`/`leave`
+- `/state` now includes `sanity` and `sanity_tier`
+
+---
+
 ## Current command surface (MUD)
 
 Core: `help`, `status`/`stats`, `inventory`/`inv`, `time`, `look`/`l`,
@@ -442,6 +486,8 @@ Animals/cooking: `build barn|coop`, `place <animal> <building>`, `feed
 
 Social/life: `talk`, `gift`, `hearts`/`friends`, `eat`, `sleep`/`rest`,
 `festival`/`fest`.
+
+Horror/narrative: `basement`, `horror` (sanity, cycles, secrets, night log).
 
 Land/persistence: `buy plot`, `plots`/`deeds`, `save`, `load`, `saves`,
 `newgame`.

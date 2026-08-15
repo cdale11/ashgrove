@@ -384,6 +384,7 @@ body {
     <span><span class="label">WEATHER</span><span class="val" id="st-weather">-</span></span>
     <span><span class="label">ENERGY</span><span class="val" id="st-energy">-</span></span>
     <span><span class="label">GOLD</span><span class="val money" id="st-money">-</span></span>
+    <span><span class="label">SANITY</span><span class="val" id="st-sanity">-</span></span>
   </div>
   <span class="connect-dot" id="conn-dot" title="connection"></span>
 </div>
@@ -615,6 +616,18 @@ const DEFAULT_INTERIORS = {
     '#............. ',
     '#....G........#',
     '###############',
+  ],
+  'Basement': [
+    '############',
+    '#..........#',
+    '#..AAAA....#',
+    '#..........#',
+    '#..CCCC....#',
+    '#..........#',
+    '#..SSSS....#',
+    '#..........#',
+    '#..<>......#',
+    '##        ##',
   ],
 };
 
@@ -878,6 +891,57 @@ const Log = {
   clear() { this.el.innerHTML = ''; },
 };
 
+// ---- Phase 6: audio cues (Web Audio, no assets) ----
+const HorrorAudio = {
+  ctx: null,
+  ensure() {
+    if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  },
+  // Low, unsettling drone — thickens as sanity drops.
+  cue(tier) {
+    const c = this.ensure(); if (!c) return;
+    const t = c.currentTime;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    const freq = 55 - (tier * 6);                 // drop in pitch with strain
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.03 + tier * 0.02, t + 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 3.0);
+    osc.connect(gain).connect(c.destination);
+    osc.start(t); osc.stop(t + 3.2);
+    // Occasional dissonant overtone
+    if (tier >= 2) {
+      const o2 = c.createOscillator();
+      o2.type = 'square';
+      o2.frequency.value = freq * 1.5;
+      const g2 = c.createGain();
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(0.015, t + 0.4);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+      o2.connect(g2).connect(c.destination);
+      o2.start(t); o2.stop(t + 1.8);
+    }
+  },
+};
+
+// ---- Phase 6: glitch / fourth-wall DOM overlay ----
+const Glitch = {
+  el: null,
+  init() {
+    this.el = document.createElement('div');
+    this.el.id = 'glitch-overlay';
+    this.el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0;' +
+      'background:repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(120,20,60,0.06) 2px 4px, rgba(0,0,0,0) 4px 6px);' +
+      'mix-blend-mode:screen;';
+    document.body.appendChild(this.el);
+  },
+  set(level) { this.el.style.opacity = level; },
+};
+
 const Cmd = {
   busy: false,
   history: [],
@@ -911,7 +975,7 @@ const UI = {
     if (!me || !w) {
       $('st-day').textContent = '-'; $('st-time').textContent = '-';
       $('st-season').textContent = '-'; $('st-weather').textContent = '-';
-      $('st-energy').textContent = '-'; $('st-money').textContent = '-';
+      $('st-energy').textContent = '-'; $('st-money').textContent = '-'; $('st-sanity').textContent = '-';
       $('conn-dot').classList.toggle('off', !State.myId);
       return;
     }
@@ -931,6 +995,13 @@ const UI = {
     stE.textContent = Math.round(me.energy) + '/' + me.max_energy;
     stE.classList.toggle('energy-low', me.energy < me.max_energy * 0.25);
     $('st-money').textContent = me.money + 'g';
+    const stS = $('st-sanity');
+    if (stS) {
+      const tier = me.sanity_tier ?? 0;
+      const s = Math.round(me.sanity ?? 100);
+      stS.textContent = s + '/100';
+      stS.style.color = tier >= 3 ? '#e74c3c' : tier === 2 ? '#e67e22' : tier === 1 ? '#f1c40f' : '';
+    }
     $('st-sel').textContent = (me.sel ?? 0) + 1;
     $('conn-dot').classList.toggle('off', false);
     $('map-region').textContent = (me.region || (me.inside ? 'Inside: ' + me.inside : 'Valley')) + ' · (' + me.x + ', ' + me.y + ')';
@@ -1197,7 +1268,7 @@ const MapView = {
   // Texture caches
   tileTex: {}, emojiTex: {},
   // Long-lived overlay graphics
-  weatherG: null, hoverG: null, fireflyG: null,
+  weatherG: null, hoverG: null, fireflyG: null, horrorG: null,
   dayFilter: null,
 
   init() {
@@ -2166,6 +2237,39 @@ const bldgs = [...(State.join ? State.join.buildings || [] : [])];
         this.hoverG.arc(hx, hy, 14, a1, a2);
       }
     }
+    // ---- Phase 6: fog + night shadows ----
+    const me = State.me();
+    const tier = me ? (me.sanity_tier ?? 0) : 0;
+    const hrs = 6 + 24 * (w.time / DAY_LENGTH_S);
+    const afterMidnight = hrs >= 24;
+    if (!this.horrorG) { this.horrorG = new PIXI.Graphics(); this.overlay.addChild(this.horrorG); }
+    this.horrorG.clear();
+    // Night darkness vignette — edges fade to black, growing with the hour.
+    if (!afterMidnight) {
+      const a = clamp((hrs - 20) / 5, 0, 1) * 0.55;
+      if (a > 0) {
+        const W = this.CSS_W, H = this.CSS_H;
+        const g = this.horrorG;
+        g.lineStyle(0);
+        g.beginFill(0x05070a, a);
+        g.drawRect(0, 0, W, H);
+        g.endFill();
+      }
+    }
+    // Fog — drifting translucent bands at night or in the basement, stronger when strained.
+    if (me && (afterMidnight || me.inside === 'Basement' || tier >= 2)) {
+      const base = (me.inside === 'Basement' ? 0.5 : 0.28) + tier * 0.12;
+      const g = this.horrorG;
+      g.lineStyle(0);
+      for (let i = 0; i < 5; i++) {
+        const xoff = ((now * (0.012 + i * 0.004)) + i * 320) % (this.CSS_W + 300) - 150;
+        const y = (i * 130) % this.CSS_H + Math.sin(now * 0.0006 + i) * 20;
+        const a = base * (0.6 + 0.4 * Math.sin(now * 0.001 + i * 2.1));
+        g.beginFill(0xcfd4dc, clamp(a, 0, 0.5));
+        g.drawEllipse(xoff, y, 220, 40);
+        g.endFill();
+      }
+    }
   },
 };
 
@@ -2234,6 +2338,14 @@ async function pollState() {
     UI.renderStatus();
     UI.renderInventory();
     UI.renderRoom();
+    // Phase 6: scale glitch overlay + audio cue to the player's sanity tier
+    const meH = State.me();
+    if (meH) {
+      const t = meH.sanity_tier ?? 0;
+      Glitch.set(t >= 3 ? 0.85 : t === 2 ? 0.4 : t === 1 ? 0.12 : 0);
+      if (t >= 1 && !Glitch._lastCueTier) HorrorAudio.cue(t);
+      Glitch._lastCueTier = t;
+    }
     // smooth camera: only recenter if player walked >2 tiles away from cam
     const me = State.me();
     if (me) {
@@ -2250,6 +2362,7 @@ async function init() {
   emojiPreload();
   Log.init();
   Modal.init();
+  Glitch.init();
   UI.renderLegend();
   UI.renderSuggest();
   Log.print('Ashgrove Valley — a text-MUD farming adventure', 'title');

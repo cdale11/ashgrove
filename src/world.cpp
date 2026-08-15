@@ -1331,6 +1331,23 @@ void init_interiors(World& world) {
         "##   ##",
     });
     world.interiors["Shed Interior"].type = InteriorType::ShedInterior;
+
+    // ============================================================
+    // THE BASEMENT (Phase 6) — under-map, reachable only after midnight
+    // ============================================================
+    room("Basement", {
+        "############",
+        "#..........#",
+        "#..AAAA....#",  // Altar (A) — this is the source of the horror
+        "#..........#",
+        "#..CCCC....#",  // Candle / evidence (C)
+        "#..........#",
+        "#..SSSS....#",  // Strange writings / sketches (S)
+        "#..........#",
+        "#..<>......#",  // Stairs up
+        "##        ##",
+    });
+    world.interiors["Basement"].type = InteriorType::Basement;
 }
 
 int hour_of_day(const World& w) {
@@ -1654,6 +1671,15 @@ std::string serialize_world(const World& w) {
         for (auto& st : p.placed_structs)
             ps.push_back({{"plot_idx", st.plot_idx}, {"type", st.type}, {"x", st.x}, {"y", st.y}});
         pl["placed_structs"] = ps;
+        pl["sanity"] = p.sanity;
+        pl["max_sanity"] = p.max_sanity;
+        pl["last_sanity_day"] = p.last_sanity_day;
+        json sf = json::array();
+        for (auto& s : p.secrets_found) sf.push_back(s);
+        pl["secrets_found"] = sf;
+        json nel = json::array();
+        for (auto& e : p.night_event_log) nel.push_back(e);
+        pl["night_event_log"] = nel;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -1691,6 +1717,11 @@ std::string serialize_world(const World& w) {
         j["plots"].push_back({{"name", p.name}, {"owner_id", p.owner_id}});
     }
     j["farmhouse_level"] = w.farmhouse_level;
+    j["basement_unlocked"] = w.basement_unlocked;
+    j["basement_visits"] = w.basement_visits;
+    j["horror_cycle"] = w.horror_cycle;
+    j["active_horror"] = w.active_horror;
+    j["last_night_event"] = w.last_night_event;
     return j.dump();
 }
 
@@ -1743,6 +1774,13 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 p.inv[i].count = static_cast<uint16_t>(s.value("count", 0));
                 ++i;
             }
+            p.sanity = pl.value("sanity", 100.0f);
+            p.max_sanity = pl.value("max_sanity", 100.0f);
+            p.last_sanity_day = static_cast<uint32_t>(pl.value("last_sanity_day", 0));
+            for (auto& s : pl.value("secrets_found", json::array()))
+                p.secrets_found.push_back(s.get<std::string>());
+            for (auto& e : pl.value("night_event_log", json::array()))
+                p.night_event_log.push_back(e.get<std::string>());
             w.players[p.id] = p;
         }
         for (auto& cj : j.value("cells", json::array())) {
@@ -1783,6 +1821,11 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 ++idx;
             }
         }
+        w.basement_unlocked = j.value("basement_unlocked", false);
+        w.basement_visits = j.value("basement_visits", 0u);
+        w.horror_cycle = j.value("horror_cycle", 0u);
+        w.active_horror = j.value("active_horror", std::string());
+        w.last_night_event = j.value("last_night_event", std::string());
         return true;
     } catch (const std::exception& e) {
         std::cerr << "save load failed: " << e.what() << "\n";
@@ -2152,4 +2195,129 @@ void World::generate_daily_quests_if_needed(Player& p) {
     if (!has_today_quests) {
         generate_daily_quests(p);
     }
+}
+// ============================================================
+// Phase 6: Horror & Narrative Overlays
+// ============================================================
+
+// Perception tier from sanity:
+//   >= 75 sane; 50..75 uneasy; 25..50 strained; <25 fractured.
+int World::perception_tier(const Player& p) const {
+    float s = p.sanity;
+    if (s >= 75.0f) return 0;
+    if (s >= 50.0f) return 1;
+    if (s >= 25.0f) return 2;
+    return 3;
+}
+
+void World::tick_sanity(Player& p) {
+    if (p.last_sanity_day == day) return;
+    p.last_sanity_day = day;
+    int hour = hour_of_day(*this);
+    // Being awake past midnight drains sanity.
+    float drain = 0.0f;
+    if (hour >= 24) drain += 4.0f;
+    else if (hour >= 22) drain += 1.5f;
+    // Rainy, overcast days are harder on the mind.
+    if (weather_of_day(day) == 1) drain += 0.5f;
+    // In the basement, the air itself weighs on you.
+    if (p.inside == "Basement") drain += 6.0f;
+    // A gentle natural recovery during the day when calm and outside.
+    float recover = (hour >= 8 && hour < 18) ? 2.0f : 0.0f;
+    p.sanity = std::clamp(p.sanity - drain + recover, 0.0f, p.max_sanity);
+}
+
+void World::restore_sanity(Player& p, float amt) {
+    p.sanity = std::clamp(p.sanity + amt, 0.0f, p.max_sanity);
+    p.last_sanity_day = day;
+}
+
+void World::damage_sanity(Player& p, float amt) {
+    p.sanity = std::clamp(p.sanity - amt, 0.0f, p.max_sanity);
+    p.last_sanity_day = day;
+}
+
+// Deterministic chapter-style night event. Uses world state (season, day,
+// economy mood) to pick a scripted scenario.
+std::string World::roll_night_event() {
+    const char* names[] = {
+        "The Hollow Well", "The Clock Stops", "The Stranger at the Door",
+        "The Lost Letter", "The Bleeding Moon", "The Other Valley",
+        "The House That Breathes", "The Day That Repeated",
+    };
+    std::mt19937 rng(day * 7919u + 17u);
+    const char* ev = names[rng() % 8];
+    int season = season_index(day);
+    const char* season_str = season_name(season);
+    std::string out = "chapter:" + std::string(ev);
+    out += "\n(" + std::string(season_str) + ", Day " + std::to_string(day) + ")";
+    if (weather_of_day(day) == 1) out += "\nThe rain does not touch you. You are not sure it is rain.";
+    else out += "\nThe moon hangs too low. You count the windows twice and get different numbers.";
+    out += "\nSomewhere in the house, a door you never opened stands ajar.";
+    active_horror = ev;
+    last_night_event = out;
+    return out;
+}
+
+void World::trigger_basement(Player& p) {
+    if (p.inside == "Basement") return;
+    basement_unlocked = true;
+    ++basement_visits;
+    damage_sanity(p, 10.0f);
+    p.inside = "Basement";
+    p.inside_exit = p.pos;
+    auto rit = interiors.find("Basement");
+    if (rit != interiors.end()) {
+        const InteriorRoom& r = rit->second;
+        p.inx = static_cast<int16_t>(r.w / 2);
+        p.iny = static_cast<int16_t>(r.h - 2);
+    } else {
+        p.inx = 5; p.iny = 7;
+    }
+    // Higurashi-style: each visit into the hidden space turns the cycle.
+    ++horror_cycle;
+}
+
+void World::leave_basement(Player& p) {
+    p.inside.clear();
+    p.pos = p.inside_exit;
+    p.target = p.pos;
+    p.path.clear();
+    p.moving = false;
+}
+
+std::string World::horror_flavor(const Player& p) const {
+    int tier = perception_tier(p);
+    if (tier <= 1) return "";
+    const char* pool[] = {
+        "The shadows at the edge of the field are watching.",
+        "You could swear the scarecrow moved since you last blinked.",
+        "A window in the house is dark, then lit, then dark again.",
+        "The trees are closer than they were this morning.",
+        "Somewhere, softly, a music box is playing.",
+        "The sky flickers for a heartbeat, like a bad signal.",
+    };
+    std::mt19937 rng(p.id * 104729u + day);
+    return pool[rng() % 6];
+}
+
+std::string World::internal_voice(const Player& p) const {
+    int tier = perception_tier(p);
+    if (tier <= 2) return "";
+    const char* pool[] = {
+        "[INTERNAL] They're all pretending. The grass, the sun, the birds. You've seen this before.",
+        "[INTERNAL] Don't say it. Whatever you're about to do, don't say it.",
+        "[INTERNAL] You woke up this morning and felt the world reload. Same day. Again.",
+        "[INTERNAL] There is a version of you that stayed in bed. You are not that version.",
+        "[INTERNAL] The fourth wall is thin here. Something is reading over your shoulder.",
+    };
+    std::mt19937 rng(p.id * 32411u + day);
+    return pool[rng() % 5];
+}
+
+void World::find_secret(Player& p, const std::string& secret) {
+    if (std::find(p.secrets_found.begin(), p.secrets_found.end(), secret) != p.secrets_found.end())
+        return;
+    p.secrets_found.push_back(secret);
+    restore_sanity(p, 8.0f);   // understanding restores a little clarity
 }
