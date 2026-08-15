@@ -488,8 +488,18 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 - `tools/eval_intents.py` — measures per-case accuracy and p50/p95 latency against a live server.
 
 ### Cloud Teacher Generator (`tools/gen_dataset.py`)
-- Phase 8-B scaffold: expands live `cmdlog.jsonl` seed commands into paraphrase training rows via an OpenAI-compatible cloud endpoint.
-- Configured by env (`ASHGROVE_API_KEY`, `ASHGROVE_BASE_URL`, `ASHGROVE_MODEL`, `ASHGROVE_PER_COMMAND`). Not run by CI; manual.
+- Phase 8-B scaffold: expands canonical seed rows into paraphrase training rows via an OpenAI-compatible cloud endpoint.
+- Configured by env (`ASHGROVE_API_KEY`, `ASHGROVE_BASE_URL`, `ASHGROVE_MODEL`, `ASHGROVE_SEED`, `ASHGROVE_OUT`, `ASHGROVE_PER_COMMAND`). Not run by CI; manual.
+
+### Canonical Seed Generator (`tools/build_seed_dataset.py`)
+- Deterministically emits `data/dataset.jsonl`: every command × slot value × alias → `{action, parameters}`, generated from the game's own command surface (36 actions, 431 rows). No cloud, guaranteed-correct intents.
+- The cloud teacher consumes this seed and produces `data/dataset_expanded.jsonl` (paraphrases inherit the seed intent).
+
+### Student Base Model
+- Qwen2.5-0.5B-Instruct GGUF downloaded to `llama.cpp/models/`:
+  - `qwen2.5-0.5b-instruct-q8_0.gguf` (676 MB) — LoRA training base.
+  - `qwen2.5-0.5b-instruct-q4_k_m.gguf` (491 MB) — inference.
+- Verified load + generation with the locally built llama.cpp.
 
 ### Measured Result
 - Tier-0 commands (`look`, `inventory`, `status`, `go`, `plant`, …) return in **~10 ms** round trip vs the previous **10-30 s** LLM path — a ~1000x improvement for the common commands.

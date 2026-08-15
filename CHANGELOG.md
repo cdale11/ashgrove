@@ -105,6 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Golden eval set** (`data/eval_set.jsonl`, 30 cases): canonical + paraphrased commands with expected `{action, parameters}`.
 - **Eval harness** (`tools/eval_intents.py`): measures per-case accuracy + p50/p95 latency against a live server.
 - **Cloud teacher generator** (`tools/gen_dataset.py`): Phase 8-B scaffold that expands the live cmdlog into paraphrase training rows via an OpenAI-compatible cloud endpoint. Not run by CI; requires `ASHGROVE_API_KEY` (etc.).
+- **Canonical seed generator** (`tools/build_seed_dataset.py`): deterministically emits 431 canonical `text → {action, parameters}` rows (`data/dataset.jsonl`) from the game's command surface — 36 actions × slots × aliases, `source: seed`. `gen_dataset.py` now consumes this seed and expands it via a cloud teacher into `data/dataset_expanded.jsonl`, inheriting correct intents.
+- **Student base downloaded**: Qwen2.5-0.5B-Instruct GGUF Q8_0 (training base) + Q4_K_M (inference) into `llama.cpp/models/`; verified loading/generating with the built llama.cpp.
 - **Latency win**: `look`/`inventory`/`status`/`go` etc. now return in **~10 ms** via Tier 0 (previously 10-30 s through the LLM).
 
 ### Fixed

@@ -22,3 +22,7 @@
 # Phase 8: live command log (training data grows continuously; not committed)
 /data/cmdlog.jsonl
 /data/dataset.jsonl
+/data/dataset_expanded.jsonl
+
+# Model weights (downloaded separately into llama.cpp/models/)
+*.gguf

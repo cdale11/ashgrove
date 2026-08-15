@@ -1,48 +1,44 @@
 #!/usr/bin/env python3
-"""Phase 8 (B): teacher dataset generator for model distillation.
+"""Phase 8 (B): expand the canonical seed dataset into a paraphrase corpus.
 
-Builds `data/dataset.jsonl` from a cloud LLM teacher. The teacher is a big,
-intelligent model (OpenAI-compatible Chat Completions endpoint) that:
-  1. Reads live command examples from `data/cmdlog.jsonl` as seed phrasings.
-  2. Generates N paraphrases per seed command.
-  3. Writes each (utterance -> canonical {action, parameters}) pair as one JSONL row.
+The teacher is a big, intelligent CLOUD model (OpenAI-compatible Chat
+Completions endpoint). It reads the canonical seed rows produced by
+`build_seed_dataset.py` (data/dataset.jsonl) and, for each seed, generates
+`N` natural-language paraphrases. Each paraphrase inherits the seed's
+canonical {action, parameters}, so the resulting rows are (utterance ->
+intent) pairs ready to fine-tune the 0.5B student.
 
-The student model is later fine-tuned on this corpus, so it learns to map the
-many ways players phrase a command down to the fixed game intent surface.
-
-This script is NOT run as part of the build. It is invoked manually once the
-user configures a cloud endpoint and has collected enough cmdlog seeds.
-
+This script is NOT run by CI. It requires a cloud API key and costs tokens.
 Config via environment variables (never commit secrets):
-    ASHGROVE_API_KEY     - cloud API key
+    ASHGROVE_API_KEY     - cloud API key (required)
     ASHGROVE_BASE_URL    - base URL, default https://api.openai.com/v1
     ASHGROVE_MODEL       - teacher model id, default gpt-4o-mini
-    ASHGROVE_CMDLOG      - path to cmdlog.jsonl (default data/cmdlog.jsonl)
-    ASHGROVE_OUT         - output dataset path (default data/dataset.jsonl)
+    ASHGROVE_SEED        - canonical seed input (default data/dataset.jsonl)
+    ASHGROVE_OUT         - output dataset path (default data/dataset_expanded.jsonl)
     ASHGROVE_PER_COMMAND - paraphrases to generate per seed (default 4)
 """
 import json
 import os
+import sys
 import urllib.request
 
 
 def load_seeds(path):
-    """Read distinct raw commands from the live command log."""
-    raws = set()
+    """Read canonical seed rows: {text, intent, source}."""
+    rows = []
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                raws.add(json.loads(line)["raw"])
-            except (json.JSONDecodeError, KeyError):
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
                 pass
-    return sorted(raws)
+    return rows
 
 
 def teacher_generate(base, api_key, model, prompt):
-    """Call an OpenAI-compatible chat endpoint. Returns assistant text."""
     url = base.rstrip("/") + "/chat/completions"
     body = {
         "model": model,
@@ -50,20 +46,17 @@ def teacher_generate(base, api_key, model, prompt):
             {
                 "role": "system",
                 "content": (
-                    "You are building a command-to-intent training set for a "
-                    "farming MUD. Convert each player utterance into canonical "
-                    "JSON {action, parameters}. Use only these actions: "
-                    "move, look, inventory, status, help, eat, hoe, plant, "
-                    "planttree, water, harvest, axe, scythe, fish, tap, shake, "
-                    "talk, gift, hearts, buy, sell, craft, place, repair, "
-                    "upgrade, plots, train, bus, tv, festival, basement, horror, "
-                    "sleep, save, load, newgame, enter, exit. parameters holds "
-                    "slot values (empty object if none)."
+                    "You are helping build a command-to-intent training set for "
+                    "a farming MUD. You will receive a player command and its "
+                    "canonical intent. Produce only natural paraphrase "
+                    "utterances a player might type, keeping the exact same "
+                    "meaning. One per line, plain text, no numbering, no "
+                    "explanation."
                 ),
             },
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.7,
+        "temperature": 0.8,
     }
     req = urllib.request.Request(
         url,
@@ -80,8 +73,8 @@ def teacher_generate(base, api_key, model, prompt):
 
 
 def main():
-    cmdlog = os.environ.get("ASHGROVE_CMDLOG", "data/cmdlog.jsonl")
-    out_path = os.environ.get("ASHGROVE_OUT", "data/dataset.jsonl")
+    seed_path = os.environ.get("ASHGROVE_SEED", "data/dataset.jsonl")
+    out_path = os.environ.get("ASHGROVE_OUT", "data/dataset_expanded.jsonl")
     base = os.environ.get("ASHGROVE_BASE_URL", "https://api.openai.com/v1")
     model = os.environ.get("ASHGROVE_MODEL", "gpt-4o-mini")
     per = int(os.environ.get("ASHGROVE_PER_COMMAND", "4"))
@@ -92,40 +85,42 @@ def main():
         print("This script is intentionally not run by CI; configure + run manually.")
         return 1
 
-    seeds = load_seeds(cmdlog)
-    print(f"loaded {len(seeds)} seed commands from {cmdlog}")
+    seeds = load_seeds(seed_path)
+    print(f"loaded {len(seeds)} canonical seeds from {seed_path}")
 
     n_out = 0
+    skipped = 0
     with open(out_path, "w") as out:
         for seed in seeds:
+            text = seed.get("text", "")
+            intent = seed.get("intent", {})
             prompt = (
-                f'Given the seed command: "{seed}"\n'
-                f"Produce {per} distinct paraphrase utterances (one per line, "
-                f"plain text, no numbering). Vary wording, synonyms and word "
-                f"order while keeping the same meaning."
+                f"Command: \"{text}\"\n"
+                f"Canonical intent: {json.dumps(intent)}\n"
+                f"Write {per} distinct paraphrase utterances a player might "
+                f"type that mean exactly this. One per line, no numbering."
             )
             try:
                 paraphrases = teacher_generate(base, api_key, model, prompt)
             except Exception as e:
-                print(f"  teacher call failed for {seed!r}: {e}")
+                print(f"  teacher call failed for {text!r}: {e}")
                 continue
             for line in paraphrases.strip().splitlines():
                 line = line.strip()
-                if not line:
+                if not line or line == text:
                     continue
-                # The teacher also returns the canonical intent in a follow-up;
-                # here we record the paraphrase and mark intent as pending so a
-                # second pass can annotate it. (See dataset_schema.md.)
-                out.write(
-                    json.dumps(
-                        {"text": line, "intent": {}, "source": "paraphrase"}
-                    )
-                    + "\n"
-                )
+                out.write(json.dumps(
+                    {"text": line, "intent": intent, "source": "paraphrase"}
+                ) + "\n")
                 n_out += 1
-    print(f"wrote {n_out} paraphrase rows to {out_path}")
+            # Always keep the canonical seed itself in the corpus.
+            out.write(json.dumps(
+                {"text": text, "intent": intent, "source": "seed"}
+            ) + "\n")
+            skipped += 1
+    print(f"wrote {n_out} paraphrase rows (+{skipped} seed rows) to {out_path}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

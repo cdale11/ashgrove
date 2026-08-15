@@ -6,7 +6,8 @@ Three related files are produced/consumed:
 | File | Producer | Purpose |
 |------|----------|---------|
 | `data/cmdlog.jsonl` | Server (live gameplay) | Raw, ever-growing record of real commands + intents + responses. |
-| `data/dataset.jsonl` | `tools/gen_dataset.py` | Distillation training set: paraphrases → canonical `{action, parameters}`. |
+| `data/dataset.jsonl` | `tools/build_seed_dataset.py` | Canonical seed corpus: every command × slot × alias mapped to `{action, parameters}`, generated deterministically from the game code. |
+| `data/dataset_expanded.jsonl` | `tools/gen_dataset.py` | Distillation training set: canonical seeds + cloud-teacher paraphrases → `{action, parameters}`. |
 | `data/eval_set.jsonl` | `tools/eval_intents.py` | Curated golden examples with expected intents for accuracy/latency measurement. |
 
 ## Common `Intent` shape
@@ -49,16 +50,26 @@ Example:
 This log is the ground truth for how players actually phrase commands, and the
 seed material the dataset generator expands into paraphrases.
 
-## 2. Training dataset (`data/dataset.jsonl`)
+## 2. Training dataset (`data/dataset.jsonl`, `data/dataset_expanded.jsonl`)
 
-Produced offline by `tools/gen_dataset.py` using a cloud LLM as the teacher.
+Produced in two stages:
+
+1. `tools/build_seed_dataset.py` writes `data/dataset.jsonl` — the canonical
+   seed: every action × slot value × alias, with `source: "seed"`. Generated
+   deterministically from the game's own command surface, so the intents are
+   guaranteed correct.
+2. `tools/gen_dataset.py` reads the seed and calls a cloud teacher
+   (`ASHGROVE_MODEL`) to emit `N` natural-language paraphrases per seed,
+   inheriting the seed's canonical intent. Writes `data/dataset_expanded.jsonl`
+   (seed rows kept, paraphrases added with `source: "paraphrase"`).
+
 One JSON object per line:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `text` | string | The player utterance (raw command or paraphrase). |
+| `text` | string | The player utterance (raw command, alias, or paraphrase). |
 | `intent` | object | Canonical `{action, parameters}` target the model must produce. |
-| `source` | string | `paraphrase` (teacher-generated) or `live` (from cmdlog). |
+| `source` | string | `seed` (from code) or `paraphrase` (teacher-generated). |
 
 This is the supervised fine-tuning corpus: `text` → serialize(`intent`).
 
