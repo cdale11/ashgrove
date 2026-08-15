@@ -1131,6 +1131,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
 
         // Multi-tile walk on overworld
+        // Clear any active pathfinding movement to avoid conflicts
+        p.path.clear();
+        p.moving = false;
         int walked = 0;
         for (int step = 0; step < count; ++step) {
             Vec2 next = p.pos;
