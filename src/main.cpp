@@ -2771,6 +2771,8 @@ int main(int argc, char** argv) {
     auto find_model = []() -> std::string {
         // 1) explicit file next to the executable
         std::vector<std::filesystem::path> candidates = {
+            // Phase 8: Fine-tuned Ashgrove student (Qwen2.5-0.5B LoRA Q4_K_M)
+            std::filesystem::path("/home/umang/ashgrove/data/qwen2.5-0.5b-ashgrove-q4_k_m.gguf"),
             // Preferred Gemma-4b model
             std::filesystem::path("/home/umang/llama.cpp/models/gemma-4-E4B-it-Q4_K_M.gguf"),
             std::filesystem::current_path() / "models" / "model.gguf",
