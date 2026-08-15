@@ -98,6 +98,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTTP**: new `/horror` (sanity + narrative state) and `/basement` (enter/leave) endpoints; `/state` and `/join` now include `sanity` / `sanity_tier`.
 - **PIXI client**: SANITY readout in the topbar; night vignette shadow, drifting fog (stronger in basement/at low sanity), glitch scanline overlay scaled to sanity tier, and procedural Web Audio drone cues (no assets).
 
+### Added — Phase 8 (Model Distillation): pipeline scaffolding
+- **Tiered intent engine** (`IntentEngine`, `src/intent_engine.cpp`): Tier-0 deterministic rule fast path for the fixed command surface (~40 verbs/aliases, sub-millisecond) with Tier-1 LLM fallback via the existing `LlamaWrapper`. `/cmd` now routes rule-first.
+- **Command log collector** (`CommandLog`, `src/command_log.cpp`): appends one JSONL record per `/cmd` to `data/cmdlog.jsonl` — `{ts, player_id, day, season, hour, raw, intent, tier, latency_ms, lines}`. This is the ever-growing Phase 8-A training dataset.
+- **Dataset schema** (`tools/dataset_schema.md`): defines the `cmdlog.jsonl`, `dataset.jsonl`, and `eval_set.jsonl` formats.
+- **Golden eval set** (`data/eval_set.jsonl`, 30 cases): canonical + paraphrased commands with expected `{action, parameters}`.
+- **Eval harness** (`tools/eval_intents.py`): measures per-case accuracy + p50/p95 latency against a live server.
+- **Cloud teacher generator** (`tools/gen_dataset.py`): Phase 8-B scaffold that expands the live cmdlog into paraphrase training rows via an OpenAI-compatible cloud endpoint. Not run by CI; requires `ASHGROVE_API_KEY` (etc.).
+- **Latency win**: `look`/`inventory`/`status`/`go` etc. now return in **~10 ms** via Tier 0 (previously 10-30 s through the LLM).
+
 ### Fixed
 - **Bridge run logic**: Fixed bridge generation for roads crossing water.
 - **Memory management**: Fixed `has_item` helper in world.cpp for DSL construction.

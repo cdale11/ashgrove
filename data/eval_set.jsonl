@@ -1,0 +1,30 @@
+{"id": "look-1", "text": "look", "expected_action": "look", "expected_params": {}, "note": "canonical look"}
+{"id": "look-2", "text": "l", "expected_action": "look", "expected_params": {}, "note": "short alias"}
+{"id": "look-3", "text": "examine my surroundings", "expected_action": "look", "expected_params": {}, "note": "fuzzy paraphrase -> rule/llm"}
+{"id": "inv-1", "text": "inventory", "expected_action": "inventory", "expected_params": {}, "note": "canonical inventory"}
+{"id": "inv-2", "text": "inv", "expected_action": "inventory", "expected_params": {}, "note": "alias"}
+{"id": "status-1", "text": "status", "expected_action": "status", "expected_params": {}, "note": "canonical status"}
+{"id": "status-2", "text": "stats", "expected_action": "status", "expected_params": {}, "note": "alias"}
+{"id": "move-north", "text": "go north", "expected_action": "move", "expected_params": {"target": "north"}, "note": "go dir"}
+{"id": "move-short", "text": "n", "expected_action": "move", "expected_params": {"target": "n"}, "note": "short direction"}
+{"id": "move-walk", "text": "walk east", "expected_action": "move", "expected_params": {"target": "east"}, "note": "walk synonym"}
+{"id": "plant-1", "text": "plant parsnip", "expected_action": "plant", "expected_params": {"crop": "parsnip"}, "note": "canonical plant"}
+{"id": "plant-fuzzy", "text": "sow some parsnips", "expected_action": "plant", "expected_params": {"crop": "some parsnips"}, "note": "sow synonym"}
+{"id": "harvest-1", "text": "harvest", "expected_action": "harvest", "expected_params": {}, "note": "canonical harvest"}
+{"id": "water-1", "text": "water", "expected_action": "water", "expected_params": {}, "note": "canonical water"}
+{"id": "fish-1", "text": "fish", "expected_action": "fish", "expected_params": {}, "note": "canonical fish"}
+{"id": "talk-1", "text": "talk leah", "expected_action": "talk", "expected_params": {"npc": "leah"}, "note": "talk to villager"}
+{"id": "talk-fuzzy", "text": "speak with the farmer", "expected_action": "talk", "expected_params": {"npc": "with the farmer"}, "note": "speak synonym"}
+{"id": "buy-1", "text": "buy parsnip seeds", "expected_action": "buy", "expected_params": {"item": "parsnip seeds"}, "note": "canonical buy"}
+{"id": "sell-1", "text": "sell potato", "expected_action": "sell", "expected_params": {"item": "potato"}, "note": "canonical sell"}
+{"id": "craft-1", "text": "craft bread", "expected_action": "craft", "expected_params": {"recipe": "bread"}, "note": "canonical craft"}
+{"id": "craft-cook", "text": "cook a salad", "expected_action": "craft", "expected_params": {"recipe": "a salad"}, "note": "cook synonym"}
+{"id": "sleep-1", "text": "sleep", "expected_action": "sleep", "expected_params": {}, "note": "canonical sleep"}
+{"id": "save-1", "text": "save", "expected_action": "save", "expected_params": {}, "note": "canonical save"}
+{"id": "enter-1", "text": "enter farmhouse", "expected_action": "enter", "expected_params": {"building": "farmhouse"}, "note": "enter building"}
+{"id": "exit-1", "text": "exit", "expected_action": "exit", "expected_params": {}, "note": "canonical exit"}
+{"id": "help-1", "text": "help", "expected_action": "help", "expected_params": {}, "note": "canonical help"}
+{"id": "basement-1", "text": "basement", "expected_action": "basement", "expected_params": {}, "note": "Phase 6 basement"}
+{"id": "horror-1", "text": "horror", "expected_action": "horror", "expected_params": {}, "note": "Phase 6 horror"}
+{"id": "plots-1", "text": "plots", "expected_action": "plots", "expected_params": {}, "note": "land plots"}
+{"id": "tv-1", "text": "tv", "expected_action": "tv", "expected_params": {}, "note": "watch tv"}

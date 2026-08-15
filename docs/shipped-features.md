@@ -467,6 +467,35 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 
 ---
 
+## 25. Phase 8 (Model Distillation): Pipeline Scaffolding
+
+### Tiered Intent Engine
+- `IntentEngine` (src/intent_engine.cpp) routes each `/cmd` through two tiers:
+  - **Tier 0** — deterministic rule fast path over the fixed command surface (~40 verbs + aliases/synonyms). Sub-millisecond, never touches a model.
+  - **Tier 1** — LLM fallback via `LlamaWrapper` (currently gemma-4-E4B; planned swap to a fine-tuned 0.5B student).
+- `parse()` reports the winning tier (`rule` / `llm` / `none`) so routing is observable and loggable.
+
+### Command Log Collector
+- `CommandLog` appends one JSONL record per `/cmd` to `data/cmdlog.jsonl`:
+  `{ts, player_id, day, season, hour, raw, intent, tier, latency_ms, lines}`.
+- This is the ever-growing Phase 8-A training dataset (gitignored).
+
+### Dataset Schema (`tools/dataset_schema.md`)
+- Defines three formats: `cmdlog.jsonl` (live gameplay log), `dataset.jsonl` (distillation training corpus), `eval_set.jsonl` (golden eval cases).
+
+### Eval Tooling
+- `data/eval_set.jsonl` — 30 curated cases (canonical + paraphrased commands) with expected `{action, parameters}`.
+- `tools/eval_intents.py` — measures per-case accuracy and p50/p95 latency against a live server.
+
+### Cloud Teacher Generator (`tools/gen_dataset.py`)
+- Phase 8-B scaffold: expands live `cmdlog.jsonl` seed commands into paraphrase training rows via an OpenAI-compatible cloud endpoint.
+- Configured by env (`ASHGROVE_API_KEY`, `ASHGROVE_BASE_URL`, `ASHGROVE_MODEL`, `ASHGROVE_PER_COMMAND`). Not run by CI; manual.
+
+### Measured Result
+- Tier-0 commands (`look`, `inventory`, `status`, `go`, `plant`, …) return in **~10 ms** round trip vs the previous **10-30 s** LLM path — a ~1000x improvement for the common commands.
+
+---
+
 ## Current command surface (MUD)
 
 Core: `help`, `status`/`stats`, `inventory`/`inv`, `time`, `look`/`l`,

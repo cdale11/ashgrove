@@ -18,3 +18,7 @@
 /server.log
 /test_smoke.py
 /test_all.py
+
+# Phase 8: live command log (training data grows continuously; not committed)
+/data/cmdlog.jsonl
+/data/dataset.jsonl

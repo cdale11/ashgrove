@@ -2,6 +2,8 @@
 #include "protocol.hpp"
 #include "event_bus.hpp"
 #include "llama_wrapper.hpp"
+#include "intent_engine.hpp"
+#include "command_log.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -2829,6 +2831,15 @@ int main(int argc, char** argv) {
     EventBus bus;
     LlamaWrapper llama(model_path);
 
+    // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
+    // the command log collector that builds the training dataset (data/cmdlog.jsonl).
+    IntentEngine intent_engine;
+    intent_engine.set_llm_backend([&llama](const std::string& raw) -> std::optional<Intent> {
+        return llama.parse_command(raw);
+    });
+    CommandLog cmdlog(std::filesystem::current_path() / "data" / "cmdlog.jsonl");
+    if (cmdlog.enabled()) std::cout << "Command log -> data/cmdlog.jsonl\n";
+
     // precompute static tile map (never changes after gen)
     std::vector<uint8_t> tile_map(MAP_W * MAP_H);
     for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[i] = static_cast<uint8_t>(world.cells[i].tile);
@@ -3016,12 +3027,13 @@ json cells = json::array();
         json j = json::parse(req.body);
         uint32_t pid = j.value("player_id", 0);
         std::string cmd = j.value("cmd", "");
-        // Parse through local LLM (fallback to raw if unavailable)
-        if (auto intent = llama.parse_command(cmd)) {
-            json intent_json = {
-                {"action", intent->action},
-                {"parameters", intent->parameters}
-            };
+        // Tiered intent parse: rule fast path first, LLM fallback (Phase 8).
+        uint64_t t0 = now_ms();
+        std::string tier = "none";
+        auto intent = intent_engine.parse(cmd, &tier);
+        json intent_json = nlohmann::json::object();
+        if (intent) {
+            intent_json = {{"action", intent->action}, {"parameters", intent->parameters}};
             bus.publish(EventTopic::PlayerCmd, intent_json.dump());
         }
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -3029,6 +3041,9 @@ json cells = json::array();
         if (auto it = world.players.find(pid); it != world.players.end()) {
             auto lines = handle_cmd(world, it->second, cmd);
             for (auto& l : lines) resp["lines"].push_back(l);
+            uint64_t latency = now_ms() - t0;
+            cmdlog.record(now_ms(), pid, world.day, season_name(season_index(world.day)),
+                          hour_of_day(world), cmd, intent_json, tier, latency, lines);
         } else {
             resp["lines"].push_back("No farmer found. Rejoin the game.");
         }

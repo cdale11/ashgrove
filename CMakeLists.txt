@@ -94,6 +94,8 @@ add_executable(ashgrove_server
   src/event_bus.cpp
   src/plugin.cpp
   src/llama_wrapper.cpp
+  src/intent_engine.cpp
+  src/command_log.cpp
 )
 
 # Include plugin sources
