@@ -625,6 +625,14 @@ void clear_paths(World& world) {
             for (int xx = d.x - 1; xx <= d.x + 1; ++xx)
                 clear_cell(xx, yy);
     }
+    // keep the farm gate clear (gap in fence at y=85, x=38..41)
+    {
+        for (int xx = 37; xx <= 42; ++xx) {
+            for (int yy = 83; yy <= 86; ++yy) {
+                clear_cell(xx, yy);
+            }
+        }
+    }
 }
 
 void resolve_water_edges(World& world) {

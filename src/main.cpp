@@ -682,7 +682,7 @@ static const char* obj_name(ObjType o) {
     case ObjType::Deodar: return "a deodar cedar tree";
     case ObjType::Well: return "a stone well";
     case ObjType::Pond: return "a tranquil pond";
-    default: return "something";
+    default: return "something (unknown type)";
     }
 }
 
@@ -829,7 +829,7 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
         "help", "look", "go", "move", "north", "south", "east", "west",
         "inventory", "inv", "status", "stats", "time", "eat", "drink",
         "hoe", "till", "plant", "water", "harvest", "fertilize",
-        "axe", "chop", "cut", "pick", "mine", "scythe", "clear",
+        "axe", "chop", "cut", "pick", "mine", "pickaxe", "scythe", "clear",
         "fish", "cast", "reel", "forage", "search", "shop", "buy", "sell",
         "craft", "cook", "make", "bake", "place", "build", "construct",
         "repair", "fix", "upgrade", "enter", "inside", "exit", "leave", "out",
@@ -879,6 +879,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  water          water the soil in front of you");
         say("  harvest        pick a ripe crop");
         say("  axe            chop a tree");
+        say("  pickaxe        mine rocks (alias: pick, mine)");
         say("  scythe         clear weeds/grass");
         say("  fish           cast a line if water is near");
         say("  talk <name>    chat with a nearby villager");
@@ -1359,7 +1360,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("Nothing to chop here.");
         return out;
     }
-    if (cmd == "pick" || cmd == "mine") {
+    if (cmd == "pick" || cmd == "mine" || cmd == "pickaxe") {
         if (!grab_tool(Item::Pickaxe)) return out;
         Vec2 f = facing_cell(p);
         if (!w.in_bounds(f)) { say("No rock there."); return out; }
@@ -2362,7 +2363,19 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         return out;
     }
     if (cmd == "exit" || cmd == "leave") {
-        if (p.inside.empty()) { say("You're outside already."); return out; }
+        if (p.inside.empty()) {
+            // Check if player is in farmhouse exterior area
+            if (w.in_house(p.pos.x, p.pos.y)) {
+                Vec2 d = w.door();
+                say("You step out the farmhouse door.");
+                p.pos = d;
+                p.target = p.pos;
+                p.path.clear();
+                p.moving = false;
+                return out;
+            }
+            say("You're outside already."); return out;
+        }
         if (p.inside == "Basement") { w.leave_basement(p); say("You climb back up the stairs into the night air."); return out; }
         say("You step out the door.");
         p.inside.clear();
