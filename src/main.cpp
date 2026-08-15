@@ -1055,15 +1055,34 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             int tx, ty;
             if (iss >> tx >> ty) {
                 if (!w.in_bounds(tx, ty)) { say("Those coordinates are out of bounds."); return out; }
-                std::vector<Vec2> path;
                 Vec2 target_pos = {int16_t(tx), int16_t(ty)};
+                // If target is not walkable, find nearest walkable tile
+                if (!w.walkable(target_pos)) {
+                    bool found = false;
+                    for (int radius = 1; radius <= 5 && !found; ++radius) {
+                        for (int dx = -radius; dx <= radius && !found; ++dx) {
+                            for (int dy = -radius; dy <= radius && !found; ++dy) {
+                                int nx = tx + dx, ny = ty + dy;
+                                if (w.in_bounds(nx, ny) && w.walkable(nx, ny)) {
+                                    target_pos = {int16_t(nx), int16_t(ny)};
+                                    found = true;
+                                    if (nx != tx || ny != ty) {
+                                        say("Target blocked; walking to nearest clear spot (" + std::to_string(nx) + ", " + std::to_string(ny) + ").");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!found) { say("No walkable spot near those coordinates."); return out; }
+                }
+                std::vector<Vec2> path;
                 if (bfs_path(w, p.pos, target_pos, path)) {
                     p.path = std::move(path);
                     p.moving = !p.path.empty();
                     p.move_start_ms = static_cast<uint32_t>(now_ms());
                     int dx = target_pos.x - p.pos.x, dy = target_pos.y - p.pos.y;
                     p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
-                    say("You start walking toward (" + std::to_string(tx) + ", " + std::to_string(ty) + ")...");
+                    say("You start walking toward (" + std::to_string(target_pos.x) + ", " + std::to_string(target_pos.y) + ")...");
                     return out;
                 } else {
                     say("No path to those coordinates. Terrain may be blocking the way.");
@@ -1346,49 +1365,86 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "axe" || cmd == "chop") {
         if (!grab_tool(Item::Axe)) return out;
         Vec2 f = facing_cell(p);
-        if (!w.in_bounds(f)) { say("No tree there."); return out; }
-        // Chop repeatedly until tree breaks (hp reaches 0) or it's not a tree.
-        for (int attempts = 0; attempts < 10; ++attempts) {
-            std::string m = act_tool(w, p, f.x, f.y);
-            if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
-            if (!m.empty()) { say("You swing your axe. " + m + "."); return out; }
-            Cell& cell = w.at(f);
+        auto try_chop = [&](int x, int y) -> std::string {
+            if (!w.in_bounds(x, y)) return "";
+            Cell& cell = w.at(x, y);
             if (cell.obj.type != ObjType::Tree &&
                 cell.obj.type != ObjType::Stump &&
                 cell.obj.type != ObjType::Pine) {
-                say("Nothing to chop here.");
-                return out;
+                return "";
             }
-        }
+            for (int attempts = 0; attempts < 10; ++attempts) {
+                std::string m = act_tool(w, p, x, y);
+                if (m == "Exhausted") return "Exhausted";
+                if (!m.empty()) return m;
+                cell = w.at(x, y);
+                if (cell.obj.type != ObjType::Tree &&
+                    cell.obj.type != ObjType::Stump &&
+                    cell.obj.type != ObjType::Pine) {
+                    break;
+                }
+            }
+            return "";
+        };
+        std::string m = try_chop(f.x, f.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You swing your axe. " + m + "."); return out; }
+        // Also check current cell if facing cell has no tree
+        m = try_chop(p.pos.x, p.pos.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You swing your axe. " + m + "."); return out; }
         say("Nothing to chop here.");
         return out;
     }
     if (cmd == "pick" || cmd == "mine" || cmd == "pickaxe") {
         if (!grab_tool(Item::Pickaxe)) return out;
         Vec2 f = facing_cell(p);
-        if (!w.in_bounds(f)) { say("No rock there."); return out; }
-        // Mine repeatedly until rock breaks (hp reaches 0) or it's not a rock.
-        for (int attempts = 0; attempts < 10; ++attempts) {
-            std::string m = act_tool(w, p, f.x, f.y);
-            if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
-            if (!m.empty()) { say("You strike the rock. " + m + "."); return out; }
-            Cell& cell = w.at(f);
-            if (cell.obj.type != ObjType::Rock) {
-                say("Nothing to mine here.");
-                return out;
+        auto try_mine = [&](int x, int y) -> std::string {
+            if (!w.in_bounds(x, y)) return "";
+            Cell& cell = w.at(x, y);
+            if (cell.obj.type != ObjType::Rock) return "";
+            for (int attempts = 0; attempts < 10; ++attempts) {
+                std::string m = act_tool(w, p, x, y);
+                if (m == "Exhausted") return "Exhausted";
+                if (!m.empty()) return m;
+                cell = w.at(x, y);
+                if (cell.obj.type != ObjType::Rock) break;
             }
-        }
+            return "";
+        };
+        std::string m = try_mine(f.x, f.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You strike the rock. " + m + "."); return out; }
+        // Also check current cell if facing cell has no rock
+        m = try_mine(p.pos.x, p.pos.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You strike the rock. " + m + "."); return out; }
         say("Nothing to mine here.");
         return out;
     }
     if (cmd == "scythe" || cmd == "cut") {
         if (!grab_tool(Item::Scythe)) return out;
         Vec2 f = facing_cell(p);
-        if (!w.in_bounds(f)) { say("Nothing to cut."); return out; }
-        std::string m = act_tool(w, p, f.x, f.y);
-        if (m == "Exhausted") say("Too tired. Rest or sleep.");
-        else if (m.empty()) say("Nothing to cut here.");
-        else say("You sweep your scythe. " + m + ".");
+        auto try_cut = [&](int x, int y) -> std::string {
+            if (!w.in_bounds(x, y)) return "";
+            Cell& cell = w.at(x, y);
+            if (cell.obj.type != ObjType::Weed &&
+                cell.obj.type != ObjType::TallGrass &&
+                cell.obj.type != ObjType::Mushroom) {
+                return "";
+            }
+            std::string m = act_tool(w, p, x, y);
+            if (m == "Exhausted") return "Exhausted";
+            return m;
+        };
+        std::string m = try_cut(f.x, f.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You sweep your scythe. " + m + "."); return out; }
+        // Also check current cell if facing cell has nothing to cut
+        m = try_cut(p.pos.x, p.pos.y);
+        if (m == "Exhausted") { say("Too tired. Rest or sleep."); return out; }
+        if (!m.empty()) { say("You sweep your scythe. " + m + "."); return out; }
+        say("Nothing to cut here.");
         return out;
     }
 
