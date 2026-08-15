@@ -473,6 +473,7 @@ struct Cell {
     Tile tile = Tile::Grass;
     FarmObj obj;
     Crop crop;
+    uint8_t snow_compaction = 0; // 0=fluffy, 128=packed, 255=ice (winter only)
 };
 
 // ---- Chunk system for infinite map (Phase 4) ----

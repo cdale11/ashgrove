@@ -64,7 +64,9 @@ static bool load_or_generate(World& w) { return load_world(w, "save.json"); }
 static void advance_day(World& w) {
     w.day++;
     w.day_seconds = 0;
-    bool rain = weather_of_day(w.day) == 1;
+    int todays_weather = weather_of_day(w.day);
+    bool rain = (todays_weather == 1 || todays_weather == 3);
+    bool severe_storm = (todays_weather == 3);
     for (auto& cell : w.cells) {
         if (cell.crop.is_crop()) {
             if (cell.crop.watered && cell.crop.days_left > 0) {
@@ -156,7 +158,9 @@ static void advance_day(World& w) {
     bool winter = (season == 3);
     for (auto& [name, bs] : w.building_states) {
         if (rain) bs.roof_leak = std::min<uint8_t>(bs.roof_leak + 1, 100);
+        if (severe_storm) bs.roof_leak = std::min<uint8_t>(bs.roof_leak + 10, 100); // severe storm: heavy rain damage
         if (winter) bs.foundation = bs.foundation > 2 ? bs.foundation - 2 : 0;
+        if (severe_storm) bs.foundation = bs.foundation > 5 ? bs.foundation - 5 : 0; // wind stress
         // Condition decays based on damage
         if (bs.roof_leak > 50 || bs.foundation < 50) {
             bs.condition = bs.condition > 5 ? bs.condition - 5 : 0;
@@ -165,6 +169,44 @@ static void advance_day(World& w) {
         } else {
             bs.condition = std::min<uint8_t>(bs.condition + 1, 100); // slow recovery if maintained
         }
+    }
+
+    // Severe storm effects
+    if (severe_storm) {
+        // 1. Crop damage: 10-30% flattened (recoverable), 5% destroyed
+        for (auto& cell : w.cells) {
+            if (cell.crop.is_crop() && cell.crop.days_left > 0) {
+                unsigned roll = ((w.day * 2654435761u) >> 16) % 100;
+                if (roll < 5) {
+                    cell.crop = {}; // destroyed
+                } else if (roll < 35) {
+                    // Flattened: set back one stage (recoverable)
+                    if (cell.crop.stage > 0) cell.crop.stage--;
+                }
+            }
+        }
+        // 2. Tree windthrow: 1-5% of trees per chunk become nurse logs / snags
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (is_tree(c.obj.type) && c.obj.hp > 50) {
+                    unsigned roll = ((w.day * 2654435761u) + x * 31 + y * 17) % 1000;
+                    if (roll < 20) { // 2% chance per tree
+                        if (roll < 5) {
+                            // Uprooted: becomes nurse log (stump + leaf litter)
+                            c.obj = {ObjType::Stump, 1, 0};
+                            if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) c.obj.type = ObjType::LeafLitter;
+                        } else {
+                            // Snapped: trunk remains as snag (reduced hp)
+                            c.obj.hp = std::max<uint8_t>(c.obj.hp / 2, 20);
+                        }
+                    }
+                }
+            }
+        }
+        // 3. Building damage already applied above (roof_leak +10, foundation -5)
+        // 4. NPCs seek shelter (handled in NPC tick via schedule disruption)
+        // 5. Player sanity drain if outside (handled in tick_sanity)
     }
 
     // Crow overnight logic
@@ -232,6 +274,32 @@ static void advance_day(World& w) {
     // R9.3: Autumn morning fog - handled in weather system, look command checks this
     // (foggy weather flag stored in world, checked by look command)
 
+    // Snow compaction daily tick (L5)
+    // In winter (season 3), snow tiles accumulate compaction from foot traffic
+    // Each day: natural decay (-2), temperature-based changes
+    if (season == 3) { // Winter
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.tile == Tile::Snow || c.tile == Tile::Ice) {
+                    // Natural decay: compaction decreases over time (melting/sublimation)
+                    if (c.snow_compaction > 2) c.snow_compaction -= 2;
+                    else c.snow_compaction = 0;
+                    // Temperature effect: very cold days increase compaction (ice formation)
+                    int temp_mod = (static_cast<int>(w.day) * 7 + x * 13 + y * 19) % 10;
+                    if (temp_mod < 2) { // 20% chance of freeze
+                        if (c.tile == Tile::Snow && c.snow_compaction > 200) {
+                            c.tile = Tile::Ice; // packed snow becomes ice
+                            c.snow_compaction = 255;
+                        } else if (c.tile == Tile::Snow) {
+                            c.snow_compaction = std::min<uint8_t>(c.snow_compaction + 10, 255);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Tree growth, sap production, and natural regrowth
     // Trees grow slowly (chance to grow from sapling to full tree)
     // Mature trees produce sap/resin/rubber daily (if tapped)
@@ -295,12 +363,38 @@ static void step_npc(World& w, NPC& n) {
     int16_t dy = target.y > n.pos.y ? 1 : (target.y < n.pos.y ? -1 : 0);
     Vec2 next = n.pos;
     if (dx != 0) next.x += dx;
-    if (w.in_bounds(next) && w.walkable(next) && npc_at(w, next.x, next.y) < 0)
+    if (w.in_bounds(next) && w.walkable(next) && npc_at(w, next.x, next.y) < 0) {
         n.pos = next;
-    else if (dy != 0) {
+        // L5: NPC foot traffic snow compaction
+        int season = season_index(w.day);
+        if (season == 3) {
+            Cell& stepped = w.at(next);
+            if ((stepped.tile == Tile::Snow || stepped.tile == Tile::Ice) && stepped.snow_compaction < 245) {
+                stepped.snow_compaction += 5; // NPCs compact less than players
+                if (stepped.tile == Tile::Snow && stepped.snow_compaction > 200) {
+                    stepped.tile = Tile::Ice;
+                    stepped.snow_compaction = 255;
+                }
+            }
+        }
+    } else if (dy != 0) {
         next = n.pos;
         next.y += dy;
-        if (w.walkable(next) && npc_at(w, next.x, next.y) < 0) n.pos = next;
+        if (w.walkable(next) && npc_at(w, next.x, next.y) < 0) {
+            n.pos = next;
+            // L5: NPC foot traffic snow compaction
+            int season = season_index(w.day);
+            if (season == 3) {
+                Cell& stepped = w.at(next);
+                if ((stepped.tile == Tile::Snow || stepped.tile == Tile::Ice) && stepped.snow_compaction < 245) {
+                    stepped.snow_compaction += 5;
+                    if (stepped.tile == Tile::Snow && stepped.snow_compaction > 200) {
+                        stepped.tile = Tile::Ice;
+                        stepped.snow_compaction = 255;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -691,6 +785,54 @@ static Player make_fresh_player(uint32_t id, const std::string& name, Vec2 pos) 
     return p;
 }
 
+// Levenshtein distance for fuzzy command matching
+static int levenshtein(const std::string& a, const std::string& b) {
+    int n = a.size(), m = b.size();
+    if (n == 0) return m;
+    if (m == 0) return n;
+    std::vector<int> dp(m + 1), prev(m + 1);
+    for (int j = 0; j <= m; ++j) prev[j] = j;
+    for (int i = 1; i <= n; ++i) {
+        dp[0] = i;
+        for (int j = 1; j <= m; ++j) {
+            int cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+            dp[j] = std::min({prev[j] + 1, dp[j - 1] + 1, prev[j - 1] + cost});
+        }
+        prev.swap(dp);
+    }
+    return prev[m];
+}
+
+// Find closest command matches for suggestions
+static std::vector<std::string> suggest_commands(const std::string& input, int max_suggestions = 3) {
+    static const std::vector<std::string> all_commands = {
+        "help", "look", "go", "move", "north", "south", "east", "west",
+        "inventory", "inv", "status", "stats", "time", "eat", "drink",
+        "hoe", "till", "plant", "water", "harvest", "fertilize",
+        "axe", "chop", "cut", "pick", "mine", "scythe", "clear",
+        "fish", "cast", "reel", "forage", "search", "shop", "buy", "sell",
+        "craft", "cook", "make", "bake", "place", "build", "construct",
+        "repair", "fix", "upgrade", "enter", "inside", "exit", "leave", "out",
+        "interact", "use", "train", "bus", "tv", "watch", "talk", "speak",
+        "gift", "give", "hearts", "friends", "festival", "fest",
+        "sleep", "rest", "bed", "save", "load", "newgame", "plots", "deeds",
+        "basement", "horror", "sanity", "dsl", "explore", "map", "travel",
+        "region", "fasttravel", "buy plot", "place barn", "place coop"
+    };
+    std::vector<std::pair<int, std::string>> scores;
+    for (const auto& cmd : all_commands) {
+        int dist = levenshtein(input, cmd);
+        if (dist <= 3) scores.push_back({dist, cmd});
+    }
+    std::sort(scores.begin(), scores.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<std::string> result;
+    for (size_t i = 0; i < std::min<size_t>(scores.size(), max_suggestions); ++i) {
+        result.push_back(scores[i].second);
+    }
+    return result;
+}
+
 static std::vector<std::string> handle_cmd(World& w, Player& p, const std::string& raw) {
     std::vector<std::string> out;
     auto say = [&](const std::string& s) { out.push_back(s); };
@@ -701,6 +843,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         arg = words[1];
         for (size_t i = 2; i < words.size(); ++i) arg += " " + words[i];
     }
+    int season = season_index(w.day);
 
     // ---------- help ----------
     if (cmd == "help" || cmd == "?") {
@@ -882,6 +1025,32 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             }
         }
         
+        // Check for coordinate-based movement: "go x,y" or "go x y"
+        {
+            std::string coord_arg = d;
+            // Handle "go x,y" or "go x y" format
+            std::replace(coord_arg.begin(), coord_arg.end(), ',', ' ');
+            std::istringstream iss(coord_arg);
+            int tx, ty;
+            if (iss >> tx >> ty) {
+                if (!w.in_bounds(tx, ty)) { say("Those coordinates are out of bounds."); return out; }
+                std::vector<Vec2> path;
+                Vec2 target_pos = {int16_t(tx), int16_t(ty)};
+                if (bfs_path(w, p.pos, target_pos, path)) {
+                    p.path = std::move(path);
+                    p.moving = !p.path.empty();
+                    p.move_start_ms = static_cast<uint32_t>(now_ms());
+                    int dx = target_pos.x - p.pos.x, dy = target_pos.y - p.pos.y;
+                    p.dir = std::abs(dx) > std::abs(dy) ? (dx > 0 ? 2 : 1) : (dy > 0 ? 0 : 3);
+                    say("You start walking toward (" + std::to_string(tx) + ", " + std::to_string(ty) + ")...");
+                    return out;
+                } else {
+                    say("No path to those coordinates. Terrain may be blocking the way.");
+                    return out;
+                }
+            }
+        }
+        
         // Check for "go <dir> <count>" syntax (multi-tile walk)
         std::string dir_arg = d;
         int count = 1;
@@ -957,6 +1126,25 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             }
             p.pos = next;
             walked++;
+            // L5: Snow compaction from foot traffic
+            Cell& stepped = w.at(next);
+            if ((stepped.tile == Tile::Snow || stepped.tile == Tile::Ice) && season == 3) {
+                // Foot traffic increases compaction
+                if (stepped.snow_compaction < 245) stepped.snow_compaction += 10;
+                else stepped.snow_compaction = 255;
+                if (stepped.tile == Tile::Snow && stepped.snow_compaction > 200) {
+                    stepped.tile = Tile::Ice; // packed snow becomes ice
+                    stepped.snow_compaction = 255;
+                }
+                // Energy cost based on compaction: fluffy=2, packed=1.5, ice=1 (slippery)
+                float cost_mult = 1.0f;
+                if (stepped.tile == Tile::Ice) cost_mult = 1.0f; // slippery, easier
+                else if (stepped.snow_compaction > 200) cost_mult = 1.5f; // packed
+                else cost_mult = 2.0f; // fluffy
+                p.energy = std::max(0.0f, p.energy - cost_mult);
+            } else {
+                p.energy = std::max(0.0f, p.energy - 1.0f);
+            }
             // Check if we entered farmhouse area
             if (w.in_house(next.x, next.y)) {
                 say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
@@ -2735,6 +2923,17 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     }
 
     say("I don't understand '" + cmd + "'. Type 'help' for commands.");
+    // Suggest similar commands
+    auto suggestions = suggest_commands(cmd);
+    if (!suggestions.empty()) {
+        std::string hint = "Did you mean: ";
+        for (size_t i = 0; i < suggestions.size(); ++i) {
+            if (i > 0) hint += ", ";
+            hint += suggestions[i];
+        }
+        hint += "?";
+        say(hint);
+    }
     return out;
 }
 

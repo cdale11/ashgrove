@@ -281,12 +281,46 @@ void generate_world(World& world) {
         }
     };
     scatter(90, ObjType::Tree, 3);
-    scatter(45, ObjType::Rock, 2);
+    scatter(45, ObjType::Rock, 2); // iron
+    scatter(20, ObjType::Rock, 1); // copper ore veins
+    scatter(10, ObjType::Rock, 2); // iron ore veins
+    scatter(5, ObjType::Rock, 3);  // gold ore veins
+    scatter(2, ObjType::Rock, 4);  // iridium ore veins
     scatter(70, ObjType::Weed, 1);
     scatter(35, ObjType::TallGrass, 1);
     scatter(50, ObjType::Flower, 1);
     scatter(60, ObjType::Bush, 1);
     scatter(22, ObjType::Mushroom, 1);
+
+    // ---- trees around farmhouse (ornamental + fruit trees as crops) ----
+    auto near_farmhouse = [&](int x, int y) {
+        return x >= world.house_tl.x - 6 && x < world.house_tl.x + 9 &&
+               y >= world.house_tl.y - 6 && y < world.house_tl.y + 12;
+    };
+    // Plant a ring of trees around the farmhouse (outside the 1-tile border)
+    for (int dy = -6; dy <= 5; ++dy) {
+        for (int dx = -6; dx <= 8; ++dx) {
+            int x = world.house_tl.x + dx;
+            int y = world.house_tl.y + dy;
+            if (!world.in_bounds(x, y)) continue;
+            if (!blocked_house(x, y) && near_farmhouse(x, y) &&
+                world.at(x, y).obj.type == ObjType::None &&
+                (world.at(x, y).tile == Tile::Grass || world.at(x, y).tile == Tile::GrassVar)) {
+                float d = dist(rng);
+                if (d < 0.20f) world.at(x, y).obj = {ObjType::Tree, 3}; // oak/maple
+                else if (d < 0.30f) world.at(x, y).obj = {ObjType::Oak, 3};
+                else if (d < 0.40f) world.at(x, y).obj = {ObjType::Maple, 3};
+                else if (d < 0.55f) world.at(x, y).obj = {ObjType::Bush, 1};
+                else if (d < 0.70f) world.at(x, y).obj = {ObjType::Flower, 1};
+            }
+        }
+    }
+    // Clear the doorstep area
+    Vec2 d = world.door();
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx)
+            if (world.in_bounds(d.x + dx, d.y + dy))
+                world.at(d.x + dx, d.y + dy).obj = FarmObj{};
 
     // ---- Whisper Wood: dense old-growth forest west of the stream ----
     for (int y = 16; y < 74; ++y)
@@ -1376,18 +1410,23 @@ const char* season_name(int s) {
 
 int weather_of_day(uint32_t day) {
     int season = season_index(day);
-    // ~20% rainy days, plus autumn foggy mornings
+    // ~20% rainy days, plus autumn foggy mornings, rare severe storms
     if (season == 2) { // Fall
-        unsigned r = ((day * 2654435761u) >> 16) % 10;
-        if (r < 2) return 2; // 20% foggy
-        if (r < 4) return 1; // 20% rainy
+        unsigned r = ((day * 2654435761u) >> 16) % 100;
+        if (r < 1) return 3; // 1% severe storm
+        if (r < 3) return 2; // 2% foggy
+        if (r < 5) return 1; // 2% rainy
         return 0;
     }
-    return (((day * 2654435761u) >> 16) % 5) == 0 ? 1 : 0;   // ~20% rainy days
+    // Spring/Summer: rare severe storms (0.5%)
+    unsigned r = ((day * 2654435761u) >> 16) % 200;
+    if (r < 1) return 3; // 0.5% severe storm
+    return (r < 40) ? 1 : 0; // ~20% rainy
 }
 
 const char* weather_of_day_name(uint32_t day) {
     int w = weather_of_day(day);
+    if (w == 3) return "Severe Storm";
     if (w == 2) return "Foggy";
     return w ? "Rainy" : "Sunny";
 }
@@ -1689,7 +1728,8 @@ std::string serialize_world(const World& w) {
             if (c.obj.type == ObjType::None && !c.crop.is_crop() &&
                 c.tile == Tile::Grass) continue;
             json cj{{"x", x}, {"y", y}, {"tile", static_cast<int>(c.tile)},
-                    {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore}};
+                    {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore},
+                    {"snow_compaction", c.snow_compaction}};
             if (c.crop.is_crop()) {
                 cj["crop"] = static_cast<int>(c.crop.crop);
                 cj["stage"] = c.crop.stage;
@@ -1791,6 +1831,7 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.obj.type = static_cast<ObjType>(cj.value("obj", 0));
             c.obj.hp = static_cast<uint8_t>(cj.value("hp", 1));
             c.obj.ore = static_cast<uint8_t>(cj.value("ore", 0));
+            c.snow_compaction = static_cast<uint8_t>(cj.value("snow_compaction", 0));
             if (cj.contains("crop")) {
                 c.crop.crop = static_cast<Item>(cj["crop"]);
                 c.crop.stage = static_cast<uint8_t>(cj.value("stage", 0));
