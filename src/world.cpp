@@ -286,6 +286,8 @@ void generate_world(World& world) {
     scatter(10, ObjType::Rock, 2); // iron ore veins
     scatter(5, ObjType::Rock, 3);  // gold ore veins
     scatter(2, ObjType::Rock, 4);  // iridium ore veins
+    scatter(4, ObjType::Well, 100);   // wells with full water
+    scatter(6, ObjType::Pond, 100);   // ponds with full water
     scatter(70, ObjType::Weed, 1);
     scatter(35, ObjType::TallGrass, 1);
     scatter(50, ObjType::Flower, 1);
@@ -1545,13 +1547,22 @@ bool is_festival_day(uint32_t day) {
 }
 
 // Current schedule slot for this hour; writes the anchor to walk to.
+// L2: Forward declaration for building repair override check
+bool check_building_repair_override(const std::string& name, int hour, Vec2& anchor, const World& w);
+
 // Returns -1 when the villager has no schedule (keeps free-roaming).
 int schedule_slot(const std::string& name, uint32_t day, int hour,
-                  Vec2& anchor) {
+                  Vec2& anchor, const World* w) {
     if (is_festival_day(day) && hour >= 8 && hour < 20) {
         anchor = {21, 27};   // Town Center door
         return 100;          // festival overrides everything
     }
+    
+    // L2: Check if NPC's home/workplace needs repair (condition < 20)
+    if (w && check_building_repair_override(name, hour, anchor, *w)) {
+        return 101;  // repair override
+    }
+    
     int n = 0;
     const SchedSlot* slots = npc_schedule(name, n);
     for (int i = 0; i < n; ++i)
@@ -1560,6 +1571,58 @@ int schedule_slot(const std::string& name, uint32_t day, int hour,
             return i;
         }
     return -1;
+}
+
+// L2: Check if NPC's home/workplace building needs repair (condition < 20)
+// If so, override schedule to make NPC go repair it.
+bool check_building_repair_override(const std::string& name, int hour, Vec2& anchor, const World& w) {
+    // Map NPC names to their home/workplace building names
+    std::string building_name = "";
+    bool is_home = true;
+    
+    if (name == "Leah") building_name = "Willow House";
+    else if (name == "Abigail") building_name = "Maple House";
+    else if (name == "Elliot") building_name = "Rowan Cottage";
+    else if (name == "Robin") { building_name = "Carpenter Shop"; is_home = false; }
+    else if (name == "Evelyn") building_name = "Tearoom";
+    else return false;
+    
+    auto it = w.building_states.find(building_name);
+    if (it == w.building_states.end()) return false;
+    
+    const BuildingState& bs = it->second;
+    if (bs.condition >= 20) return false;  // Building is fine
+    
+    // NPC should go repair - find the building's door location
+    // Find building door coordinates from the Bldg list
+    const Bldg* target = nullptr;
+    for (const auto& b : w.buildings) {
+        if (b.name == building_name) {
+            target = &b;
+            break;
+        }
+    }
+    if (!target) return false;
+    
+    // Building door is at center-bottom of building
+    int door_x = target->x + (target->w - 1) / 2;
+    int door_y = target->y + target->h - 1;
+    
+    // Only override during work hours (9-17) or if NPC is at home (evening)
+    if (is_home) {
+        // Home repair: NPC goes to building during evening (17-21) or morning (6-8)
+        if (hour >= 17 && hour < 21) {
+            anchor = {door_x, door_y};
+            return true;
+        }
+    } else {
+        // Workplace repair: Robin goes to Carpenter Shop during work hours
+        if (hour >= 9 && hour < 17) {
+            anchor = {door_x, door_y};
+            return true;
+        }
+    }
+    return false;
 }
 
 static const char* npc_greeting(const char* name, int season) {

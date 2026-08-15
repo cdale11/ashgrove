@@ -348,9 +348,27 @@ static void advance_day(World& w) {
                 int flower_season = season_index(w.day);
                 if ((flower_season == 0 || flower_season == 1) && (static_cast<int>(w.day) * 19 + x * 29 + y * 37) % 1000 < 2) {
                     c.obj = {ObjType::Flower, 1, 0};
+}
+        }
+    }
+
+    // L8: Well/Pond rain recharge
+    if (rain) {
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.obj.type == ObjType::Well) {
+                    // Wells recharge 15-25% per rainy day
+                    int recharge = 15 + (static_cast<int>(w.day) * 13 + x * 7 + y * 11) % 11;
+                    c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
+                } else if (c.obj.type == ObjType::Pond) {
+                    // Ponds recharge faster (they're larger)
+                    int recharge = 25 + (static_cast<int>(w.day) * 11 + x * 5 + y * 13) % 15;
+                    c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
                 }
             }
         }
+    }
 
     save_world(w, "save.json");
 }
@@ -662,6 +680,8 @@ static const char* obj_name(ObjType o) {
     case ObjType::HickoryTree: return "a hickory tree";
     case ObjType::ChestnutTree: return "a chestnut tree";
     case ObjType::Deodar: return "a deodar cedar tree";
+    case ObjType::Well: return "a stone well";
+    case ObjType::Pond: return "a tranquil pond";
     default: return "something";
     }
 }
@@ -2404,6 +2424,48 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                         say("Composter: day " + std::to_string(c.obj.hp) + "/4. Use 'interact add' to add weeds/fiber, 'interact collect' when ready.");
                         return out;
                     }
+                } // Close Composter if block
+                // Well interaction
+                else if (c.obj.type == ObjType::Well) {
+                    std::string sub = lower_trim(arg);
+                    uint8_t& water = c.obj.hp; // 0-100 water level
+                    if (sub.empty() || sub == "look" || sub == "check") {
+                        say("The well has " + std::to_string(water) + "% water remaining.");
+                        return out;
+                    } else if (sub == "draw" || sub == "fill" || sub == "refill") {
+                        // Check if player has watering can
+                        int can_slot = find_slot(p, Item::WateringCan);
+                        if (can_slot < 0) { say("You need a watering can to draw water."); return out; }
+                        if (water <= 0) { say("The well has run dry. Wait for rain."); return out; }
+                        int space = 40 - p.inv[p.sel].count;
+                        if (space <= 0) { say("Your watering can is already full."); return out; }
+                        int draw = std::min(space, static_cast<int>(water));
+                        water -= static_cast<uint8_t>(draw);
+                        p.inv[p.sel].count += static_cast<uint16_t>(draw);
+                        say("You draw " + std::to_string(draw) + " units of water. Well: " + std::to_string(water) + "% remaining.");
+                        return out;
+                    } else {
+                        say("Try: 'interact look' to check water level, 'interact draw' to fill your watering can.");
+                        return out;
+                    }
+                }
+                // Pond interaction
+                else if (c.obj.type == ObjType::Pond) {
+                    std::string sub = lower_trim(arg);
+                    if (sub.empty() || sub == "look") {
+                        say("A tranquil pond. You can fish here with 'fish'.");
+                        return out;
+                    } else if (sub == "fill" || sub == "refill") {
+                        int can_slot = find_slot(p, Item::WateringCan);
+                        if (can_slot < 0) { say("You need a watering can."); return out; }
+                        if (p.inv[p.sel].count >= 40) { say("Can is full."); return out; }
+                        p.inv[p.sel].count = 40;
+                        say("You fill your watering can from the pond.");
+                        return out;
+                    } else {
+                        say("Try 'fish' to cast a line, or 'interact fill' to fill your can.");
+                        return out;
+                    }
                 }
             }
             say("There's nothing to interact with out here. Try 'enter' at a building's door.");
@@ -3649,7 +3711,7 @@ json cells = json::array();
                     n.next_move_ms = now_ms() + 400 + rand() % 300;
                     if (hour_of_day(world) >= 21) continue;   // villagers turn in at night
                     Vec2 anchor;
-                    int slot = schedule_slot(n.name, world.day, hour_of_day(world), anchor);
+                    int slot = schedule_slot(n.name, world.day, hour_of_day(world), anchor, &world);
                     if (slot == -1) { step_npc(world, n); continue; }
                     if (slot != n.sched_slot) {
                         n.sched_slot = static_cast<int8_t>(slot);

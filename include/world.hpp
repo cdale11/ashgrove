@@ -337,8 +337,9 @@ enum class ObjType : uint8_t {
     None = 0, Tree, Rock, Weed, TallGrass, Flower, Stump,
     FencePost, FenceRail, Pine, Bush, Mushroom, Building,
     Sprinkler = 13, Statue, LeafLitter, Scarecrow, Composter,
+    Well = 19, Pond = 20,
     // Forestation trees
-    Oak = 18, Maple, Birch, Cedar, Redwood, Teak, Mahogany, RubberTree,
+    Oak = 21, Maple, Birch, Cedar, Redwood, Teak, Mahogany, RubberTree,
     WalnutTree, HickoryTree, ChestnutTree, Deodar,
 };
 static inline bool is_machine(ObjType t) { return t == ObjType::Sprinkler || t == ObjType::Composter; }
@@ -399,6 +400,8 @@ static inline const char* obj_type_name(ObjType t) {
         case ObjType::ChestnutTree: return "chestnut";
         case ObjType::Deodar: return "deodar";
         case ObjType::Stump: return "stump";
+        case ObjType::Well: return "well";
+        case ObjType::Pond: return "pond";
         default: return "object";
     }
 }
@@ -780,7 +783,9 @@ const char* npc_line(const char* name, int season);
 int  npc_at(const World& w, int x, int y);   // index into world.npcs or -1
 bool is_festival_day(uint32_t day);          // Egg Festival: Spring 13
 // daily schedule slot for hour; writes the anchor to walk to (-1 = free-roam)
-int  schedule_slot(const std::string& name, uint32_t day, int hour, Vec2& anchor);
+int  schedule_slot(const std::string& name, uint32_t day, int hour, Vec2& anchor, const World* w = nullptr);
+// L2: NPC building repair override check
+bool check_building_repair_override(const std::string& name, int hour, Vec2& anchor, const World& w);
 std::string forage_table(int season, int& count);       // fills count
 std::string fish_table(int season, int& count);         // fills count
 bool bfs_path(World& world, Vec2 from, Vec2 to, std::vector<Vec2>& out, size_t max_len = 512);
