@@ -109,6 +109,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Student base downloaded**: Qwen2.5-0.5B-Instruct GGUF Q8_0 (training base) + Q4_K_M (inference) into `llama.cpp/models/`; verified loading/generating with the built llama.cpp.
 - **Latency win**: `look`/`inventory`/`status`/`go` etc. now return in **~10 ms** via Tier 0 (previously 10-30 s through the LLM).
 
+### Added — Phase 8 (Model Distillation): LoRA training in progress
+- **Dataset complete**: `data/dataset_expanded.jsonl` — 1338 rows (1007 paraphrases + 331 seeds), 0 API failures, 36/36 actions, 945 with params. Expanded via NVIDIA NIM `nemotron-3.5-lightning-30b-a3b` (thinking disabled, ≤30 RPM) from canonical seeds (`tools/build_seed_dataset.py`).
+- **Training live**: CPU LoRA via PyTorch + PEFT in `ashgrove` conda env (torch 2.13 CPU, transformers 5.15, peft 0.20, accelerate 1.14). Qwen2.5-0.5B fp32 base (~2 GB). Targets q/k/v/o + gate/up/down (r=16, alpha=32, dropout 0.05). Batch 8, accum 2 (effective 16), 3 epochs → 240 steps. Eval every 40 steps. Live progress at `http://<host>:8137` (0.0.0.0).
+- **Cleanup**: Removed abandoned `qwen2.5-0.5b-instruct-fp16.gguf` (1.2 GB), `qwen2.5-0.5b-instruct-q8_0.gguf` (no longer needed), `build/_deps` (418 MB FetchContent cache), stale logs.
+- **Next**: merge adapter → convert to GGUF → `llama-quantize` Q4_K_M → swap into Tier 1.
+
 ### Fixed
 - **Bridge run logic**: Fixed bridge generation for roads crossing water.
 - **Memory management**: Fixed `has_item` helper in world.cpp for DSL construction.

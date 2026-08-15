@@ -496,10 +496,18 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 - The cloud teacher consumes this seed and produces `data/dataset_expanded.jsonl` (paraphrases inherit the seed intent).
 
 ### Student Base Model
-- Qwen2.5-0.5B-Instruct GGUF downloaded to `llama.cpp/models/`:
-  - `qwen2.5-0.5b-instruct-q8_0.gguf` (676 MB) — LoRA training base.
-  - `qwen2.5-0.5b-instruct-q4_k_m.gguf` (491 MB) — inference.
+- Qwen2.5-0.5B-Instruct downloaded to HuggingFace cache (`~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct`) for LoRA training in fp32 (~2 GB).
+- GGUFs in `llama.cpp/models/`:
+  - `qwen2.5-0.5b-instruct-q4_k_m.gguf` (491 MB) — inference (Tier 1 candidate after merge).
+  - Note: `qwen2.5-0.5b-instruct-q8_0.gguf` removed (no longer needed for LoRA path); `qwen2.5-0.5b-instruct-fp16.gguf` removed (abandoned full-finetune attempt).
 - Verified load + generation with the locally built llama.cpp.
+
+### Phase 8 — LoRA Training (In Progress)
+- **Dataset**: `data/dataset_expanded.jsonl` — 1338 rows (1007 paraphrases + 331 seeds), 0 failures, 36/36 actions covered, 945 rows with parameters.
+- **Training**: CPU LoRA via PyTorch + PEFT in `ashgrove` conda env (torch 2.13 CPU, transformers 5.15, peft 0.20, accelerate 1.14). Targets q/k/v/o + gate/up/down projections (r=16, alpha=32, dropout 0.05). Batch 8, accum 2 (effective 16), 3 epochs → 240 steps. Eval every 40 steps. ETA ~1.5h.
+- **Progress monitoring**: Live webpage at `http://<host>:8137` (0.0.0.0) with auto-refreshing loss/step/ETA and raw log; `/api` returns JSON.
+- **Output**: LoRA adapter saved to `data/lora-adapter/` (checkpoint every epoch, final merge).
+- **Next**: merge adapter into HF base → convert to GGUF → `llama-quantize` Q4_K_M → swap into Tier 1 in `IntentEngine`.
 
 ### Measured Result
 - Tier-0 commands (`look`, `inventory`, `status`, `go`, `plant`, …) return in **~10 ms** round trip vs the previous **10-30 s** LLM path — a ~1000x improvement for the common commands.
@@ -535,23 +543,19 @@ Land/persistence: `buy plot`, `plots`/`deeds`, `save`, `load`, `saves`,
 
 ## Commits (recent, on `origin/main`)
 
-- `24d41bb` docs: confirm original checklist complete
-- `725a422` docs: mark R5.5/R7.4/R7.5/R8.5/R15 complete on roadmap
-- `401288e` feat: buyable plots + placeable structures (R16)
-- `c1cbf4c` fix: avoid deleting vector element in repair command
-- `80ee542` Fix: farmhouse entry — relocate barn/glasshouse, clear doorstep
-- `9b85f1c` Fix: initialize building_states for farmhouse condition checks
-- `d92f989` feat: R15 building weathering + Deodar tree + natural regrowth
-- `7bb2428` feat: Stardrop Saloon 3-floor inn enhancement
-- `461ae90` feat: R14 all 22 building interiors + multi-floor support
-- `a4710a5` feat: Stardew-style tree/weed mechanics + shake command
-- `468470a` feat: forestation + tree products + tap system + crop/tree expansion
-- `181a85c` feat: R13 composter + wind pollination + moon phase + crops/trees
-- `be95756` feat: R12 farmhouse upgrade + more crops/fruit trees
-- `7e43a16` feat: R11 trellis crops + fruit trees
-- `945b407` feat: R10 scarecrow + fertilizer
-- `9f59b2c` feat: R9 living world (leaf litter, rabbits, autumn fog)
-- `9be6dd9` feat: R8 farmhouse weathering + maintenance
-- `92fb769` feat: R7 farmhouse interior redesign
-- `12ba2e8` feat: town buildout + movement overhaul (R2, R5, R6)
+- `3010f92` docs: record Phase 8 training blocker (llama-finetune ggml autodiff can't handle Qwen2.5)
+- `24774bb` feat: rate-limited cloud teacher with progress bar, resume, and lightning model
+- `9c9c8fe` feat: Phase 8 seed dataset pipeline (canonical seeds + cloud teacher expansion)
+- `3867e7d` feat: Phase 8 distillation pipeline scaffolding
+- `bcffc8b` docs: add Phase 8 Model Distillation to roadmap
+- `5e30519` feat: Phase 6 Horror & Narrative Overlays
+- `9cffbbe` chore: remove save backups
+- `4e09d70` feat: Phase 5 Quest & Job System
+- `84070ea` fix: ensure every building has interior fallback; improve mobile UI responsiveness
+- `25e017e` feat: add crafting recipes for wine, jam, mayonnaise, honey, cheese; new items Wine, Jam, Mayonnaise, Honey, Cheese
+- `6211898` feat: add command_dispatcher plugin and process_intent stub
+- `8a8924f` feat: prioritize Gemma-4b GGUF model from local llama.cpp checkout
+- `fe529eb` feat: add demo echo plugin, model auto-discovery/download for llama.cpp, plugin source glob
+- `8f33765` feat: wire LLM command parser via EventBus in /cmd endpoint; add EventBus & LlamaWrapper instances
+- `0891997` feat: add llama.cpp static lib wrapper (FetchContent) with parse_command stub
 - `eff9bc5` feat(world): valley bowl geography at 128x96

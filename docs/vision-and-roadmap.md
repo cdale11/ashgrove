@@ -81,42 +81,13 @@ Ashgrove Server
 |------|------|------------------|----------------|
 | **0 – Foundations** | Scaffold AI integration, event bus, plugin API, documentation pipeline. | • Thread‑safe EventBus.<br>• `llama.cpp` runtime wrapper (subprocess + JSON RPC).<br>• `CommandParser` calling LLM → structured intent.<br>• Plugin loader (`dlopen`) with registration hooks.<br>• CI: `clang‑tidy`, `cppcheck`, warning‑free build gate. | 2‑3 weeks |
 | **1 – Core Stardew Features** | Match vanilla Stardew farming loop. | • Animals (chickens, cows, goats) with daily products.<br>• Fishing system (rod, bait, locations, minigame).<br>• Cooking & recipes (ingredients → dishes).<br>• Seasonal festivals (Spring Fair, Summer Luau, Autumn Harvest, Winter Festival).<br>• Expanded crop catalogue (100+ varieties, multi‑season, trellis, giant crops). | 4‑5 weeks |
-
-> **Phase 1 status**: All five deliverables are implemented (animals, fishing, cooking,
-> festivals, expanded + giant crops). Remaining work is polish and reaching the 100+
-> crop-catalogue target (currently ~45). See `docs/shipped-features.md` §19.
-> 
-> **Phase 2 status**: All seven deliverables implemented (kegs, preserves jars, mayonnaise
-> machine, bee houses, casks, sprinklers/greenhouse, skill perks). See
-> `docs/shipped-features.md` §20. Greenhouse enables year-round planting; skill perks
-> (Tiller/Agriculturist) tracked on Player and applied in daily tick/sell.
-> 
-> **Phase 3 status**: All seven deliverables implemented (gift preferences, hearts 0-14,
-> marriage/divorce, children/roommates, NPC schedule adaptation, LLM dialogue). See
-> `docs/shipped-features.md` §21. Marriage at 10 hearts; children after 14 days + nursery;
-> heart decay weekly; NPCs visit at 8+ hearts; LLM dialogue with fallback.
-> 
-> **Phase 4 status**: Core infrastructure implemented (chunk system, procgen regions,
-> 12+ new interiors, DSL construction, infinite map navigation). See
-> `docs/shipped-features.md` §22. 8 region types; 12+ new interiors; DSL construction;
-> infinite map with chunk-based navigation; 8 new commands.
-> 
-> **Phase 5 status**: All five deliverables implemented (quest generator, job board, living economy, event-driven rewards, dynamic pricing). See
-> `docs/shipped-features.md` §23. 5 quest types (fetch/deliver/investigate/ritual/kill), 4 job types, 17+ market commodities with seasonal pricing, auto-generation with 3-day expiry.
-> 
-> **Phase 6 status**: All five deliverables implemented (under-map basement after midnight, random night-event narratives, sanity meter with perception filters, Higurashi/DDLC/Disco-Elysium narrative overlays, PIXI fog/shadows/glitch/audio). See
-> `docs/shipped-features.md` §24. 4 perception tiers; basement gated on hour ≥ 24; 8 scripted night-event chapters; serialized sanity + night-event log; new `/horror` + `/basement` endpoints; client sanity bar, vignette, fog, glitch, and procedural drone audio.
->
-> **Phase 8 status (in progress)**: Scaffolding shipped. Tier-0 rule fast path + Tier-1 LLM fallback (`IntentEngine`); command log collector (`data/cmdlog.jsonl`); dataset schema; golden eval set (30 cases) + `tools/eval_intents.py`; cloud teacher scaffold `tools/gen_dataset.py`. Teacher uses a **cloud model** (NVIDIA NIM, `nemotron-3.5-lightning-30b-a3b`, thinking disabled). **Dataset pipeline live**: `tools/build_seed_dataset.py` deterministically emits 431 canonical seed rows (`data/dataset.jsonl`) from the game's command surface (36 actions × slots × aliases); `tools/gen_dataset.py` (rate-limited ≤30 RPM, progress bar, crash-safe incremental flush, resumable) expanded them via the NIM teacher into `data/dataset_expanded.jsonl` — **1338 rows (1007 paraphrases + 331 seeds), 0 API failures, 36/36 actions**. Student base downloaded: Qwen2.5-0.5B Q8_0 (infer) + Q4_K_M (infer) + F16 (attempted train base) into `llama.cpp/models/`. Remaining: train the Qwen2.5-0.5B student, quantize to Q4_K_M, swap student into Tier 1. Tier-0 commands currently return in ~10 ms vs 10-30 s via the LLM.
-
-> **Phase 8 status — training blocker (blocked)**: Dataset pipeline is **done** (1338 rows). Local fine-tuning is **blocked by a ggml autodiff limitation**: `llama-finetune` (llama.cpp `b10297`) aborts in `ggml_build_backward_expand` (`ggml.c:7280`, `GGML_ASSERT(!node->view_src || op is a view op)`) because Qwen2.5's attention graph uses view/inplace ops the backward pass can't build — fails identically on F16 and Q8, and at minimal ctx/batch (architectural, not RAM or cores). Options considered: rebuild llama.cpp from `master` (149 commits newer, uncertain fix + tight ~4.6 GiB free RAM) or pause local training and keep Tier 1 on the cloud/gemma LLM. **Decision: pause local training**; dataset + pipeline stay committed for a future-capable build/machine.
 | **2 – Advanced Crafting & Machines** | Processing & automation depth. | • Kegs, Preserves Jars, Mayonnaise Machine.<br>• Bee houses & honey production.<br>• Casks for cellar aging (wine, cheese).<br>• Sprinkler pressure, greenhouse, quality sprinklers.<br>• Skill perks (Tiller, Agriculturist). | 3‑4 weeks |
 | **3 – Social & NPC Relationships** | Rich, LLM‑enhanced social layer. | • Heart‑system persistence (0‑14 hearts).<br>• Gift‑preference tables (love/like/neutral/dislike/hate).<br>• LLM‑driven dialogue with fallback scripts.<br>• Marriage, divorce, children, roommate events.<br>• NPC schedules adapt to player friendship. | 3‑4 weeks |
 | **4 – Town & Map Expansion** | Procedural outskirts + authored core. | • Procgen region generator (forest, hills, caves, ruins).<br>• Buyable plots, construction via text DSL.<br>• New interior rooms (barn, greenhouse, cellar, shrine).<br>• Seamless transition from 128×96 authored map to infinite procgen. | 3‑4 weeks |
 | **5 – Quest & Job System** | Dynamic, context‑aware content. | • Quest generator sampling templates + world state (season, NPC mood, weather, economy).<br>• Procgen side quests (fetch, kill, deliver, investigate, ritual).<br>• Job board NPCs offering repeatable work (farmhand, miner, courier, researcher).<br>• Living economy: supply/demand, price fluctuation, market crashes/booms.<br>• Event‑driven reward scaling. | 4‑5 weeks |
 | **6 – Horror & Narrative Overlays** | Night‑time dread, sanity, meta‑horror. | • Under‑map "basement" accessible only after midnight.<br>• Random night events via LLM narrative scripts (chapter‑style).<br>• Sanity meter → perception filters (hallucinations, distorted dialogue, false UI).<br>• Higurashi‑style cyclical secrets, DDLC‑style fourth‑wall breaks, Disco Elysium internal voices.<br>• PIXI client: fog, shadows, audio cues, glitch effects. | 4‑6 weeks |
 | **7 – Emergent World Learning** | Long‑term adaptation. | • Log collector → fine‑tuning dataset for `llama.cpp`.<br>• Adaptive NPC schedules (learn player routines).<br>• Weather patterns react to player‑driven irrigation/deforestation.<br>• Economy recalibrates to aggregate production/consumption.<br>• Horror intensity adapts to player sanity history. | Ongoing (iteration after each major release) |
-| **8 – Model Distillation** | Kill the latency bottleneck with a game‑specialist student. | • Log collector (Phase A): every `/cmd` appended to `data/cmdlog.jsonl` — `{raw, intent, slots, world_hash, response, latency_ms}`.<br>• Teacher dataset (Phase B): offline script `tools/gen_dataset.py` runs gemma‑4‑E4B to generate 5‑10k paraphrase→`{intent, slots}` pairs + 2‑3k prose samples in the game's voice.<br>• Student training (Phase C): `llama‑finetune` LoRA on Qwen2.5‑0.5B Q8_0 base (CPU‑only, ~1‑2h), merge + `llama‑quantize` to Q4_K_M (~400 MB).<br>• Tiered runtime (Phase D): Tier 0 exact/grammar fast path (0 ms — `look`, `inventory`, `status`, `help` never touch a model) → Tier 1 student + GBNF grammar (`{intent, slots}` JSON, <1 s, big‑model fallback on low confidence) → Tier 2 async prose generation (night events, dialogue pre‑generated at day boundaries and cached).<br>• Iteration (Phase E): gameplay logs feed periodic retrains; eval harness tracks intent‑accuracy + p50/p95 latency. | 2‑3 weeks |
+| **8 – Model Distillation** | Kill the latency bottleneck with a game‑specialist student. | • Log collector (Phase A): every `/cmd` appended to `data/cmdlog.jsonl` — `{raw, intent, slots, world_hash, response, latency_ms}`.<br>• Teacher dataset (Phase B): offline script `tools/gen_dataset.py` runs NVIDIA NIM `nemotron-3.5-lightning-30b-a3b` to generate paraphrase→`{intent, slots}` pairs + prose samples in the game's voice.<br>• Student training (Phase C): CPU LoRA on Qwen2.5‑0.5B (fp32 base, ~1.5h on 4 cores), merge + `llama‑quantize` to Q4_K_M (~400 MB).<br>• Tiered runtime (Phase D): Tier 0 exact/grammar fast path (0 ms — `look`, `inventory`, `status`, `help` never touch a model) → Tier 1 student + GBNF grammar (`{intent, slots}` JSON, <1 s, big‑model fallback on low confidence) → Tier 2 async prose generation (night events, dialogue pre‑generated at day boundaries and cached).<br>• Iteration (Phase E): gameplay logs feed periodic retrains; eval harness tracks intent‑accuracy + p50/p95 latency. | 2‑3 weeks |
 | **9 – Documentation & Tooling** | Future‑agent readiness. | • Update `docs/vision-and-roadmap.md` after each phase.<br>• Enforce `CHANGELOG.md`, `README.md` conventions.<br>• Add test‑coverage reports to docs.<br>• Create `docs/api-event-bus.md`, `docs/plugin-dev.md`, `docs/nlp-commands.md`.<br>• Generate Doxygen API reference in CI. | Continuous |
 
 **Milestone Naming**: `Rxx‑Y‑Name` (e.g., `R17‑0‑Foundations`). Commits use conventional messages (`feat:`, `fix:`, `docs:`, `refactor:`) referencing the roadmap step.
@@ -131,7 +102,7 @@ Ashgrove Server
 - **Documentation** – Every public class/function gets Doxygen‑style comment explaining **why** (design rationale). Design docs updated in same PR.
 - **No New Bugs Policy** – Static analysis / compile warnings fixed immediately. Runtime bugs → regression test before proceeding. CI gate: `-Werror` on project code.
 - **Commit Discipline** – One logical change per commit. Full build + tests locally before push. Commit message references roadmap step.
-- **Skill & Tool Usage** – Agents may invoke any available OpenCode skill or tool when aligned with the task. Additional skills may be downloaded if required, provided documentation standards and the "no new bugs" policy are respected.
+- **Agent Rules** – See Section 7 below.
 - **Simplify UI & Commands** – Minimize keystrokes; NLP handles synonyms, fuzzy matching, and context. The minimap remains a passive reference.
 - **Emergence Over Hard‑Coding** – Prefer event‑driven interactions to scripted sequential flows. Systems interact via Event Bus; avoid direct cross‑module calls.
 
@@ -171,13 +142,14 @@ Listeners subscribe via `EventBus::subscribe<Topic>(callback)`. Decouples system
 4. **Use local LLM only** – `llama.cpp` is the sole AI engine; no external services.
 5. **Maintain parallelism** – New code respects the thread‑pool architecture.
 6. **Emergence over hard‑coding** – Event‑driven interactions preferred.
-7. **Skill & tool freedom** – Agents may use/download skills as needed; document usage in PR.
-8. **Agent‑initiated suggestions** – The agent is encouraged to propose improvements, refactorings, or new features based on its own analysis of the codebase and roadmap.
-9. **Extensive skill usage** – Agents should leverage available OpenCode skills whenever they are applicable, and may download additional skills if required to accomplish a task.
-10. **Modular, organized code** – Keep the codebase modular, follow existing patterns, and maintain clear separation of concerns to facilitate development, maintenance, and collaboration.
-11. **Simplify for the player** – Text commands are the UI; NLP handles complexity; minimap is reference only.
-12. **Always ask before acting** – Before any non‑trivial coding change, the agent must use the `question` tool to ask the user for clarification or confirmation. This instruction must also be included in the documentation so future agents know to ask.
+7. **Agent‑initiated suggestions** – The agent is encouraged to propose improvements, refactorings, or new features based on its own analysis of the codebase and roadmap.
+8. **Modular, organized code** – Keep the codebase modular, follow existing patterns, and maintain clear separation of concerns to facilitate development, maintenance, and collaboration.
+9. **Simplify for the player** – Text commands are the UI; NLP handles complexity; minimap is reference only.
+10. **Always ask before acting** – Before any non‑trivial coding change, the agent must use the `question` tool to ask the user for clarification or confirmation. This instruction must also be included in the documentation so future agents know to ask.
+11. **Commit and push regularly** – Every logical change must be committed with a conventional commit message and pushed to `origin/main` before moving to the next task. No local-only commits. Push after each atomic step.
+12. **Extensive skill usage** – Agents MUST leverage available OpenCode skills whenever they are applicable (CMake, C++ coding standards, testing, documentation, MCP, WebSockets, etc.), and may download additional skills if required to accomplish a task. Skill usage must be documented in the PR/commit.
+13. **Verify before push** – Run the project's lint/typecheck/test commands (e.g., `cmake --build build && ctest`) before every push. If no commands are documented, ask the user for the verification command and add it to `AGENTS.md`.
 
 ---
 
-*Prepared by the OpenCode agent on 2026‑08‑14. This document supersedes prior ad‑hoc notes and serves as the canonical source for all future development.*
+*Prepared by the OpenCode agent on 2026‑08‑15. This document supersedes prior ad‑hoc notes and serves as the canonical source for all future development.*

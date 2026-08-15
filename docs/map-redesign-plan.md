@@ -77,7 +77,6 @@ work.
 - Background serialization thread with lock-free queue
 - Incremental saves (dirty chunks only)
 - Save compression (zstd) on worker thread
-
 ---
 
 ## Expanded Vision (A1–A9) — ship status
@@ -92,13 +91,12 @@ work.
 ### A2. Interiors well-designed + minimap swaps — ✅ shipped
 - All 22 interiors (many multi-floor), interactive furniture, client interior room panel.
 
-### A3. Atmosphere for eventual horror — ⏳ groundwork only
+### A3. Atmosphere for eventual horror — ✅ shipped (Phase 6)
 - Geography/naming/narrator designed to enable horror.
-- **Deferred**: under-map, night encounters, AI-driven NPCs, narrator-voice night gradient, horror beats (see R17+).
+- **Shipped**: under-map basement (after midnight), night encounters via chapter scripts, sanity meter with 4 perception tiers, internal voices (DDLC/Disco Elysium style), Higurashi cyclical secrets, PIXI fog/shadows/glitch/audio. See `docs/shipped-features.md` §24.
 
-### A4. Full Stardew farming + extras — 🟡 mostly shipped
-- Shipped: scarecrow + crows, fertilizer tiers, trellis crops, fruit trees, composter, wind pollination, moon-phase farming, multi-season crops, sprinklers.
-- **Remaining**: keg / preserves jar / mayonnaise machine, cellar aging (cask), bee houses, sprinkler pressure near scarecrows, crops walk-through when mature, Tiller/Agriculturist skill perks.
+### A4. Full Stardew farming + extras — ✅ shipped (Phases 1 & 2)
+- Shipped: scarecrow + crows, fertilizer tiers, trellis crops, fruit trees, composter, wind pollination, moon-phase farming, multi-season crops, sprinklers, **kegs, preserves jars, mayonnaise machine, bee houses, cask aging, greenhouse, skill perks (Tiller/Agriculturist)**. See `docs/shipped-features.md` §19–20.
 
 ### A5. Farmhouse upgrade + buyable plots + free-building — ✅ shipped
 - 4 upgrade levels, 4 buyable plots, `place` structures inside owned plots.
@@ -121,8 +119,6 @@ work.
 
 ## R17+. Long-horizon systems (deferred — sequence in a future doc)
 
-- **A3 horror system** — under-map, night-only encounters, AI-driven NPCs, narrator-voice night gradient.
-- **A4 full Stardew** — bee houses, kegs/preserves jar/mayonnaise machine, cellar cask aging, sprinkler pressure, mature-crop walk-through, skill-tree perks.
 - **A6 subterranean under-map layer** — parallel under-map terrain, saved but unrendered, accessible from a specific tile (e.g., Old Mill basement).
 - **A7 movement modes 3 & 5** — `explore <dir>`, `fasttravel <name>`.
 - **Parallelism phases P1–P4** — fine-grained locking, double-buffered tick, parallel systems, async persistence.
@@ -130,6 +126,7 @@ work.
 ---
 
 # Agent operational rules
+
 1. **Read `docs/shipped-features.md` first** — know what's already live before adding new work.
 2. For any `[Q]` step, stop and ask the user before writing code.
 3. For every `[A]` step, write code, run the build, run `node --check` if you edited the client, commit + push.
@@ -139,6 +136,9 @@ work.
 7. One commit per atomic step. Conventional commit messages. Push after each commit.
 8. Never commit a broken state.
 9. Keep `docs/shipped-features.md` updated as new work ships, and trim completed items from this roadmap.
+10. **Commit and push regularly** — Every logical change must be committed with a conventional commit message and pushed to `origin/main` before moving to the next task. No local-only commits.
+11. **Extensive skill usage** — Agents MUST leverage available OpenCode skills whenever they are applicable (CMake, C++ coding standards, testing, documentation, MCP, WebSockets, etc.), and may download additional skills if required. Skill usage must be documented in the PR/commit.
+12. **Verify before push** — Run the project's lint/typecheck/test commands (e.g., `cmake --build build && ctest`) before every push. If no commands are documented, ask the user for the verification command and add it to `AGENTS.md`.
 
 ---
 
