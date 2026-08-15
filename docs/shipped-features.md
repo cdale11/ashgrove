@@ -502,12 +502,12 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
   - Note: `qwen2.5-0.5b-instruct-q8_0.gguf` removed (no longer needed for LoRA path); `qwen2.5-0.5b-instruct-fp16.gguf` removed (abandoned full-finetune attempt).
 - Verified load + generation with the locally built llama.cpp.
 
-### Phase 8 — LoRA Training (In Progress)
+### Phase 8 — Model Distillation ✅ SHIPPED
 - **Dataset**: `data/dataset_expanded.jsonl` — 1338 rows (1007 paraphrases + 331 seeds), 0 failures, 36/36 actions covered, 945 rows with parameters.
-- **Training**: CPU LoRA via PyTorch + PEFT in `ashgrove` conda env (torch 2.13 CPU, transformers 5.15, peft 0.20, accelerate 1.14). Targets q/k/v/o + gate/up/down projections (r=16, alpha=32, dropout 0.05). Batch 8, accum 2 (effective 16), 3 epochs → 240 steps. Eval every 40 steps. ETA ~1.5h.
-- **Progress monitoring**: Live webpage at `http://<host>:8137` (0.0.0.0) with auto-refreshing loss/step/ETA and raw log; `/api` returns JSON.
-- **Output**: LoRA adapter saved to `data/lora-adapter/` (checkpoint every epoch, final merge).
-- **Next**: merge adapter into HF base → convert to GGUF → `llama-quantize` Q4_K_M → swap into Tier 1 in `IntentEngine`.
+- **Training**: CPU LoRA via PyTorch + PEFT in `ashgrove` conda env (torch 2.13 CPU, transformers 5.15, peft 0.20, accelerate 1.14). Targets q/k/v/o + gate/up/down projections (r=16, alpha=32, dropout 0.05). Batch 8, accum 2 (effective 16), 3 epochs → 240 steps. Eval every 40 steps. Final loss ~0.235. Live monitor at `http://<host>:8137`.
+- **Student Model**: `data/qwen2.5-0.5b-ashgrove-q4_k_m.gguf` — merged LoRA + HF base → F16 GGUF → `llama-quantize` Q4_K_M (373.71 MiB, 6.35 BPW).
+- **Tier 1 Swap**: `find_model()` in `main.cpp` now prioritizes the Ashgrove student GGUF. IntentEngine routes Tier 0 (rule, ~10 ms) → Tier 1 (student + GBNF grammar, <1 s) → Tier 2 (async prose).
+- **Cleanup**: Removed `qwen2.5-0.5b-instruct-fp16.gguf` (1.2 GB, abandoned full-finetune), `qwen2.5-0.5b-instruct-q8_0.gguf` (no longer needed), `build/_deps` (418 MB FetchContent cache), stale logs.
 
 ### Measured Result
 - Tier-0 commands (`look`, `inventory`, `status`, `go`, `plant`, …) return in **~10 ms** round trip vs the previous **10-30 s** LLM path — a ~1000x improvement for the common commands.
