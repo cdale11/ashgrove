@@ -1672,8 +1672,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             return out;
         }
         if (thing == "honey") {
-            if (!has_item(p, Item::Flower, 1)) { say("Recipe: honey — need 1 Flower (any)."); return out; }
-            // Flower is not an item; check for any flower item maybe; fallback use Forage
+            // Flower is not an item; check for Forage
             if (!has_item(p, Item::Forage, 1)) { say("Recipe: honey — need 1 Forage."); return out; }
             consume_item(p, Item::Forage, 1);
             add_item(p, Item::Honey, 1);
@@ -2597,7 +2596,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (words.size() >= 3) building_name = words[2];
         if (building_name.empty()) { say("Usage: place chicken Barn"); return out; }
         // find building
-        Building* target = nullptr;
+        Bldg* target = nullptr;
         for (auto& b : w.buildings) if (b.name == building_name) { target = &b; break; }
         if (!target) { say("Building not found."); return out; }
         auto& state = w.building_states[building_name];
@@ -3009,6 +3008,275 @@ json cells = json::array();
         res.set_content(make_action_ack(msg).dump(), "application/json");
     });
 
+    // ---- explore: show current chunk and adjacent chunks ----
+    svr.Post("/explore", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            int16_t cx = 0, cy = 0;
+            if (p.pos.x >= 0 && p.pos.y >= 0) {
+                cx = static_cast<int16_t>(p.pos.x / CHUNK_SIZE);
+                cy = static_cast<int16_t>(p.pos.y / CHUNK_SIZE);
+            }
+            resp["lines"].push_back("Current chunk: (" + std::to_string(cx) + ", " + std::to_string(cy) + ")");
+            resp["lines"].push_back("Player at: (" + std::to_string(p.pos.x) + ", " + std::to_string(p.pos.y) + ")");
+            
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int16_t acx = cx + dx, acy = cy + dy;
+                    if (std::abs(acx) > MAX_CHUNK_RADIUS || std::abs(acy) > MAX_CHUNK_RADIUS) continue;
+                    const Chunk* ch = world.get_chunk_const(acx, acy);
+                    if (ch && ch->generated) {
+                        int building_count = ch->buildings.size();
+                        int npc_count = ch->npcs.size();
+                        resp["lines"].push_back("  Chunk (" + std::to_string(acx) + ", " + std::to_string(acy) + "): generated, " + 
+                            std::to_string(building_count) + " buildings, " + std::to_string(npc_count) + " NPCs");
+                    } else {
+                        resp["lines"].push_back("  Chunk (" + std::to_string(acx) + ", " + std::to_string(acy) + "): unexplored");
+                    }
+                }
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- travel: fast travel to adjacent explored chunk ----
+    svr.Post("/travel", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        int16_t target_cx = static_cast<int16_t>(j.value("chunk_x", 0));
+        int16_t target_cy = static_cast<int16_t>(j.value("chunk_y", 0));
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            int16_t current_cx = 0, current_cy = 0;
+            if (p.pos.x >= 0 && p.pos.y >= 0) {
+                current_cx = static_cast<int16_t>(p.pos.x / CHUNK_SIZE);
+                current_cy = static_cast<int16_t>(p.pos.y / CHUNK_SIZE);
+            }
+            int dx = std::abs(target_cx - current_cx);
+            int dy = std::abs(target_cy - current_cy);
+            if (dx > 1 || dy > 1) {
+                resp["lines"].push_back("Can only travel to adjacent chunks (1 chunk away)");
+            } else if (std::abs(target_cx) > MAX_CHUNK_RADIUS || std::abs(target_cy) > MAX_CHUNK_RADIUS) {
+                resp["lines"].push_back("Target chunk out of range");
+            } else {
+                const Chunk* ch = world.get_chunk_const(target_cx, target_cy);
+                if (!ch || !ch->generated) {
+                    resp["lines"].push_back("Target chunk not explored yet");
+                } else {
+                    p.pos.x = target_cx * CHUNK_SIZE + CHUNK_SIZE / 2;
+                    p.pos.y = target_cy * CHUNK_SIZE + CHUNK_SIZE / 2;
+                    world.current_chunk_cx = target_cx;
+                    world.current_chunk_cy = target_cy;
+                    resp["lines"].push_back("Fast-traveled to chunk (" + std::to_string(target_cx) + ", " + std::to_string(target_cy) + ")");
+                    resp["lines"].push_back("New position: (" + std::to_string(p.pos.x) + ", " + std::to_string(p.pos.y) + ")");
+                }
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- region: generate procgen region ----
+    svr.Post("/region", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        std::string subcmd = j.value("subcmd", "");
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            if (subcmd == "add") {
+                std::string type_str = j.value("type", "forest");
+                int16_t cx = static_cast<int16_t>(j.value("cx", 0));
+                int16_t cy = static_cast<int16_t>(j.value("cy", 0));
+                int16_t radius = static_cast<int16_t>(j.value("radius", 3));
+                uint32_t seed = static_cast<uint32_t>(j.value("seed", p.id + world.day));
+                
+                RegionType type = RegionType::Forest;
+                if (type_str == "hills") type = RegionType::Hills;
+                else if (type_str == "mountains") type = RegionType::Mountains;
+                else if (type_str == "caves") type = RegionType::Caves;
+                else if (type_str == "ruins") type = RegionType::Ruins;
+                else if (type_str == "swamp") type = RegionType::Swamp;
+                else if (type_str == "ocean") type = RegionType::Ocean;
+                
+                world.generate_region(type, cx, cy, radius, seed);
+                Region reg{type, cx, cy, radius, seed};
+                world.regions.push_back(reg);
+                resp["lines"].push_back("Generated " + type_str + " region at chunk (" + std::to_string(cx) + ", " + std::to_string(cy) + ") radius " + std::to_string(radius));
+            } else {
+                resp["lines"].push_back("Usage: region add <type> @ cx,cy radius [seed]");
+                resp["lines"].push_back("Types: forest, hills, mountains, caves, ruins, swamp, ocean");
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- dsl: construct structures from DSL string ----
+    svr.Post("/dsl", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        std::string dsl_str = j.value("dsl", "");
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            if (dsl_str.empty()) {
+                resp["lines"].push_back("Usage: dsl <structure> @ x,y; <structure> @ x,y");
+                resp["lines"].push_back("Example: dsl barn @ 110,30; coop @ 115,30");
+            } else {
+                std::vector<std::pair<std::string, Vec2>> structs;
+                std::string error;
+                if (world.parse_dsl(dsl_str, structs, error)) {
+                    bool any_success = false;
+                    for (auto& [name, pos] : structs) {
+                        std::string build_error;
+                        if (world.build_dsl_structure(p, name, pos.x, pos.y, build_error)) {
+                            resp["lines"].push_back("Built " + name + " at (" + std::to_string(pos.x) + ", " + std::to_string(pos.y) + ")");
+                            any_success = true;
+                        } else {
+                            resp["lines"].push_back("Failed to build " + name + " at (" + std::to_string(pos.x) + ", " + std::to_string(pos.y) + "): " + build_error);
+                        }
+                    }
+                    if (!any_success) {
+                        resp["lines"].push_back("No structures were built");
+                    }
+                } else {
+                    resp["lines"].push_back("DSL parse error: " + error);
+                }
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- quest: view available quests ----
+    svr.Post("/quest", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        std::string subcmd = j.value("subcmd", "");
+        std::string quest_id = j.value("quest_id", "");
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            if (subcmd == "list" || subcmd.empty()) {
+                world.generate_daily_quests_if_needed(p);
+                if (world.active_quests.empty()) {
+                    resp["lines"].push_back("No active quests. Check back tomorrow!");
+                } else {
+                    resp["lines"].push_back("=== Active Quests ===");
+                    for (auto& q : world.active_quests) {
+                        resp["lines"].push_back("[" + q.id + "] " + q.title);
+                        resp["lines"].push_back("  " + q.description);
+                        resp["lines"].push_back("  Reward: " + std::to_string(q.reward_money) + "g" + 
+                            (q.reward_item != Item::None ? ", " + std::to_string(q.reward_count) + "x " + item_def(q.reward_item).name : ""));
+                        resp["lines"].push_back("  Expires: Day " + std::to_string(q.expiry_day));
+                    }
+                }
+            } else if (subcmd == "complete") {
+                if (quest_id.empty()) {
+                    resp["lines"].push_back("Usage: quest complete <quest_id>");
+                } else if (world.complete_quest(p, quest_id)) {
+                    resp["lines"].push_back("Quest completed! Rewards received.");
+                } else {
+                    resp["lines"].push_back("Cannot complete quest: requirements not met or invalid ID.");
+                }
+            } else if (subcmd == "history") {
+                if (world.completed_quests.empty()) {
+                    resp["lines"].push_back("No completed quests yet.");
+                } else {
+                    resp["lines"].push_back("=== Completed Quests ===");
+                    for (auto& q : world.completed_quests) {
+                        resp["lines"].push_back(q.title + " (Day " + std::to_string(q.expiry_day) + ")");
+                    }
+                }
+            } else {
+                resp["lines"].push_back("Usage: quest [list|complete <id>|history]");
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- job: view/do jobs ----
+    svr.Post("/job", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        std::string subcmd = j.value("subcmd", "");
+        std::string job_id = j.value("job_id", "");
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            Player& p = it->second;
+            if (subcmd == "list" || subcmd.empty()) {
+                world.add_job_board_entries(); // Refresh daily
+                resp["lines"].push_back("=== Job Board ===");
+                for (auto& j : world.job_board) {
+                    resp["lines"].push_back("[" + j.id + "] " + j.title + " (" + j.type + ")");
+                    resp["lines"].push_back("  " + j.description);
+                    resp["lines"].push_back("  Reward: " + std::to_string(j.reward_money) + "g" + 
+                        (j.reward_item != Item::None ? ", " + std::to_string(j.reward_count) + "x " + item_def(j.reward_item).name : ""));
+                    if (j.cooldown_until > world.day) {
+                        resp["lines"].push_back("  Cooldown: " + std::to_string(j.cooldown_until - world.day) + " days");
+                    } else {
+                        resp["lines"].push_back("  Available now!");
+                    }
+                }
+            } else if (subcmd == "do") {
+                if (job_id.empty()) {
+                    resp["lines"].push_back("Usage: job do <job_id>");
+                } else if (world.start_job(p, job_id)) {
+                    resp["lines"].push_back("Job completed! Rewards received.");
+                } else {
+                    resp["lines"].push_back("Cannot start job: on cooldown or invalid ID.");
+                }
+            } else {
+                resp["lines"].push_back("Usage: job [list|do <id>]");
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // ---- market: view prices ----
+    svr.Post("/market", [&](const httplib::Request& req, httplib::Response& res) {
+        json j = json::parse(req.body);
+        uint32_t pid = j.value("player_id", 0);
+        json resp = {{"lines", json::array()}};
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (auto it = world.players.find(pid); it != world.players.end()) {
+            world.update_market_prices();
+            resp["lines"].push_back("=== Market Prices (Day " + std::to_string(world.day) + ") ===");
+            for (auto& mp : world.market_prices) {
+                if (mp.current_price > 0) {
+                    float ratio = static_cast<float>(mp.current_price) / mp.base_price;
+                    std::string trend = ratio > 1.1f ? " ▲" : (ratio < 0.9f ? " ▼" : "");
+                    std::string line = std::string(item_def(mp.item).name) + ": " + std::to_string(mp.current_price) + "g" + trend + 
+                        " (base: " + std::to_string(mp.base_price) + "g, supply: " + std::to_string(mp.supply) + ", demand: " + std::to_string(mp.demand) + ")";
+                    resp["lines"].push_back(line);
+                }
+            }
+        } else {
+            resp["lines"].push_back("No farmer found. Rejoin the game.");
+        }
+        res.set_content(resp.dump(), "application/json");
+    });
+
     // ---- autosave thread + game loop ----
     std::thread autosave([&]() {
         auto last = steady_clock::now();
@@ -3084,6 +3352,11 @@ json cells = json::array();
 
     svr.set_logger([](const auto& req, const auto& res) { std::cerr << req.method << " " << req.path << " -> " << res.status << std::endl; });
     std::cout << "Ashgrove ~ Stardew-ish farm. Listen on 0.0.0.0:" << port << std::endl;
-    svr.listen("0.0.0.0", port);
+    int listen_ret = svr.listen("0.0.0.0", port);
+    std::cerr << "svr.listen returned: " << listen_ret << std::endl;
+    if (listen_ret != 0) {
+        std::cerr << "Failed to start server on port " << port << std::endl;
+        return 1;
+    }
     return 0;
 }

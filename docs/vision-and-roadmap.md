@@ -81,6 +81,28 @@ Ashgrove Server
 |------|------|------------------|----------------|
 | **0 – Foundations** | Scaffold AI integration, event bus, plugin API, documentation pipeline. | • Thread‑safe EventBus.<br>• `llama.cpp` runtime wrapper (subprocess + JSON RPC).<br>• `CommandParser` calling LLM → structured intent.<br>• Plugin loader (`dlopen`) with registration hooks.<br>• CI: `clang‑tidy`, `cppcheck`, warning‑free build gate. | 2‑3 weeks |
 | **1 – Core Stardew Features** | Match vanilla Stardew farming loop. | • Animals (chickens, cows, goats) with daily products.<br>• Fishing system (rod, bait, locations, minigame).<br>• Cooking & recipes (ingredients → dishes).<br>• Seasonal festivals (Spring Fair, Summer Luau, Autumn Harvest, Winter Festival).<br>• Expanded crop catalogue (100+ varieties, multi‑season, trellis, giant crops). | 4‑5 weeks |
+
+> **Phase 1 status**: All five deliverables are implemented (animals, fishing, cooking,
+> festivals, expanded + giant crops). Remaining work is polish and reaching the 100+
+> crop-catalogue target (currently ~45). See `docs/shipped-features.md` §19.
+> 
+> **Phase 2 status**: All seven deliverables implemented (kegs, preserves jars, mayonnaise
+> machine, bee houses, casks, sprinklers/greenhouse, skill perks). See
+> `docs/shipped-features.md` §20. Greenhouse enables year-round planting; skill perks
+> (Tiller/Agriculturist) tracked on Player and applied in daily tick/sell.
+> 
+> **Phase 3 status**: All seven deliverables implemented (gift preferences, hearts 0-14,
+> marriage/divorce, children/roommates, NPC schedule adaptation, LLM dialogue). See
+> `docs/shipped-features.md` §21. Marriage at 10 hearts; children after 14 days + nursery;
+> heart decay weekly; NPCs visit at 8+ hearts; LLM dialogue with fallback.
+> 
+> **Phase 4 status**: Core infrastructure implemented (chunk system, procgen regions,
+> 12+ new interiors, DSL construction, infinite map navigation). See
+> `docs/shipped-features.md` §22. 8 region types; 12+ new interiors; DSL construction;
+> infinite map with chunk-based navigation; 8 new commands.
+> 
+> **Phase 5 status**: All five deliverables implemented (quest generator, job board, living economy, event-driven rewards, dynamic pricing). See
+> `docs/shipped-features.md` §23. 5 quest types (fetch/deliver/investigate/ritual/kill), 4 job types, 17+ market commodities with seasonal pricing, auto-generation with 3-day expiry.
 | **2 – Advanced Crafting & Machines** | Processing & automation depth. | • Kegs, Preserves Jars, Mayonnaise Machine.<br>• Bee houses & honey production.<br>• Casks for cellar aging (wine, cheese).<br>• Sprinkler pressure, greenhouse, quality sprinklers.<br>• Skill perks (Tiller, Agriculturist). | 3‑4 weeks |
 | **3 – Social & NPC Relationships** | Rich, LLM‑enhanced social layer. | • Heart‑system persistence (0‑14 hearts).<br>• Gift‑preference tables (love/like/neutral/dislike/hate).<br>• LLM‑driven dialogue with fallback scripts.<br>• Marriage, divorce, children, roommate events.<br>• NPC schedules adapt to player friendship. | 3‑4 weeks |
 | **4 – Town & Map Expansion** | Procedural outskirts + authored core. | • Procgen region generator (forest, hills, caves, ruins).<br>• Buyable plots, construction via text DSL.<br>• New interior rooms (barn, greenhouse, cellar, shrine).<br>• Seamless transition from 128×96 authored map to infinite procgen. | 3‑4 weeks |
@@ -146,6 +168,7 @@ Listeners subscribe via `EventBus::subscribe<Topic>(callback)`. Decouples system
 9. **Extensive skill usage** – Agents should leverage available OpenCode skills whenever they are applicable, and may download additional skills if required to accomplish a task.
 10. **Modular, organized code** – Keep the codebase modular, follow existing patterns, and maintain clear separation of concerns to facilitate development, maintenance, and collaboration.
 11. **Simplify for the player** – Text commands are the UI; NLP handles complexity; minimap is reference only.
+12. **Always ask before acting** – Before any non‑trivial coding change, the agent must use the `question` tool to ask the user for clarification or confirmation. This instruction must also be included in the documentation so future agents know to ask.
 
 ---
 

@@ -185,6 +185,244 @@ deferred work.
 
 ---
 
+## 19. Phase 1 Core Stardew Features
+
+### Seasonal Festivals
+- One festival per season, on **day 13** of each season:
+  - **Spring Fair** (Spring 13) — egg hunt via `search` (`fest_eggs` / `fest_tries`).
+  - **Summer Luau** — one-time reward (+120g, Blueberry).
+  - **Autumn Harvest Festival** — one-time reward (+150g, Pumpkin).
+  - **Winter Star Festival** — one-time reward (+100g, Wine).
+- Rewards guarded by `Player::festival_claimed_day` (serialized).
+- `is_festival_day(day)`, `festival_name(day)`, `next_festival_day(day)` in `src/world.cpp`;
+  `/state` `festival` field shows the current festival.
+
+### Fishing
+- `Fishing Rod` is starter gear; `Bait` purchasable (+25 skill).
+- Location-based fish tables in the `fish` command (`src/main.cpp`): Ocean (Seaglass Docks),
+  River, Lake (Lake Aurora), Mountain (Whisper Wood) — each with 5 species × 4 seasons and
+  time-of-day availability windows.
+- Reeling mini-game: catch skill = `50 + energy/10 + bait(+25) + rainy(+10)`, deterministic roll.
+- Catches add `Item::Fish` and print the named species.
+
+### Cooking & Recipes
+- 14 recipes in the `cook` command (`src/main.cpp`): bread, salad, omelet, cheese omelet,
+  milk pudding, fruit salad, jam toast, fish stew, pumpkin soup, grain porridge, honey bread,
+  grilled fish, fruit tart, cheese plate.
+- `cook <recipe>` validates + consumes ingredients, produces a dish item; dishes are edible
+  and restore energy via the `eat` command's food table.
+
+### Animals
+- `build barn` / `build coop` create buildings with capacity 4 each.
+- `place <animal> <building>` (chicken/cow/goat) costs 1 forage; capacity- and ownership-guarded.
+- `feed <building>` consumes 1 forage per hungry animal; feeding raises friendship.
+- `collect` requires standing next to a barn/coop; friendship ≥80 doubles yield; hungry
+  animals (hunger ≥100) stop producing.
+- Daily tick in `advance_day`: age, hunger (+20/day), friendship (rises fed / falls hungry).
+- `Animal::friendship` (0–100) serialized; `BuildingState::capacity` field added.
+
+### Crops (expanded + giant)
+- **11 new crops** across seasons: tulip, blue jazz (Spring); starfruit, poppy (Summer);
+  amaranth, yam, eggplant, okra, beet (Fall); ancient fruit, sweet gem berry (special).
+  Added to `Item` enum, `item_def`, all three crop tables, shop listing, and sell map.
+- **Giant crops**: mature 3×3 patches of cauliflower/melon/pumpkin have a 1%/night chance
+  to merge (marked via `last_harvest_season == 99`); harvesting yields 6–12 produce.
+- Crop catalogue now 45 entries (excluding fruit trees), progressing toward the 100+ target.
+
+## 20. Phase 2: Advanced Crafting & Machines
+
+### Processing Machines
+All machines are craftable (`craft <machine>`), placeable (`place <machine>`), loaded via `interact add`, and collected via `collect`. Daily processing runs in `advance_day()`.
+
+- **Keg** — Ferments fruit → wine (7 days), hops → pale ale (2 days), wheat → beer (7 days), coffee → coffee (1 day), rice → sake (3 days), honey → mead (10 days).  
+  *Recipe: 30 Wood + 1 Copper Bar + 1 Iron Bar + 1 Oak Resin.*
+- **Preserves Jar** — Fruit → jelly (3 days), vegetables → pickles (2 days).  
+  *Recipe: 50 Wood + 40 Stone + 8 Coal.*
+- **Mayonnaise Machine** — Eggs → mayonnaise (3 hours).  
+  *Recipe: 15 Wood + 15 Stone + 1 Earth Crystal + 1 Copper Bar.*
+- **Bee House** — Produces honey daily; wild honey (bonus value) when placed near flowers (tulip, blue jazz, poppy, sunflower, sweet pea, fairy rose).  
+  *Recipe: 40 Wood + 8 Coal + 1 Iron Bar + 1 Maple Syrup.*
+- **Cask** (cellar only) — Ages wine/cheese through quality tiers: normal → silver (14 days) → gold (21 days) → iridium (28 days).  
+  *Recipe: 20 Hardwood + 50 Wood + 20 Stone.*
+
+### Greenhouse
+- `build greenhouse` creates a 10×6 building. Tilled tiles inside the greenhouse grow crops year-round (winter/season restrictions bypassed). Implemented by checking tile containment in `plant` command and `advance_day`.
+
+### Skill System & Perks
+- **Farming skill** (0–10) tracked on `Player::farming_level`.
+- **Agriculturist perk** (`perk_agriculturist`): Crops grow 10% faster (applied in `advance_day` via growth multiplier).
+- **Tiller perk** (`perk_tiller`): Crops sell for 10% more (applied in `sell` command).
+- Perk flags stored on `Player`, checked globally in daily tick and sell command.
+
+### New Items
+- **Machine items**: Keg, PreservesJar, MayonnaiseMachine, BeeHouse, Cask, Greenhouse.
+- **Machine outputs**: Pale Ale, Beer, Sake, Mead, Coffee, Rice, Hot Pepper, Jelly, Pickles, Wild Honey, Aged Wine, Aged Cheese.
+- **Egg variants**: Large Egg, Brown Egg, Large Brown Egg, Duck Egg, Void Egg, Dinosaur Egg.
+- **Resources**: Coal, Earth Crystal.
+- **Vegetables**: Cucumber, Carrot, Radish.
+- **Flowers**: Sunflower, Sweet Pea, Fairy Rose.
+
+### Commands Extended
+- `craft keg|preserves jar|mayonnaise machine|bee house|cask`
+- `place keg|preserves jar|mayonnaise machine|bee house|cask`
+- `interact add|put|fill` (load machines), `collect` (retrieve from machines)
+- `build greenhouse`
+- `sell` (Tiller perk: +10% crop value)
+- `advance_day` / `sleep` (Agriculturist perk: +10% crop growth speed)
+
+---
+
+## 21. Phase 3: Social & NPC Relationships
+
+### Gift Preference System
+- **Comprehensive tables** for 5 villagers (Leah, Abigail, Elliot, Robin, Evelyn) + 2 rabbits across 100+ items (forage, fish, crops, minerals, artisan goods).
+- **5-tier tastes**: Love (+2), Like (+1), Neutral (0), Dislike (-1), Hate (-2).
+- Covers 100+ items: forage, fish, crops, minerals, artisan goods, eggs.
+
+### Hearts System (0–14)
+- **8 hearts**: Give Bouquet → engagement.
+- **10 hearts**: Give Wedding Ring → marriage.
+- **14 hearts**: Max (spouse at max).
+- `hearts`/`friends` command shows 14-heart bars + spouse/children.
+
+### Marriage & Family
+- `gift <npc> Bouquet` at 8 hearts → engagement.
+- `gift <npc> Wedding Ring` at 10 hearts → marriage, spouse moves in.
+- `divorce <spouse>` → ends marriage, hearts drop.
+- **Children**: After 14 days marriage + nursery built, 5%/day chance for child (random boy/girl names); `hearts` command shows spouse + children.
+
+### Heart Mechanics
+- **Decay**: Ungifted NPCs lose 1 heart/week (every 7 days); spouse exempt.
+- **Daily gift limit**: 1 gift per NPC per day tracked.
+- **Roommate events**: At 8+ hearts, 2%/day chance to ask to stay over.
+
+### NPC Schedule Adaptation
+- NPCs with ≥8 hearts: 20% chance to visit player's farm instead of normal schedule.
+- Spouse follows player or stays in farmhouse.
+
+### Dialogue
+- `talk` command enhanced with spouse-specific lines ("Love you"), jealousy lines.
+- LLM-driven dialogue attempted with fallback to seasonal greetings.
+
+### New Items
+- Bouquet (200g), Wedding Ring (5000g).
+
+### Commands Added/Extended
+- `gift <npc> <item>` (with Bouquet/Wedding Ring logic)
+- `hearts`/`friends` (14-heart display + spouse/children)
+- `divorce <spouse>`
+- `talk <npc>` (enhanced with LLM fallback)
+
+---
+
+## 22. Phase 4: Town & Map Expansion
+
+### Infinite Chunk System
+- **Chunked world**: 128×128 tile chunks, up to 8 chunks radius from origin (1024 tiles each direction).
+- **ChunkCoord** key for `std::map<ChunkCoord, Chunk>` storage.
+- **On-demand generation**: Chunks generated on-demand when player enters or structure placed.
+- **Region system**: Pre-defined regions (Forest, Hills, Mountains, Caves, Ruins, Ocean, Swamp) with configurable radius and seed.
+
+### Procgen Regions
+- **8 region types**: Valley (core), Forest, Hills, Mountains, Caves, Ruins, Ocean, Swamp.
+- **Region attributes**: Type, center chunk, radius (in chunks), seed.
+- **Per-chunk generation**: Terrain, objects, NPCs based on region type.
+  - Forest: Dense trees, rabbits.
+  - Hills: Rocky terrain, scattered rocks.
+  - Mountains: Ice/snow peaks, rocks.
+  - Caves: Dirt terrain, cave entrances.
+  - Ruins: Rubble, statues, ancient structures.
+  - Swamp: Water/grass mix.
+  - Ocean: Water tiles.
+
+### New Interior Rooms (12+)
+- **Barn Interior** (2 floors): Hay loft, animal stalls, feed troughs, milking stations.
+- **Greenhouse Interior**: Year-round growing beds, water tanks, tool benches.
+- **Cellar Interior**: Cask rows, wine racks, tasting table.
+- **Shrine Interior** (2 floors): Altar, candles, offerings, catacombs.
+- **Cabin Interior**: Simple shelter with bed, kitchen, storage.
+- **Ruin Interior** (2 floors): Pillars, rubble, treasure/traps.
+- **Cave Interior** (2 floors): Stalactites, ore veins, crystals.
+- **Well Interior**: Water, bucket, rope.
+- **Windmill Interior** (2 floors): Grain hoppers, millstones, flour output, gears.
+- **Silo Interior** (2 floors): Grain storage, conveyor.
+- **Shed Interior**: Tools, workbench, shelves.
+- **Well/Windmill/Silo/Shed Interiors**: Functional interiors for placeable structures.
+
+### Infinite Map Navigation
+- **Chunk-based coordinates**: Global → chunk + local conversion.
+- **Universal cell access**: `cell_at(gx, gy)` handles chunk 0,0 and generated chunks.
+- **Global walkable check**: `walkable_global(gx, gy)` for pathfinding across chunks.
+- **Chunk generation**: On-demand with region-based terrain generation.
+
+### DSL Construction System
+- **Text-based placement**: `dsl <structure> @ x,y` or `dsl <dsl_string>`.
+- **Example**: `dsl barn @ 110,30; coop @ 115,30; silo @ 120,30`.
+- **Parser**: Handles `name @ x,y` or `name x y` syntax.
+- **Validation**: Checks plot ownership, tile availability, resources.
+- **Supported structures**: barn, coop, silo, shed, well, windmill, greenhouse, shrine, cabin.
+
+### New Commands
+- `dsl <structure> @ x,y` / `dsl <dsl_string>` — Batch construct structures on owned plots.
+- `explore` / `map` — Show current chunk and adjacent chunks with building counts.
+- `travel <chunk_x> <chunk_y>` — Fast-travel to adjacent explored chunks.
+- `region add <type> @ cx,cy radius` — Generate procgen region (forest, hills, mountains, caves, ruins, swamp, ocean).
+
+### New Items
+- **Machine items**: Keg, PreservesJar, MayonnaiseMachine, BeeHouse, Cask, Greenhouse.
+- **Machine outputs**: Pale Ale, Beer, Sake, Mead, Coffee, Rice, Hot Pepper, Jelly, Pickles, Wild Honey, Aged Wine, Aged Cheese.
+- **Egg variants**: Large Egg, Brown Egg, Large Brown Egg, Duck Egg, Void Egg, Dinosaur Egg.
+- **Resources**: Coal, Earth Crystal.
+- **Vegetables**: Cucumber, Carrot, Radish.
+- **Flowers**: Sunflower, Sweet Pea, Fairy Rose.
+- **Marriage items**: Bouquet (200g), Wedding Ring (5000g).
+
+### Commands Added/Extended
+- `craft keg|preserves jar|mayonnaise machine|bee house|cask`
+- `place keg|preserves jar|mayonnaise machine|bee house|cask`
+- `interact add|put|fill` (load machines), `collect` (retrieve from machines)
+- `build greenhouse|shrine|cabin`
+- `dsl <structure> @ x,y` / `dsl <dsl_string>`
+- `explore` / `map`
+- `travel <chunk_x> <chunk_y>`
+- `region add <type> @ cx,cy radius`
+- `build shrine|cabin`
+- `sell` (Tiller perk: +10% crop value)
+- `advance_day` / `sleep` (Agriculturist perk: +10% crop growth speed)
+- `hearts`/`friends` (14-heart display + spouse/children)
+- `divorce <spouse>`
+- `talk <npc>` (enhanced with LLM fallback)
+
+---
+
+## 23. Phase 5: Quest & Job System
+
+### Quest System
+- **Dynamic quest generation** sampling templates + world state (season, NPC mood, weather, economy).
+- **5 quest types**: fetch, deliver, investigate, ritual, kill
+- **Auto-generation**: 2-3 quests per day, expires in 3 days
+- **Rewards**: Money (50-1000g scaled by target count), items based on quest type
+- **Quest tracking**: Active quests, completed history, expiration handling
+
+### Job Board
+- **4 job types**: farmhand, miner, courier, researcher
+- **Daily repeatable work** with cooldown system
+- **Immediate rewards** on completion: money + items
+- **Job descriptions** with thematic flavor text
+
+### Living Economy
+- **Supply/demand price fluctuations** updating daily
+- **Seasonal pricing**: In-season items cheaper, out-of-season more expensive
+- **Market price tracking** for 17+ commodities (crops, animal products, resources, ores, bars)
+- **Trend indicators** showing price direction (▲ ▼)
+
+### Commands Added/Extended
+- `quest [list|complete <id>|history]` — View active quests, complete for rewards, see history
+- `job [list|do <id>]` — View job board, start jobs for rewards
+- `market` — View current market prices with supply/demand data and trends
+
+---
+
 ## Current command surface (MUD)
 
 Core: `help`, `status`/`stats`, `inventory`/`inv`, `time`, `look`/`l`,
@@ -198,6 +436,9 @@ World: `fish`, `forage`, `search`, `shop`, `buy`, `sell`, `craft`, `place`.
 
 Buildings: `enter`, `exit`/`leave`, `interact`/`use`, `repair`, `upgrade
 farmhouse`, `train`, `bus`, `tv`/`watch`.
+
+Animals/cooking: `build barn|coop`, `place <animal> <building>`, `feed
+<building>`, `collect`, `cook <recipe>`, `eat`.
 
 Social/life: `talk`, `gift`, `hearts`/`friends`, `eat`, `sleep`/`rest`,
 `festival`/`fest`.

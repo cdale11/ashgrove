@@ -1123,6 +1123,214 @@ void init_interiors(World& world) {
         "#.....#",
         "##   ##",
     });
+    // ============================================================
+    // PHASE 4: NEW INTERIOR ROOMS
+    // ============================================================
+
+    // Barn Interior - Animal housing
+    room("Barn Interior", {
+        "################",
+        "#HHHHHHHHHHHHHH#",  // Hay loft above
+        "#..............#",
+        "#..AA..AA..AA..#",  // Animal stalls (A=animal)
+        "#..............#",
+        "#..FF..FF..FF..#",  // Feed troughs (F=feed)
+        "#..............#",
+        "#..MM..MM..MM..#",  // Milking stations (M=milk)
+        "#..............#",
+        "##            ##",
+    }, {
+        {   // Floor 1 - Hay loft storage
+            "################",
+            "#YYYYYYYYYYYYYY#",  // Hay bales
+            "#..............#",
+            "#..SS..SS..SS..#",  // Supply storage
+            "#..............#",
+            "#..TT..TT..TT..#",  // Tool storage
+            "#..............#",
+            "#..<>..........#",  // Stairs down
+            "##            ##",
+        }
+    });
+    world.interiors["Barn Interior"].type = InteriorType::BarnInterior;
+
+    // Greenhouse Interior - Year-round growing
+    room("Greenhouse Interior", {
+        "################",
+        "#GGGGGGGGGGGGGG#",  // Growing beds (G=growing)
+        "#..............#",
+        "#..GG..GG..GG..#",  // Plant beds
+        "#..............#",
+        "#..WW..WW..WW..#",  // Water tanks (W=water)
+        "#..............#",
+        "#..TT..TT..TT..#",  // Tool benches
+        "#..............#",
+        "##            ##",
+    });
+    world.interiors["Greenhouse Interior"].type = InteriorType::Greenhouse;
+
+    // Cellar Interior - Cask aging
+    room("Cellar Interior", {
+        "################",
+        "#CCCCCCCCCCCCCC#",  // Cask rows (C=cask)
+        "#..............#",
+        "#..CC..CC..CC..#",  // Casks
+        "#..............#",
+        "#..WW..WW..WW..#",  // Wine racks (W=wine)
+        "#..............#",
+        "#..TT..TT..TT..#",  // Tool benches
+        "#..............#",
+        "##            ##",
+    });
+    world.interiors["Cellar Interior"].type = InteriorType::Cellar;
+
+    // Shrine Interior - Ancient ruin shrine
+    room("Shrine Interior", {
+        "################",
+        "#..............#",
+        "#..AA..AA..AA..#",  // Altar pieces (A=altar)
+        "#..............#",
+        "#..CC..CC..CC..#",  // Candles (C=candle)
+        "#..............#",
+        "#..RR..RR..RR..#",  // Offerings (R=offering)
+        "#..............#",
+        "#..<>..........#",  // Stairs down to catacombs
+        "##            ##",
+    }, {
+        {   // Floor 1 - Catacombs
+            "################",
+            "#..............#",
+            "#..TT..TT..TT..#",  // Tombs (T=tomb)
+            "#..............#",
+            "#..OO..OO..OO..#",  // Offerings (O=offering)
+            "#..............#",
+            "#..<>..........#",  // Stairs up
+            "##            ##",
+        }
+    });
+    world.interiors["Shrine Interior"].type = InteriorType::ShrineInterior;
+
+    // Cabin Interior - Simple wilderness shelter
+    room("Cabin Interior", {
+        "########",
+        "#B..V..S.#",  // Bed, TV, Shelf
+        "#........#",
+        "#..T..K..#",  // Table, Kitchen
+        "#........#",
+        "#..C..C..#",  // Chest storage
+        "##   ##",
+    });
+    world.interiors["Cabin Interior"].type = InteriorType::CabinInterior;
+
+    // Ruin Interior - Ancient structure
+    room("Ruin Interior", {
+        "################",
+        "#..............#",
+        "#..PP..PP..PP..#",  // Pillars (P=pillar)
+        "#..............#",
+        "#..RR..RR..RR..#",  // Rubble
+        "#..............#",
+        "#..<>..........#",  // Stairs down
+        "##            ##",
+    }, {
+        {   // Floor 1 - Deep ruins
+            "################",
+            "#..............#",
+            "#..TT..TT..TT..#",  // Treasure/Traps
+            "#..............#",
+            "#..<>..........#",  // Stairs up
+            "##            ##",
+        }
+    });
+    world.interiors["Ruin Interior"].type = InteriorType::RuinInterior;
+
+    // Cave Interior - Natural cave
+    room("Cave Interior", {
+        "################",
+        "#..............#",
+        "#..SS..SS..SS..#",  // Stalactites (S=stalactite)
+        "#..............#",
+        "#..OO..OO..OO..#",  // Ore veins (O=ore)
+        "#..............#",
+        "#..<>..........#",  // Deeper tunnel
+        "##            ##",
+    }, {
+        {   // Floor 1 - Deep cave
+            "################",
+            "#..............#",
+            "#..CC..CC..CC..#",  // Crystals
+            "#..............#",
+            "#..<>..........#",  // Exit
+            "##            ##",
+        }
+    });
+    world.interiors["Cave Interior"].type = InteriorType::CaveInterior;
+
+    // Well Interior - Water source
+    room("Well Interior", {
+        "########",
+        "#WWWWWWWW#",  // Water (W=water)
+        "#........#",
+        "#..BB....#",  // Bucket (B=bucket)
+        "#........#",
+        "#..<>....#",  // Up
+        "##   ##",
+    });
+    world.interiors["Well Interior"].type = InteriorType::WellInterior;
+
+    // Windmill Interior - Grain processing
+    room("Windmill Interior", {
+        "########",
+        "#GGGGGGGG#",  // Grain hoppers (G=grain)
+        "#........#",
+        "#..MM....#",  // Millstones (M=mill)
+        "#........#",
+        "#..FF....#",  // Flour output (F=flour)
+        "##   ##",
+    }, {
+        {   // Floor 1 - Mechanism
+            "########",
+            "#GGGGGGGG#",  // Gears
+            "#........#",
+            "#..AA....#",  // Axle
+            "#........#",
+            "#..<>....#",  // Down
+            "##   ##",
+        }
+    });
+    world.interiors["Windmill Interior"].type = InteriorType::WindmillInterior;
+
+    // Silo Interior - Grain storage
+    room("Silo Interior", {
+        "########",
+        "#GGGGGGGG#",  // Grain (G=grain)
+        "#........#",
+        "#..CC....#",  // Conveyor (C=conveyor)
+        "#........#",
+        "#..<>....#",  // Up/Down
+        "##   ##",
+    }, {
+        {   // Floor 1 - Upper storage
+            "########",
+            "#GGGGGGGG#",  // More grain
+            "#........#",
+            "#..<>....#",  // Down
+            "##   ##",
+        }
+    });
+    world.interiors["Silo Interior"].type = InteriorType::SiloInterior;
+
+    // Shed Interior - Tool storage
+    room("Shed Interior", {
+        "########",
+        "#TTTTTTTT#",  // Tools (T=tool)
+        "#........#",
+        "#..WW....#",  // Workbench (W=work)
+        "#........#",
+        "#..SS....#",  // Shelves (S=shelf)
+        "##   ##",
+    });
+    world.interiors["Shed Interior"].type = InteriorType::ShedInterior;
 }
 
 int hour_of_day(const World& w) {
@@ -1579,5 +1787,369 @@ bool deserialize_world(World& w, const std::string& json_str) {
     } catch (const std::exception& e) {
         std::cerr << "save load failed: " << e.what() << "\n";
         return false;
+    }
+}
+
+// Phase 4: Chunk system implementations
+void World::ensure_chunk_generated(int16_t cx, int16_t cy) {
+    if (!get_chunk_const(cx, cy)) {
+        get_chunk(cx, cy).generated = true;
+    }
+}
+
+void World::generate_region(RegionType type, int16_t cx, int16_t cy, int16_t radius, uint32_t seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    
+    for (int16_t ry = -radius; ry <= radius; ++ry) {
+        for (int16_t rx = -radius; rx <= radius; ++rx) {
+            int16_t chunk_cx = cx + rx;
+            int16_t chunk_cy = cy + ry;
+            if (std::abs(rx) + std::abs(ry) > radius) continue;
+            Chunk& chunk = get_chunk(chunk_cx, chunk_cy);
+            chunk.cx = chunk_cx;
+            chunk.cy = chunk_cy;
+            chunk.generated = true;
+            
+            for (int y = 0; y < CHUNK_SIZE; ++y) {
+                for (int x = 0; x < CHUNK_SIZE; ++x) {
+                    int gx = chunk_cx * CHUNK_SIZE + x;
+                    int gy = chunk_cy * CHUNK_SIZE + y;
+                    float v = noise(gx, gy, 0.35f) + noise(gx, gy, 0.9f) * 0.5f;
+                    
+                    switch (type) {
+                        case RegionType::Forest:
+                            chunk.at(x, y).tile = v > 0.55f ? Tile::GrassVar : Tile::Grass;
+                            if (dist(rng) < 0.03f) chunk.at(x, y).obj = {ObjType::Tree, 0, 0};
+                            if (dist(rng) < 0.01f) {
+                                NPC npc;
+                                npc.name = "Rabbit";
+                                npc.kind = "rabbit";
+                                npc.color = 2;
+                                npc.pos = {static_cast<int16_t>(gx), static_cast<int16_t>(gy)};
+                                chunk.npcs.push_back(std::move(npc));
+                            }
+                            break;
+                        case RegionType::Hills:
+                            chunk.at(x, y).tile = v > 0.6f ? Tile::Grass : Tile::Grass;
+                            if (dist(rng) < 0.02f) chunk.at(x, y).obj = {ObjType::Rock, 0, 0};
+                            break;
+                        case RegionType::Mountains:
+                            chunk.at(x, y).tile = (y < CHUNK_SIZE/3) ? Tile::Ice : Tile::Snow;
+                            if (dist(rng) < 0.03f) chunk.at(x, y).obj = {ObjType::Rock, 0, 0};
+                            break;
+                        case RegionType::Caves:
+                            chunk.at(x, y).tile = Tile::Dirt;
+                            if (dist(rng) < 0.02f) chunk.at(x, y).obj = {ObjType::Rock, 0, 0};
+                            break;
+                        case RegionType::Ruins:
+                            chunk.at(x, y).tile = v > 0.5f ? Tile::GrassVar : Tile::Dirt;
+                            if (dist(rng) < 0.04f) chunk.at(x, y).obj = {ObjType::Statue, 0, 0};
+                            break;
+                        case RegionType::Swamp:
+                            chunk.at(x, y).tile = dist(rng) < 0.4f ? Tile::Water : Tile::Grass;
+                            break;
+                        case RegionType::Ocean:
+                            chunk.at(x, y).tile = Tile::Water;
+                            break;
+                        default:
+                            chunk.at(x, y).tile = v > 0.62f ? Tile::GrassVar : Tile::Grass;
+                            break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool World::parse_dsl(const std::string& dsl, std::vector<std::pair<std::string, Vec2>>& out_structs, std::string& error) {
+    out_structs.clear();
+    std::stringstream ss(dsl);
+    std::string token;
+    while (std::getline(ss, token, ';')) {
+        // trim
+        token.erase(0, token.find_first_not_of(" \t"));
+        token.erase(token.find_last_not_of(" \t") + 1);
+        if (token.empty()) continue;
+        
+        size_t at_pos = token.find('@');
+        std::string name;
+        int x = 0, y = 0;
+        if (at_pos != std::string::npos) {
+            name = token.substr(0, at_pos);
+            name.erase(name.find_last_not_of(" \t") + 1);
+            std::string coords = token.substr(at_pos + 1);
+            std::stringstream cs(coords);
+            std::string cx, cy;
+            if (!std::getline(cs, cx, ',') || !std::getline(cs, cy)) {
+                error = "Invalid coordinates in DSL: " + token;
+                return false;
+            }
+            try {
+                x = std::stoi(cx);
+                y = std::stoi(cy);
+            } catch (...) {
+                error = "Invalid coordinate numbers: " + token;
+                return false;
+            }
+        } else {
+            std::stringstream ts(token);
+            ts >> name >> x >> y;
+            if (name.empty()) {
+                error = "Missing structure name: " + token;
+                return false;
+            }
+        }
+        out_structs.emplace_back(name, Vec2{static_cast<int16_t>(x), static_cast<int16_t>(y)});
+    }
+    return true;
+}
+
+bool World::build_dsl_structure(Player& p, const std::string& struct_name, int gx, int gy, std::string& error) {
+    // Check if on owned plot
+    bool on_plot = false;
+    size_t plot_idx = SIZE_MAX;
+    for (size_t i = 0; i < plots.size(); ++i) {
+        const Plot& pl = plots[i];
+        if (pl.owner_id == p.id && gx >= pl.x && gx < pl.x + pl.w && gy >= pl.y && gy < pl.y + pl.h) {
+            on_plot = true;
+            plot_idx = i;
+            break;
+        }
+    }
+    if (!on_plot) {
+        error = "You can only build on your own plot";
+        return false;
+    }
+    
+    // Check tile availability
+    if (!in_bounds_global(gx, gy)) {
+        error = "Invalid coordinates";
+        return false;
+    }
+    const Cell& c = cell_at(gx, gy);
+    if (c.obj.type != ObjType::None || c.tile == Tile::Water) {
+        error = "Tile occupied or water";
+        return false;
+    }
+    
+    // Simple structure placement - just place a building marker
+    Bldg bldg;
+    bldg.name = struct_name;
+    bldg.x = gx;
+    bldg.y = gy;
+    bldg.w = 4;
+    bldg.h = 3;
+    bldg.door_x = 1;
+    bldg.door_y = 1;
+    buildings.push_back(bldg);
+    
+    // Mark plot as having this structure
+    p.placed_structs.push_back({plot_idx, 0, gx, gy});
+    
+    return true;
+}
+
+// Phase 5: Quest & Job System implementations
+void World::generate_daily_quests(Player& p) {
+    std::mt19937 rng(day * 1000 + p.id);
+    std::uniform_int_distribution<int> dist(0, 4);
+    std::uniform_int_distribution<int> count_dist(1, 10);
+    std::uniform_int_distribution<int> money_dist(50, 500);
+    
+    // Clear expired quests
+    active_quests.erase(std::remove_if(active_quests.begin(), active_quests.end(),
+        [this](const Quest& q) { return q.expiry_day < day; }), active_quests.end());
+    
+    // Generate 2-3 new quests per day
+    int num_quests = 2 + dist(rng) % 2;
+    const char* quest_types[] = {"fetch", "deliver", "investigate", "ritual", "kill"};
+    
+    for (int i = 0; i < num_quests; ++i) {
+        Quest q;
+        q.id = "q" + std::to_string(next_quest_id++);
+        q.type = quest_types[dist(rng)];
+        q.expiry_day = day + 3; // 3 days to complete
+        
+        if (q.type == "fetch" || q.type == "deliver") {
+            // Use seasonal crops/items
+            int season = season_index(day);
+            Item items[] = {Item::Parsnip, Item::Potato, Item::Cauliflower, Item::Corn, 
+                           Item::Tomato, Item::Blueberry, Item::Melon, Item::Pumpkin,
+                           Item::Egg, Item::Milk, Item::Honey, Item::Wood, Item::Stone};
+            q.target_item = items[dist(rng) % 12];
+            q.target_count = count_dist(rng);
+            q.title = q.type == "fetch" ? "Gather " + std::to_string(q.target_count) + " " + item_def(q.target_item).name
+                                       : "Deliver " + std::to_string(q.target_count) + " " + item_def(q.target_item).name;
+            q.reward_money = money_dist(rng) * q.target_count / 2;
+        } else if (q.type == "investigate") {
+            q.title = "Investigate Strange Occurrence";
+            q.target_location = "Ruins";
+            q.reward_money = money_dist(rng);
+        } else if (q.type == "ritual") {
+            q.title = "Perform Ancient Ritual";
+            q.target_location = "Shrine";
+            q.reward_money = money_dist(rng) * 2;
+        } else if (q.type == "kill") {
+            q.title = "Clear Monster Nest";
+            q.target_location = "Caves";
+            q.reward_money = money_dist(rng) * 2;
+        }
+        
+        q.description = q.title + ". Expires day " + std::to_string(q.expiry_day) + ".";
+        active_quests.push_back(q);
+    }
+}
+
+void World::update_market_prices() {
+    // Initialize market prices if empty
+    if (market_prices.empty()) {
+        Item all_items[] = {Item::Parsnip, Item::Potato, Item::Cauliflower, Item::Corn, 
+                           Item::Tomato, Item::Blueberry, Item::Melon, Item::Pumpkin,
+                           Item::Egg, Item::Milk, Item::Honey, Item::Wood, Item::Stone,
+                           Item::IronOre, Item::GoldOre, Item::CopperBar, Item::IronBar};
+        for (Item it : all_items) {
+            MarketPrice mp;
+            mp.item = it;
+            mp.base_price = item_def(it).sell > 0 ? item_def(it).sell : item_def(it).buy;
+            mp.current_price = mp.base_price;
+            mp.supply = 100;
+            mp.demand = 50;
+            mp.last_update = day;
+            market_prices.push_back(mp);
+        }
+    }
+    
+    // Update prices based on supply/demand
+    std::mt19937 rng(day * 777);
+    std::uniform_int_distribution<int> flux(-10, 10);
+    
+    for (auto& mp : market_prices) {
+        // Simulate supply changes based on season
+        int season = season_index(day);
+        bool in_season = false;
+        // Simple season logic
+        if ((season == 0 && (mp.item == Item::Parsnip || mp.item == Item::Potato || mp.item == Item::Cauliflower)) ||
+            (season == 1 && (mp.item == Item::Tomato || mp.item == Item::Blueberry || mp.item == Item::Melon)) ||
+            (season == 2 && (mp.item == Item::Pumpkin || mp.item == Item::Corn))) {
+            in_season = true;
+        }
+        
+        if (in_season) {
+            mp.supply += 5 + flux(rng);
+            mp.demand += flux(rng);
+        } else {
+            mp.supply -= 2 + flux(rng);
+            mp.demand += 2 + flux(rng);
+        }
+        
+        mp.supply = std::max(1, mp.supply);
+        mp.demand = std::max(1, mp.demand);
+        
+        // Price = base * (demand/supply) * 0.5..1.5
+        float ratio = static_cast<float>(mp.demand) / mp.supply;
+        mp.current_price = static_cast<int>(mp.base_price * ratio * (0.8f + flux(rng) * 0.01f));
+        mp.current_price = std::max(1, mp.current_price);
+        mp.last_update = day;
+    }
+}
+
+void World::add_job_board_entries() {
+    // Add 3-4 job postings
+    job_board.clear();
+    std::mt19937 rng(day * 333);
+    std::uniform_int_distribution<int> money_dist(100, 800);
+    
+    const char* job_types[] = {"farmhand", "miner", "courier", "researcher"};
+    const char* job_titles[] = {"Farm Work", "Mining Shift", "Delivery Run", "Research Assistant"};
+    const char* job_descs[] = {
+        "Help with planting/harvesting on local farms.",
+        "Mine ore in the mountains.",
+        "Deliver packages between towns.",
+        "Assist with magical research at the shrine."
+    };
+    
+    for (int i = 0; i < 4; ++i) {
+        Job j;
+        j.id = "j" + std::to_string(next_job_id++);
+        j.type = job_types[i];
+        j.title = job_titles[i];
+        j.description = job_descs[i];
+        j.reward_money = money_dist(rng);
+        j.cooldown_until = day + 1; // Available daily
+        job_board.push_back(j);
+    }
+}
+
+bool World::complete_quest(Player& p, const std::string& quest_id) {
+    for (auto& q : active_quests) {
+        if (q.id == quest_id && !q.completed) {
+            // Check requirements
+            bool has_items = true;
+            if (q.target_item != Item::None) {
+                int count = 0;
+                for (auto& slot : p.inv) {
+                    if (slot.item == q.target_item) count += slot.count;
+                }
+                if (count < q.target_count) has_items = false;
+            }
+            
+            if (!has_items) return false;
+            
+            // Consume items if fetch/deliver
+            if (q.type == "fetch" || q.type == "deliver") {
+                int remaining = q.target_count;
+                for (auto& slot : p.inv) {
+                    if (slot.item == q.target_item && remaining > 0) {
+                        int take = std::min<int>(slot.count, remaining);
+                        slot.count -= take;
+                        remaining -= take;
+                    }
+                }
+            }
+            
+            // Give rewards
+            p.money += q.reward_money;
+            if (q.reward_item != Item::None) {
+                add_item(p, q.reward_item, q.reward_count);
+            }
+            
+            q.completed = true;
+            q.claimed = true;
+            completed_quests.push_back(q);
+            active_quests.erase(std::remove_if(active_quests.begin(), active_quests.end(),
+                [&](const Quest& qq) { return qq.id == q.id; }), active_quests.end());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool World::start_job(Player& p, const std::string& job_id) {
+    for (auto& j : job_board) {
+        if (j.id == job_id && j.cooldown_until <= day) {
+            // Job started - rewards given immediately for simplicity
+            p.money += j.reward_money;
+            if (j.reward_item != Item::None) {
+                add_item(p, j.reward_item, j.reward_count);
+            }
+            j.cooldown_until = day + 1; // Next day
+            return true;
+        }
+    }
+    return false;
+}
+
+void World::generate_daily_quests_if_needed(Player& p) {
+    // Check if quests were generated today
+    bool has_today_quests = false;
+    for (auto& q : active_quests) {
+        if (q.expiry_day <= day + 3 && q.expiry_day >= day) {
+            has_today_quests = true;
+            break;
+        }
+    }
+    if (!has_today_quests) {
+        generate_daily_quests(p);
     }
 }

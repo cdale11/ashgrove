@@ -100,8 +100,10 @@ struct ItemDef {
     uint8_t energy;      // energy cost to use (tools)
 };
 
-// Forward declaration for command dispatcher
+// Forward declarations for command dispatcher
 #include <nlohmann/json.hpp>
+struct World;
+struct Player;
 std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent);
 
 inline ItemDef const& item_def(Item it) {
@@ -404,6 +406,7 @@ static inline const char* obj_type_name(ObjType t) {
 struct Bldg {
     std::string name;
     int16_t x, y, w, h;
+    int16_t door_x = 0, door_y = 0;
 };
 
 // Building condition state for weathering/maintenance
@@ -412,11 +415,21 @@ struct BuildingState {
     uint8_t roof_leak = 0;        // rain damage accrued
     uint8_t foundation = 100;     // winter frost damage
     uint32_t last_maintained_day = 0;
+    std::vector<Animal> animals;
+};
+
+// Interior room types for new buildings
+enum class InteriorType : uint8_t {
+    None = 0, Farmhouse = 1, Barn = 2, Greenhouse = 3, Cellar = 4, Shrine = 5,
+    BarnInterior = 6, CoopInterior = 7, ShedInterior = 8, SiloInterior = 9,
+    WellInterior = 10, WindmillInterior = 11, CabinInterior = 12,
+    RuinInterior = 13, CaveInterior = 14, ShrineInterior = 15,
 };
 
 // ---- interiors ----
 struct InteriorRoom {
     std::string building;                    // matches Bldg::name; "" = none
+    InteriorType type = InteriorType::None;
     std::vector<std::string> rows;           // floor 0 (ground floor) - '#' wall, '.' floor, letters = furniture, ' ' = doorway
     std::vector<std::vector<std::string>> floors; // additional floors (floor 1+)
     int16_t w = 0, h = 0;
@@ -461,6 +474,41 @@ struct Cell {
     Crop crop;
 };
 
+// ---- Chunk system for infinite map (Phase 4) ----
+constexpr uint16_t CHUNK_SIZE = 128;
+constexpr int16_t MAX_CHUNK_RADIUS = 8;
+
+struct ChunkCoord {
+    int16_t cx, cy;
+    bool operator==(const ChunkCoord& o) const noexcept { return cx == o.cx && cy == o.cy; }
+    bool operator<(const ChunkCoord& o) const noexcept { return cx < o.cx || (cx == o.cx && cy < o.cy); }
+};
+
+struct Chunk {
+    std::array<Cell, CHUNK_SIZE * CHUNK_SIZE> cells;
+    std::vector<Bldg> buildings;
+    std::vector<NPC> npcs;
+    bool generated = false;
+    uint32_t last_accessed_day = 0;
+    int16_t cx = 0, cy = 0;
+    
+    Cell& at(int x, int y) { return cells[static_cast<size_t>(y) * CHUNK_SIZE + static_cast<size_t>(x)]; }
+    Cell const& at(int x, int y) const { return cells[static_cast<size_t>(y) * CHUNK_SIZE + static_cast<size_t>(x)]; }
+    bool in_bounds(int x, int y) const { return x >= 0 && x < CHUNK_SIZE && y >= 0 && y < CHUNK_SIZE; }
+};
+
+enum class RegionType : uint8_t {
+    Valley = 0, Forest = 1, Hills = 2, Caves = 3, Ruins = 4,
+    Ocean = 5, Mountains = 6, Swamp = 7,
+};
+
+struct Region {
+    RegionType type = RegionType::Valley;
+    int16_t cx = 0, cy = 0;
+    int16_t radius = 3;
+    uint32_t seed = 0;
+};
+
 // ---- player ----
 struct InvSlot { Item item = Item::None; uint16_t count = 0; };
 
@@ -502,7 +550,14 @@ struct Player {
 
 // ---- world ----
 struct World {
+    // Core authored map (chunk 0,0)
     std::array<Cell, MAP_W * MAP_H> cells;
+    
+    // Infinite chunk system (Phase 4)
+    std::map<ChunkCoord, Chunk> chunks;
+    std::vector<Region> regions;
+    int16_t current_chunk_cx = 0, current_chunk_cy = 0;
+    
     std::unordered_map<uint32_t, Player> players;
     std::vector<NPC> npcs;
     std::vector<Bldg> buildings;
@@ -519,6 +574,7 @@ struct World {
 
     Vec2 house_tl{38, 78};
 
+    // Core map access (chunk 0,0)
     Cell&     at(int x, int y) { return cells[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)]; }
     Cell const& at(int x, int y) const { return cells[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)]; }
     Cell&     at(Vec2 p) { return cells[static_cast<size_t>(p.y) * MAP_W + static_cast<size_t>(p.x)]; }
@@ -526,6 +582,131 @@ struct World {
     bool in_bounds(int x, int y) const { return x >= 0 && x < MAP_W && y >= 0 && y < MAP_H; }
     bool in_bounds(Vec2 p) const { return in_bounds(p.x, p.y); }
 
+    // Chunk system accessors (Phase 4)
+    Chunk& get_chunk(int16_t cx, int16_t cy) {
+        ChunkCoord cc{cx, cy};
+        auto it = chunks.find(cc);
+        if (it == chunks.end()) {
+            Chunk chunk;
+            chunk.cx = cx; chunk.cy = cy;
+            it = chunks.emplace(cc, std::move(chunk)).first;
+        }
+        it->second.last_accessed_day = day;
+        return it->second;
+    }
+    Chunk const* get_chunk_const(int16_t cx, int16_t cy) const {
+        ChunkCoord cc{cx, cy};
+        auto it = chunks.find(cc);
+        return it != chunks.end() ? &it->second : nullptr;
+    }
+    
+    // Convert global coordinates to chunk + local
+    static void global_to_chunk(int gx, int gy, int16_t& cx, int16_t& cy, int& lx, int& ly) {
+        cx = static_cast<int16_t>(std::floor(float(gx) / CHUNK_SIZE));
+        cy = static_cast<int16_t>(std::floor(float(gy) / CHUNK_SIZE));
+        lx = gx - cx * CHUNK_SIZE;
+        ly = gy - cy * CHUNK_SIZE;
+    }
+    
+    // Universal cell access (handles chunks)
+    Cell& cell_at(int gx, int gy) {
+        int16_t cx, cy; int lx, ly;
+        global_to_chunk(gx, gy, cx, cy, lx, ly);
+        if (cx == 0 && cy == 0) return at(lx, ly);
+        return get_chunk(cx, cy).at(lx, ly);
+    }
+    Cell const& cell_at(int gx, int gy) const {
+        int16_t cx, cy; int lx, ly;
+        global_to_chunk(gx, gy, cx, cy, lx, ly);
+        if (cx == 0 && cy == 0) return at(lx, ly);
+        const Chunk* ch = get_chunk_const(cx, cy);
+        if (!ch) { static Cell empty; return empty; }
+        return ch->at(lx, ly);
+    }
+    bool walkable_global(int gx, int gy) const {
+        if (!in_bounds_global(gx, gy)) return false;
+        Tile t = cell_at(gx, gy).tile;
+        if (t == Tile::Water || t == Tile::WaterNorth || t == Tile::WaterSouth ||
+            t == Tile::WaterEast || t == Tile::WaterWest) return false;
+        ObjType o = cell_at(gx, gy).obj.type;
+        if (is_tree(o) || o == ObjType::Rock || o == ObjType::Stump ||
+            o == ObjType::FencePost || o == ObjType::FenceRail ||
+            o == ObjType::Building ||
+            o == ObjType::Sprinkler || o == ObjType::Statue) return false;
+        const Crop& crop = cell_at(gx, gy).crop;
+        if (crop.is_crop() && crop.is_trellis) return false;
+        return true;
+    }
+    bool in_bounds_global(int gx, int gy) const {
+        int16_t cx, cy; int lx, ly;
+        global_to_chunk(gx, gy, cx, cy, lx, ly);
+        return cx >= -MAX_CHUNK_RADIUS && cx <= MAX_CHUNK_RADIUS &&
+               cy >= -MAX_CHUNK_RADIUS && cy <= MAX_CHUNK_RADIUS;
+    }
+    
+    // Chunk generation
+    void ensure_chunk_generated(int16_t cx, int16_t cy);
+    void generate_region(RegionType type, int16_t cx, int16_t cy, int16_t radius, uint32_t seed);
+    
+    // DSL construction system
+    bool parse_dsl(const std::string& dsl, std::vector<std::pair<std::string, Vec2>>& out_structs, std::string& error);
+    bool build_dsl_structure(Player& p, const std::string& struct_name, int gx, int gy, std::string& error);
+
+    // Phase 5: Quest & Job System
+    struct Quest {
+        std::string id;
+        std::string title;
+        std::string description;
+        std::string type; // fetch, kill, deliver, investigate, ritual
+        std::string target_npc;
+        Item target_item = Item::None;
+        int target_count = 0;
+        std::string target_location;
+        int reward_money = 0;
+        Item reward_item = Item::None;
+        int reward_count = 0;
+        uint32_t expiry_day = 0;
+        bool completed = false;
+        bool claimed = false;
+    };
+
+    struct Job {
+        std::string id;
+        std::string title;
+        std::string description;
+        std::string type; // farmhand, miner, courier, researcher
+        int reward_money = 0;
+        Item reward_item = Item::None;
+        int reward_count = 0;
+        uint32_t cooldown_until = 0;
+    };
+
+    // Economy tracking
+    struct MarketPrice {
+        Item item = Item::None;
+        int base_price = 0;
+        int current_price = 0;
+        int supply = 0;
+        int demand = 0;
+        uint32_t last_update = 0;
+    };
+
+    std::vector<Quest> active_quests;
+    std::vector<Quest> completed_quests;
+    std::vector<Job> job_board;
+    std::vector<MarketPrice> market_prices;
+    uint32_t next_quest_id = 1;
+    uint32_t next_job_id = 1;
+
+    // Quest/Job methods
+    void generate_daily_quests(Player& p);
+    void update_market_prices();
+    void add_job_board_entries();
+    bool complete_quest(Player& p, const std::string& quest_id);
+    bool start_job(Player& p, const std::string& job_id);
+    void generate_daily_quests_if_needed(Player& p); // Auto-generate on first access
+
+    // Core map walkable (chunk 0,0)
     bool walkable(int x, int y) const {
         if (!in_bounds(x, y)) return false;
         Tile t = at(x, y).tile;
@@ -536,7 +717,6 @@ struct World {
             o == ObjType::FencePost || o == ObjType::FenceRail ||
             o == ObjType::Building ||
             o == ObjType::Sprinkler || o == ObjType::Statue) return false;
-        // Trellis crops (green bean, hops) are impassable
         const Crop& crop = at(x, y).crop;
         if (crop.is_crop() && crop.is_trellis) return false;
         return true;
@@ -556,6 +736,7 @@ void place_buildings(World& world);
 void clear_paths(World& world);   // keep bridges + doorways passable (post-scatter)
 void init_interiors(World& world);
 void init_plots(World& world);     // R16: buyable plots
+void add_phase4_interiors(World& world);  // Phase 4: additional interiors
 int  hour_of_day(const World& w);      // 6..26 (26 == 2:00 AM)
 const char* clock_str(const World& w); // "Day 3 · 10:40 AM"
 int  season_index(uint32_t day);       // 0 spring .. 3 winter

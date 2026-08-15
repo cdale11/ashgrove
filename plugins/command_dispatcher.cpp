@@ -4,8 +4,6 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 
-extern std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent);
-
 class CommandDispatcherPlugin : public Plugin {
 public:
     void init(EventBus& bus) override {

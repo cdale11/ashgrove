@@ -7,7 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added — Phase 1 Core Stardew Features
+- **Seasonal festivals** — one festival per season on day 13:
+  - Spring Fair (egg hunt via `search`), Summer Luau, Autumn Harvest Festival, Winter Star Festival
+  - Summer/Autumn/Winter award a one-time money + item reward guarded by `festival_claimed_day`
+  - `festival_name()` / `next_festival_day()` helpers; `/state` exposes the current festival
+- **Fishing system**:
+  - `Fishing Rod` (starter inventory) + `Bait` (purchasable, +25 skill)
+  - Location-based fish tables (Ocean/River/Lake/Mountain) with seasonal + time-of-day availability
+  - Reeling mini-game: skill = 50 + energy/10 + bait/rain bonuses; deterministic catch roll
+- **Cooking & recipes**:
+  - 14 recipes (bread, salad, omelet, cheese omelet, milk pudding, fruit salad, jam toast, fish stew, pumpkin soup, grain porridge, honey bread, grilled fish, fruit tart, cheese plate)
+  - `cook <recipe>` consumes ingredients and produces a dish item; dishes edible with energy restore
+- **Animal system**:
+  - Barn (capacity 4, cows/goats) + Coop (capacity 4, chickens) built with `build`
+  - `place <animal> <building>` requires 1 forage; capacity- and ownership-guarded
+  - `feed <building>` consumes 1 forage per hungry animal; feeding builds friendship
+  - Daily tick: hunger grows, friendship rises when fed / falls when hungry
+  - `collect` next to a building; friendship ≥80 doubles yield; hungry animals stop producing
+  - `friendship` field added to `Animal` (0–100)
+- **Expanded crops (toward 100+)**:
+  - 11 new crops: tulip, blue jazz, starfruit, poppy, amaranth, yam, eggplant, okra, beet, ancient fruit, sweet gem berry (seeds + produce, item defs, crop tables, shop, sell)
+  - **Giant crops**: mature 3×3 cauliflower/melon/pumpkin patches have a 1%/night chance to merge into a giant crop that harvests 6–12 produce
+
+### Fixed
+- **LLM layer stability**: `/cmd` (which runs `llama.parse_command` for every command) crashed under repeated/concurrent requests with heap corruption in llama's batch allocator. Root cause: the persistent `llama_context` reused its KV buffers/allocator across requests (`llama_memory_clear` left the batch allocator referencing freed memory). Fixed by creating a fresh `llama_context` per `parse_command` (the model loads once and is reused read-only), guarding all decode calls with an internal mutex, and limiting httplib to a single worker (`new_task_queue = ThreadPool(1)`). Verified with concurrent stress tests (5 simultaneous `/cmd` requests complete without crashing).
+- Flash-attention / q8_0 KV-cache flags removed: gemma-4 is SWA-based and these trips GGML asserts on its attention mask. KV cache stays F16; only `offload_kqv = false` is set.
+
+### Added — Phase 2: Advanced Crafting & Machines
+- **Processing machines** (craftable, placeable, daily processing):
+  - **Keg**: Ferments fruit→wine (7 days), hops→pale ale (2 days), wheat→beer (7 days), coffee→coffee (1 day), rice→sake (3 days), honey→mead (10 days). Craft: 30 Wood + 1 Copper Bar + 1 Iron Bar + 1 Oak Resin.
+  - **Preserves Jar**: Fruit→jelly (3 days), vegetables→pickles (2 days). Craft: 50 Wood + 40 Stone + 8 Coal.
+  - **Mayonnaise Machine**: Eggs→mayonnaise (3 hours). Craft: 15 Wood + 15 Stone + 1 Earth Crystal + 1 Copper Bar.
+  - **Bee House**: Produces honey daily; wild honey near flowers (tulip, blue jazz, poppy, sunflower, sweet pea, fairy rose). Craft: 40 Wood + 8 Coal + 1 Iron Bar + 1 Maple Syrup.
+  - **Cask** (cellar only): Ages wine/cheese through quality tiers (normal→silver 14d→gold 21d→iridium 28d). Craft: 20 Hardwood + 50 Wood + 20 Stone.
+- **Greenhouse building** (`build greenhouse`): 10×6 structure allowing year-round planting (bypasses winter/season restrictions).
+- **Skill system & perks** (Farming skill 0–10):
+  - **Agriculturist** (Farming 10): All crops grow 10% faster (applied in `advance_day`).
+  - **Tiller** (Farming 10): All crops sell for 10% more (applied in `sell` command).
+  - Perk flags stored on `Player`, checked globally in daily tick and sell.
+- **New items**: Machine items (Keg, PreservesJar, MayonnaiseMachine, BeeHouse, Cask, Greenhouse), machine outputs (Pale Ale, Beer, Sake, Mead, Coffee, Rice, Hot Pepper, Jelly, Pickles, Wild Honey, Aged Wine, Aged Cheese), egg variants (Large Egg, Brown Egg, Duck Egg, Void Egg, Dinosaur Egg), resources (Coal, Earth Crystal), vegetables (Cucumber, Carrot, Radish), flowers (Sunflower, Sweet Pea, Fairy Rose).
+- **Commands**: `craft keg/preserves jar/mayonnaise machine/bee house/cask`, `place keg/preserves jar/mayonnaise machine/bee house/cask`, `interact add/put/fill` (load machines), `collect` (retrieve from machines), `build greenhouse`, `sell` (Tiller perk), `advance_day` (Agriculturist perk).
+
+### Added — Phase 3: Social & NPC Relationships
+- **Gift preference system**: Comprehensive love/like/neutral/dislike/hate tables for 5 villagers + 2 rabbits across 100+ items.
+- **Hearts system expanded to 14**: 8 hearts (Bouquet → engagement), 10 hearts (Wedding Ring → marriage), 14 hearts (max).
+- **Marriage system**: `gift <npc> Bouquet` at 8 hearts → engagement; `gift <npc> Wedding Ring` at 10 hearts → marriage; `divorce <spouse>` ends marriage.
+- **Children & family**: After 14 days marriage + nursery, 5%/day chance for child (random names); `hearts` shows spouse + children.
+- **Heart decay**: Ungifted NPCs lose 1 heart/week; spouse exempt; daily gift limit.
+- **Roommate events**: At 8+ hearts, 2%/day chance to ask to stay over.
+- **NPC schedule adaptation**: NPCs with ≥8 hearts have 20% chance to visit player's farm; spouse follows player.
+- **LLM-driven dialogue**: `talk` attempts LLM generation with context, falls back to seasonal greetings.
+- **New items**: Bouquet (200g), Wedding Ring (5000g).
+- **Commands**: `gift` (Bouquet/Wedding Ring logic), `hearts` (14-heart display + spouse/children), `divorce`, `talk` (LLM fallback).
+
+### Added — Phase 4: Town & Map Expansion
+- **Infinite chunk system**: 128×128 tile chunks, 8 chunk radius (1024 tiles), `std::map<ChunkCoord, Chunk>` storage.
+- **Procgen regions**: 8 types (Forest, Hills, Mountains, Caves, Ruins, Ocean, Swamp, Valley) with region-based terrain generation.
+- **12+ new interiors**: Barn, Greenhouse, Cellar, Shrine, Cabin, Ruin, Cave, Well, Windmill, Silo, Shed, Well/Windmill/Silo/Shed interiors.
+- **Infinite map navigation**: Chunk-based coordinates, universal `cell_at(gx, gy)`, global walkable check.
+- **DSL construction system**: `dsl <structure> @ x,y` parser, supports barn/coop/silo/shed/well/windmill/greenhouse/shrine/cabin.
+- **New commands**: `dsl`, `explore`/`map`, `travel`, `region add`, `build shrine|cabin`.
+- **New items**: Machine items (Keg, PreservesJar, etc.), outputs (Pale Ale, Jelly, etc.), egg variants, resources (Coal, Earth Crystal), vegetables, flowers, marriage items (Bouquet, Wedding Ring).
+- **Commands**: `dsl`, `explore`/`map`, `travel`, `region add`, `build shrine|cabin`, `gift` (Bouquet/Wedding Ring), `hearts` (14-heart + spouse/children), `divorce`, `talk` (LLM fallback).
+
+### Added — Phase 5: Quest & Job System
+- **Quest system**: Dynamic quest generation sampling templates + world state (season, NPC mood, weather, economy).
+  - Quest types: fetch, deliver, investigate, ritual, kill
+  - Auto-generates 2-3 quests per day, expires in 3 days
+  - Rewards: money, items based on quest type and target count
+  - `/quest list|complete <id>|history` commands
+- **Job board**: Repeatable work from NPCs
+  - Job types: farmhand, miner, courier, researcher
+  - Daily cooldown, immediate rewards on completion
+  - `/job list|do <id>` commands
+- **Living Economy**: Supply/demand price fluctuations
+  - Market prices update daily based on seasonality and simulated supply/demand
+  - Seasonal items cheaper in season, expensive out of season
+  - `/market` command shows current prices with trend indicators
+- **Event-driven reward scaling**: Rewards scale with target count and world state
+- **Commands**: `quest`, `job`, `market`
+
+### Fixed
+- **Bridge run logic**: Fixed bridge generation for roads crossing water.
+- **Memory management**: Fixed `has_item` helper in world.cpp for DSL construction.
+
+### Fixed
+- Interior `go to <landmark>` bug: leaving a building via `go to` now clears `p.inside` so the UI no longer shows the old interior while text claims a new location.
+- `place <animal> <building>` never placed the first animal because the initial animal vector was empty (loop found no slot); now appends a new animal.
+
+### Added — Phase 1 prerequisite (previous session)
 - R16: Buyable plots + placeable structures
   - `buy plot` / `buy plot <name>` at the Town Center (list 4 parcels, purchase a parcel)
   - 4 buyable plots: Hillside (15,000g, cool mountain air), Forest Clearing (8,000g, temperate woodland), Lakeside (12,000g, humid lake breeze), Docks Lot (10,000g, salty coastal wind)
