@@ -149,7 +149,65 @@ Listeners subscribe via `EventBus::subscribe<Topic>(callback)`. Decouples system
 11. **Commit and push regularly** – Every logical change must be committed with a conventional commit message and pushed to `origin/main` before moving to the next task. No local-only commits. Push after each atomic step.
 12. **Extensive skill usage** – Agents MUST leverage available OpenCode skills whenever they are applicable (CMake, C++ coding standards, testing, documentation, MCP, WebSockets, etc.), and may download additional skills if required to accomplish a task. Skill usage must be documented in the PR/commit.
 13. **Verify before push** – Run the project's lint/typecheck/test commands (e.g., `cmake --build build && ctest`) before every push. If no commands are documented, ask the user for the verification command and add it to `AGENTS.md`.
+14. **Audit before major work** – Before any major rewrite or new phase, the agent must audit current project against vision, present gaps, and get user sign-off on updated roadmap.
 
 ---
 
-*Prepared by the OpenCode agent on 2026‑08‑15. This document supersedes prior ad‑hoc notes and serves as the canonical source for all future development.*
+## Vision Gap Audit (2026-08-16)
+
+The user provided an expanded vision that reveals significant gaps in current docs and code. See `docs/vision-gap-analysis.md` for full audit. Key missing elements:
+
+### Critical Prerequisites (Blocking)
+- **P0: Authored Town Design** — Town must be "meticulously designed with me through questions about geography, districts, buildings, interiors, NPC homes, river/island, farms, forest, railway and horror locations." Currently: 22 buildings hardcoded in `place_buildings()`.
+- **P1: Horror Narrative Design** — "Main horror story is authored, original and high quality, structurally inspired by Higurashi." Currently: mechanics only, no narrative structure.
+- **P2: Recurring Runs Design** — "Death and knowledge can matter across runs." Currently: single world save only.
+
+### Missing from Phase Definitions
+| Vision Element | Current Phase Coverage | Gap |
+|---|---|---|
+| **Authored town design (collaborative)** | None | Phase 0 prerequisite |
+| **Horror narrative bible (Higurashi cycles)** | Phase 6 mentions horror but no narrative design | Phase 6 prerequisite |
+| **Recurring runs / cross-run persistence** | None | Phase 9+ |
+| **Terrain changes (floods, erosion, fires, river shifts, succession)** | Phase 8.3 mentions fire spread, 8.1e forest ecology | No terrain-level CA systems |
+| **Procedural wilderness beyond authored map** | Phase 4 mentions procgen outskirts | No seamless transition, no infinite exploration |
+| **Procedural quests from world state/history/relationships** | Phase 5 mentions quest generator | No generator implementation |
+| **Collective cognition (Village/Economy/Nature/Culture Mind)** | Phase 7.9 mentioned in cognitive-architecture.md | Not in this roadmap |
+| **Cognitive LOD (important vs background NPCs)** | Cognitive architecture spec | Not in roadmap |
+| **Offline simulation (compressed tick on restart)** | None | Not in roadmap |
+| **Causal traces / deterministic replay** | None | Not in roadmap |
+| **Memory budgeting / bounded memory** | Architecture spec | Not in roadmap |
+| **WebSocket + browser client (PIXI.js)** | Architecture mentions "WebSocket Push (planned)" | Not in phases |
+| **Animals, cooking, machines, festivals, marriage** | Phases 1-3 listed but not implemented | Phase 1-3 not started |
+
+### Updated Phase Map (Including Missing)
+
+| Phase | Goal | Status |
+|---|---|---|
+| **P0** | Authored Town Design (USER) | ❌ Not started |
+| **P1** | Horror Narrative Design (USER) | ❌ Not started |
+| **P2** | Recurring Runs Design (USER) | ❌ Not started |
+| **0** | Foundations (EventBus, llama.cpp, plugins, CI) | ✅ Shipped |
+| **1** | Core Stardew Features (animals, fishing, cooking, festivals) | ❌ Not started |
+| **2** | Advanced Crafting (kegs, bee houses, casks, sprinklers, perks) | ❌ Not started |
+| **3** | Social & NPC Relationships (hearts, gifts, LLM dialogue, marriage) | ❌ Not started |
+| **4** | Town & Map Expansion (procgen, buyable plots, interiors, seamless) | ⚠️ Partial (chunks, DSL) |
+| **5** | Quest & Job System (generator, job board, living economy) | ❌ Not started |
+| **6** | Horror & Narrative Overlays (basement, night events, sanity, meta-horror) | ⚠️ Partial (sanity, night events) |
+| **7** | Emergent World Learning (logs → fine-tune, adaptive systems) | 🔄 In progress (Town Consciousness, Cognitive Core) |
+| **7.7** | Cognitive Core Foundation (TinyMLP, CognitiveState, Core, Registry) | ✅ Implemented, not wired |
+| **7.8** | Social Cognition (imitation, culture, beliefs) | ❌ Not started |
+| **7.9** | Collective Cognition (Village/Economy/Nature/Culture Mind) | ❌ Not started |
+| **8.1** | Deep Simulation (soil, water, plant genetics, pests, forest ecology) | ❌ Not started |
+| **8.2** | Atmospheric Physics (fields, advection, cloud CA) | ❌ Not started |
+| **8.3** | Structural Physics (decay CA, tool wear, fire CA, stress fields) | ❌ Not started |
+| **8.4** | Creature Biology (metabolism, disease, aging, social) | ❌ Not started |
+| **8.5** | Terrain & Ecological Change (floods, erosion, fires, rivers, succession) | ❌ Not started |
+| **8.6** | Procedural Wilderness (seamless, infinite, landmarks) | ❌ Not started |
+| **8.7** | Procedural Stories (quest generator from world state) | ❌ Not started |
+| **8.8** | Offline Simulation (compressed tick, deterministic replay) | ❌ Not started |
+| **9** | Recurring Runs (run system, cross-run persistence, death) | ❌ Not started |
+| **10** | Parallelism (P1-P4) | ⏳ Deferred |
+
+---
+
+*Prepared by the OpenCode agent on 2026‑08‑16. This document supersedes prior ad‑hoc notes and serves as the canonical source for all future development.*

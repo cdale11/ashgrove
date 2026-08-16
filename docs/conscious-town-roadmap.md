@@ -3,6 +3,49 @@
 
 ---
 
+## ⚠️ CRITICAL PREREQUISITES (Blocking All Content Phases)
+
+Before Phase 7+ implementation proceeds, the following **must be designed with the user**:
+
+### P0: Authored Town Design Session
+**The vision requires: "The authored Ashgrove town must be meticulously designed with me through questions about geography, districts, buildings, interiors, NPC homes, river/island, farms, forest, railway and horror locations."**
+
+**Currently**: 22 buildings placed in `place_buildings()` with hardcoded coordinates. Zero user collaboration on:
+- District zoning (Civic, Commercial, Residential, Industrial, Riverside, Woodland, Farmstead, Horror zones)
+- Building purposes, rooms, NPC assignments
+- NPC home interiors (personalized to personality)
+- River/island geography, bridges, flood zones
+- Railway location, station, tunnels
+- Horror locations (basement entrance, witch hut, fog zones, ritual sites, abandoned places)
+- Farm layouts (player farm, NPC farms, communal fields)
+
+**Required Output**: Town design document with maps, building schedules, NPC assignments, horror location list.
+
+### P1: Horror Narrative Design Session
+**The vision requires: "The main horror story is authored, original and high quality, structurally inspired by Higurashi."**
+
+**Currently**: Horror mechanics exist (sanity, night events, phantom sightings, horror_intensity adaptation) but **no authored narrative structure** — no cyclical chapters, no hidden truths, no character arcs, no meta-narrative breaks.
+
+**Required Output**: Horror bible with:
+- Core mystery/curse structure (Higurashi-style cycles)
+- Key horror NPCs (Mayor, Witch, Traveler, Doctor, Teacher) and their secrets
+- Chapter/loop structure (how many loops, what escalates)
+- Horror locations mapped to town design
+- Sanity/perception filter design (hallucinations, distorted dialogue, false UI)
+
+### P2: Recurring Runs / Cross-Run Persistence Design
+**The vision requires: "Death and knowledge can matter across runs... recurring runs."**
+
+**Currently**: Single world save only.
+
+**Required Output**: Run system design:
+- What persists (knowledge, map discoveries, NPC relationships, crafted items, buildings?)
+- What resets (player stats, inventory, world state?)
+- Death mechanics (permadeath? knowledge retention? run counter?)
+- Cross-run knowledge progression
+
+---
+
 ## Executive Summary
 
 **Core Concept**: The town of Ashgrove Valley is a single, persistent, learning entity. Every system — soil microbiome, weather patterns, NPC minds, economy, disaster response, even the game's own performance tuner — shares a **global memory** and **adaptation loop**. The player isn't playing *against* scripted systems; they're inhabiting a world that *observes, learns, and adapts* to them.
@@ -344,4 +387,90 @@ so adaptations stay at defaults. Verified live 2026-08-16.
 
 ---
 
-*This plan is a living document. Update `docs/vision-and-roadmap.md` and `docs/shipped-features.md` as each phase ships.*
+## Missing Vision Elements (From User Vision 2026-08-16)
+
+The following elements from the user's comprehensive vision are **not yet in this roadmap** and must be added:
+
+### Phase 0: Authored Town Design (Prerequisite — See P0 Above)
+- **District Zoning**: Civic, Commercial, Residential, Industrial, Riverside, Woodland, Farmstead, Horror zones
+- **Building Purposes & Interiors**: Every building has defined rooms, NPC residents/workers, services offered
+- **NPC Home Personalization**: Each NPC interior reflects personality, history, relationships
+- **River/Island Geography**: Flood zones, bridges, island accessibility, water mechanics
+- **Railway**: Station, tracks, tunnels, connection to procedural wilderness
+- **Horror Locations**: Basement entrance, Witch's hut, Fog zones, Ritual sites, Abandoned places
+- **Farm Layouts**: Player farm, NPC farms, communal fields, irrigation infrastructure
+
+### Phase 6: Authored Horror Narrative (Prerequisite — See P1 Above)
+- **Higurashi-Inspired Structure**: Cyclical loops, hidden truth revealed progressively, character-specific arcs
+- **Core Mystery/Curse**: What is the "curse"? How does it manifest? What breaks it?
+- **Key Horror NPCs**: Mayor (secret), Witch (knowledge), Traveler (outsider), Doctor (complicity), Teacher (witness)
+- **Chapter/Loop Design**: Number of loops, escalation mechanics, divergence points
+- **Sanity/Perception Filters**: Hallucinations, distorted dialogue, false UI, meta-narrative breaks (DDLC-style), internal voices (Disco Elysium-style)
+- **Basement/Under-Map**: Accessible only after midnight, procedural horror content, persistent consequences
+
+### Phase 7+: Recurring Runs & Cross-Run Persistence (Prerequisite — See P2 Above)
+- **Run System**: Multiple runs with persistent knowledge
+- **Cross-Run Persistence**: Knowledge, map discoveries, NPC relationships, crafted items, buildings
+- **Run Reset Mechanics**: Player stats, inventory, world state (what resets vs persists)
+- **Death Consequences**: Permadeath? Knowledge retention? Run counter? Narrative integration?
+
+### Phase 7.9: Collective Cognition Implementation (Extends 7.9)
+- **VillageMind**: Aggregate NPC emotional states, social graph density, cultural practices → biases `schedule_bias`, `market_volatility`, `horror_night_event_weight`
+- **EconomyMind**: Commodity cycles, trade route health, inflation, player impact → biases `price_elasticity`, `market_volatility`, `demand_shift`
+- **NatureMind**: Forest ecology, disturbance legacy, succession stage, climate trend → biases `procgen_biases`, `storm_chance`, `disaster_chance`
+- **CultureMind**: Shared beliefs, rituals, collective fears, preferences → biases `schedule_bias`, `dialogue_topic_weight`
+- **Feedback Loops**: Village ↔ Economy ↔ Nature ↔ Culture interacting (e.g., drought → crop failure → economic stress → cultural fear → reduced fire suppression → fire risk)
+- **PerformanceMind** (exists): Historical performance memory, adaptive tick budget
+
+### Phase 8: Terrain & Ecological Simulation (Extends 8.1e/8.3)
+- **Terrain Changes**: Flood CA, river migration, erosion CA, fire spread CA, heatwave/drought fields, ecological succession
+- **River Dynamics**: Channel migration, floodplain deposition, avulsion events
+- **Fire System**: Fuel load, wind vector, humidity, ignition probability, firebreaks, prescribed burns
+- **Ecological Succession**: Pioneer → mid-succession → climax communities, gap-phase dynamics, nurse logs
+- **Soil Degradation**: Erosion, salinization, compaction, nutrient depletion, remediation
+- **Microclimate Fields**: Temperature, humidity, wind modified by terrain, vegetation, water bodies
+
+### Phase 8+: Procedural Wilderness & Stories
+- **Seamless Authored→Procgen Transition**: Chunk system extended beyond 128×96 authored map
+- **Procedural Wilderness**: Infinite exploration, biome transitions, landmark generation
+- **Procedural Quest/Story Generator**: Samples from world state, history, relationships, unresolved goals
+- **Emergent Narrative**: Quests from NPC unresolved goals, economic needs, ecological threats, horror mysteries
+
+### Phase 8+: Offline Simulation
+- **Compressed Offline Tick**: When server restarts, simulate elapsed time (crops, NPC schedules, weather, economy, ecology)
+- **Deterministic Replay**: Offline simulation produces same results as online
+- **Efficiency**: Compressed simulation (skip ticks with no events, batch process)
+
+### Phase 7.7+: Cognitive LOD & Memory Management
+- **Cognitive LOD**: Important NPCs (full cognition) → background NPCs (cheaper) → distant entities (statistical only)
+- **Bounded Memory**: Ring buffers for episodic memory, capped semantic facts, social graph limits
+- **Memory Budgeting**: Per-agent and aggregate memory budgets, LRU eviction
+- **Causal Traces**: Debug logging of why adaptations changed, why NPCs acted, why terrain shifted
+
+---
+
+## Updated Phase Summary
+
+| Phase | Focus | Key Deliverables |
+|-------|-------|------------------|
+| **P0** | Authored Town Design | Town design doc (maps, buildings, NPCs, horror locations) — **USER COLLABORATION REQUIRED** |
+| **P1** | Horror Narrative Design | Horror bible (cycles, NPCs, chapters, sanity filters) — **USER COLLABORATION REQUIRED** |
+| **P2** | Recurring Runs Design | Run system spec (persistence, reset, death) — **USER COLLABORATION REQUIRED** |
+| **7** | Conscious Town Core | Town Consciousness (LoRA), event log, memory, adaptations, consumers |
+| **7.7** | Cognitive Core Foundation | TinyMLP, CognitiveState, CognitiveCore, CognitiveRegistry — **IMPLEMENTED, NOT WIRED** |
+| **7.8** | Social Cognition | Imitation, cultural transmission, belief propagation |
+| **7.9** | Collective Cognition | VillageMind, EconomyMind, NatureMind, CultureMind, feedback loops |
+| **8.1** | Deep Simulation Layers | Soil, water, plant genetics, pests, forest ecology (tree individuals, evolution) |
+| **8.2** | Atmospheric Physics | Pressure/temp/humidity fields, spectral advection, cloud/precip CA |
+| **8.3** | Structural Physics | Building decay CA, tool wear, fire spread CA, stress fields |
+| **8.4** | Creature Biology | Metabolism Petri nets, disease graphs, aging L-systems, social rewriting |
+| **8.5** | Terrain & Ecological Change | Floods, erosion, fires, river migration, succession, soil degradation |
+| **8.6** | Procedural Wilderness | Seamless procgen, infinite exploration, landmark generation |
+| **8.7** | Procedural Stories | Quest generator from world state, emergent narrative |
+| **8.8** | Offline Simulation | Compressed offline tick, deterministic replay |
+| **9** | Recurring Runs | Run system, cross-run persistence, death mechanics |
+| **10** | Parallelism | P1-P4 (fine-grained locking, double-buffered tick, parallel systems, async persistence) |
+
+---
+
+*This plan is a living document. Update `docs/vision-and-roadmap.md` and `docs/shipped-features.md` as each phase ships. See `docs/vision-gap-analysis.md` for full audit.*
