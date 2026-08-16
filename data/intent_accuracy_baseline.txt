@@ -1,0 +1,7 @@
+BASELINE intent-accuracy (pre-training, current qwen2.5-0.5b-ashgrove-q4_k_m.gguf)
+date: Sunday 16 August 2026 05:20:36 PM IST
+intent accuracy: 26/30 (86.7%)
+action match: 30/30 (100%)
+params match: 26/30
+4 failures are rule-tier empty-param-key quirk ({'crop':''} vs {}), not model regression
+harness: tools/eval_intent_accuracy.py

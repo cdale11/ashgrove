@@ -64,6 +64,9 @@ def main():
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--accum", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--gc", action="store_true",
+                        help="Enable gradient checkpointing (trades compute for RAM; "
+                             "recommended for long consolidation sequences on small boxes)")
     parser.add_argument("--log-file", default="/tmp/opencode/lora_train.log")
     parser.add_argument("--task", choices=["intent", "consolidation", "mixed"], default="mixed")
     parser.add_argument("--consolidation", default="data/dataset_consolidation.jsonl",
@@ -71,27 +74,66 @@ def main():
                              "the intent train/val splits. Empty/missing file = intent only.")
     parser.add_argument("--consolidation-val-ratio", type=float, default=0.15,
                         help="Fraction of consolidation rows held out as val (rest added to train)")
+    parser.add_argument("--resume", default=None,
+                        help="Existing LoRA adapter dir to CONTINUE from (additive training). "
+                             "The prior intent LoRA weights are the starting point, so intent "
+                             "knowledge is preserved structurally; consolidation rows then "
+                             "extend it. New LoraConfig args (r/alpha) are ignored for the "
+                             "loaded adapter.")
     args = parser.parse_args()
     globals()["args"] = args
+
+    # CPU resource control: use all requested threads for intra-op/attention.
+    import torch
+    torch.set_num_threads(args.threads)
+    import os
+    os.environ.setdefault("OMP_NUM_THREADS", str(args.threads))
+    os.environ.setdefault("MKL_NUM_THREADS", str(args.threads))
 
     tokenizer = AutoTokenizer.from_pretrained(args.base)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype="float32")
+    base_model = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype="float32")
 
-    from peft import LoraConfig, get_peft_model
+    if args.resume:
+        from peft import PeftModel
+        # Work on a COPY so we never mutate the committed reference adapter.
+        import shutil
+        work_resume = "/tmp/opencode/resume-adapter"
+        shutil.rmtree(work_resume, ignore_errors=True)
+        shutil.copytree(args.resume, work_resume)
+        # The saved adapter config marks inference_mode=true (params frozen on
+        # load). Clear it so the LoRA weights stay trainable for additive training.
+        import json as _json
+        cfg_path = os.path.join(work_resume, "adapter_config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                acfg = _json.load(f)
+            acfg["inference_mode"] = False
+            with open(cfg_path, "w") as f:
+                _json.dump(acfg, f, indent=2)
+        model = PeftModel.from_pretrained(base_model, work_resume)
+        model.train()
+        # Explicitly unfreeze the LoRA weights (PEFT may keep them frozen on load).
+        for name, p in model.named_parameters():
+            if "lora" in name.lower():
+                p.requires_grad = True
+        print("RESUMED from existing LoRA: %s (keeping intent weights)" % args.resume,
+              flush=True)
+    else:
+        from peft import LoraConfig, get_peft_model
 
-    lora = LoraConfig(
-        r=args.r,
-        lora_alpha=args.alpha,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        lora_dropout=0.05,
-        task_type="CAUSAL_LM",
-        bias="none",
-    )
-    model = get_peft_model(model, lora)
+        lora = LoraConfig(
+            r=args.r,
+            lora_alpha=args.alpha,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.05,
+            task_type="CAUSAL_LM",
+            bias="none",
+        )
+        model = get_peft_model(base_model, lora)
     model.print_trainable_parameters()
 
     train_ds = load_dataset("json", data_files=args.train)["train"]
@@ -141,6 +183,10 @@ def main():
 
     steps = math.ceil(len(train_ds) / (args.batch * args.accum))
     logging_steps = max(1, steps // 100)
+    eval_steps = max(40, steps // 6)
+    # load_best_model_at_end requires save_steps to be a round multiple of
+    # eval_steps; round save_steps up to the next multiple.
+    save_steps = math.ceil(steps / eval_steps) * eval_steps
     log_file = open(args.log_file, "w", buffering=1)
     log_file.write("epochs=%d lr=%g r=%d alpha=%d train=%d val=%d\n" % (
         args.epochs, args.lr, args.r, args.alpha, len(train_ds), len(val_ds)))
@@ -153,12 +199,13 @@ def main():
         per_device_train_batch_size=args.batch,
         per_device_eval_batch_size=args.batch,
         gradient_accumulation_steps=args.accum,
+        gradient_checkpointing=args.gc,
         eval_strategy="steps",
-        eval_steps=max(40, steps // 6),
+        eval_steps=eval_steps,
         logging_steps=logging_steps,
         logging_first_step=True,
         save_strategy="steps",
-        save_steps=steps,
+        save_steps=save_steps,
         save_total_limit=1,
         report_to=[],
         remove_unused_columns=False,
