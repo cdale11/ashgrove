@@ -5,6 +5,8 @@
 #include "intent_engine.hpp"
 #include "command_log.hpp"
 #include "town_consciousness.hpp"
+#include "cognitive_core.hpp"
+#include "cognitive_registry.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3541,6 +3543,19 @@ int main(int argc, char** argv) {
     };
     TownConsciousness town_consciousness(world, llm_callback);
 
+    // Phase 7.7: Cognitive Core — initialize registry and create cores for important NPCs.
+    CognitiveRegistry& cog_registry = CognitiveRegistry::instance();
+    const std::vector<std::string> important_npcs = {
+        "Mayor", "Witch", "Traveler", "Doctor", "Teacher", "Carpenter", "Farmer"
+    };
+    for (const auto& name : important_npcs) {
+        CognitiveCore& core = cog_registry.get_or_create("npc:" + name);
+        core.mutable_state().agent_id = "npc:" + name;
+        core.mutable_state().created_tick = static_cast<uint32_t>(now_ms());
+        // Load persisted state if exists.
+        core.load("data/npc_cognitive_state");
+    }
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -4164,6 +4179,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     std::thread game_loop([&]() {
         auto last = steady_clock::now();
         uint64_t last_town_observe_ms = now_ms();
+        uint32_t cog_tick = 0;
         while (true) {
             auto now = steady_clock::now();
             float dt = std::chrono::duration<float>(now - last).count();
@@ -4200,6 +4216,16 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                                   {"day", world.day}};
                     town_consciousness.observe(ev);
                 }
+
+                // Phase 7.7: Cognitive Core per-tick update for important NPCs.
+                ++cog_tick;
+                std::vector<std::string> stimuli;
+                // Add world-level stimuli that all agents can observe.
+                stimuli.push_back("weather:" + std::to_string(world.weather_of_day_adapted(world.day)));
+                stimuli.push_back("hour:" + std::to_string(hour_of_day(world)));
+                stimuli.push_back("season:" + std::to_string(world.season));
+                if (world.day > 0) stimuli.push_back("day:" + std::to_string(world.day));
+                cog_registry.tick_all(cog_tick, stimuli);
                 for (auto& [id, p] : world.players) {
                     if (p.moving && !p.path.empty() &&
                         (now_ms() - p.move_start_ms) >= 110) {
