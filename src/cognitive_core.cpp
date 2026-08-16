@@ -20,6 +20,9 @@ constexpr float kClamp11(float x) {
   return x < -1.0f ? -1.0f : (x > 1.0f ? 1.0f : x);
 }
 
+}  // namespace
+
+// JSON escaping helper (in ashgrove namespace for save/load access)
 std::string json_escape(const std::string& s) {
   std::string out;
   out.reserve(s.size() + 2);
@@ -43,10 +46,9 @@ std::string json_escape(const std::string& s) {
   return out;
 }
 
-}  // namespace
-
 CognitiveCore::CognitiveCore(std::string agent_id)
-    : agent_id_(std::move(agent_id)) {
+    : agent_id_(std::move(agent_id)),
+      social_cognition_(agent_id_) {
   state_.agent_id = agent_id_;
 }
 
@@ -220,6 +222,9 @@ void CognitiveCore::tick(uint32_t current_tick,
   // 1. Apply tick decay (drives rise, memory decays, emotion reverts).
   apply_tick_decay();
 
+  // 1b. Social cognition tick (familiarity growth, trust drift, etc.)
+  social_cognition_.tick(current_tick);
+
   // 2. Attention: score stimuli, insert top into working memory.
   for (const auto& stim : observed_stimuli) {
     float score = compute_attention_score(stim);
@@ -366,23 +371,10 @@ void CognitiveCore::update_social(const std::string& other_agent_id,
                                   float interaction_valence,
                                   bool observed_positive_action) {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
-  auto& edge = state_.social_graph[other_agent_id];
-  edge.other_agent_id = other_agent_id;
-  // Trust update (bounded).
-  float trust_delta = interaction_valence * CognitiveState::kTrustUpdateRate;
-  edge.trust = kClamp01(edge.trust + trust_delta);
-  // Familiarity grows.
-  edge.familiarity = kClamp01(edge.familiarity + CognitiveState::kFamiliarityIncrement);
-  // Emotional history accumulates.
-  edge.emotional_history_sum =
-      kClamp11(edge.emotional_history_sum + interaction_valence * 0.1f);
-  // Imitation target: only if observed positive action AND trust > 0.5.
-  if (observed_positive_action && edge.trust > 0.5f) {
-    edge.imitation_target =
-        kClamp01(edge.imitation_target + 0.05f);
-  } else if (observed_positive_action == false) {
-    edge.imitation_target = std::max(0.0f, edge.imitation_target - 0.02f);
-  }
+  social_cognition_.update_social(other_agent_id, interaction_valence, observed_positive_action);
+  // Sync back to state_ for persistence/serialization
+  const SocialEdge& edge = social_cognition_.get_edge(other_agent_id);
+  state_.social_graph[other_agent_id] = edge;
   clamp_all();
 }
 
@@ -496,7 +488,7 @@ bool CognitiveCore::from_json_locked(const std::string& json_str) {
 
 bool CognitiveCore::save(const std::string& dir) const {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
-  std::string path = dir + "/" + json_escape(agent_id_) + ".json";
+  std::string path = dir + "/" + ashgrove::json_escape(agent_id_) + ".json";
   std::ofstream f(path);
   if (!f) return false;
   f << to_json_locked();
@@ -505,7 +497,7 @@ bool CognitiveCore::save(const std::string& dir) const {
 
 bool CognitiveCore::load(const std::string& dir) {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
-  std::string path = dir + "/" + json_escape(agent_id_) + ".json";
+  std::string path = dir + "/" + ashgrove::json_escape(agent_id_) + ".json";
   std::ifstream f(path);
   if (!f) return false;
   std::stringstream buf;

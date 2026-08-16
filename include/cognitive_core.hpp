@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cognitive_state.hpp"
+#include "social_cognition.hpp"
 
 #include <memory>
 #include <mutex>
@@ -72,10 +73,13 @@ class CognitiveCore {
   const CognitiveState& state() const { return state_; }
   CognitiveState& mutable_state() { return state_; }
   const std::string& agent_id() const { return agent_id_; }
+  SocialCognition& social_cognition() { return social_cognition_; }
+  const SocialCognition& social_cognition() const { return social_cognition_; }
 
  private:
   std::string agent_id_;
   CognitiveState state_;
+  SocialCognition social_cognition_;
   mutable std::recursive_mutex mtx_;
 
   // Tiny MLPs (fixed weights at load time, no online updates to weights).
