@@ -294,6 +294,26 @@ Between anchors, the Town Consciousness spawns **personalized quest chains** bas
 4. **Add adaptation consumers** (stubs first): Procgen, NPC, Economy, Weather, Horror, Performance.
 5. **Run 30-day soak test** — verify adaptations change, no crashes, performance tuner converges.
 
+### Known Gap: LoRA Student Only Trained on Intent Parsing
+
+**Status: DEFERRED — do NOT start without user sign-off.** The Qwen2.5-0.5B LoRA adapter
+(`data/lora-adapter/`, merged → `data/qwen2.5-0.5b-ashgrove-q4_k_m.gguf`) was trained exclusively
+on command-intent JSON (`{"action", "parameters"}`). When prompted with the Town Consciousness
+consolidation task, it emits intent-shaped JSON (e.g. `{"status":"new","parameters":{...}}`),
+which `parse_llm_response` cannot map onto `procgen/npc/economy/weather/horror/performance`,
+so adaptations stay at defaults. Verified live 2026-08-16.
+
+**Planned work (user approved: "we will do training later"):**
+1. Build a town-consciousness dataset: for each canonical adaptation JSON (all six sections with
+   number/object values), generate natural "town state" inputs in the consolidation prompt format
+   (`You are the Town Consciousness of Ashgrove Valley...` + memory/adaptations/events sections).
+2. Append to the Phase 8 training split (`/tmp/opencode/train.json` / `val.json`) alongside intent
+   examples so the model learns both formats.
+3. Retrain with `tools/train_lora.py` (base `Qwen/Qwen2.5-0.5B-Instruct`, r16/alpha32), merge +
+   quantize to Q4_K_M, swap into `data/qwen2.5-0.5b-ashgrove-q4_k_m.gguf`.
+4. Re-run the 30-day soak test and confirm `adaptations.json` values drift from defaults after
+   consolidation with non-empty event buffers.
+
 ---
 
 ## Risks & Mitigations

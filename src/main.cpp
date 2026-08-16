@@ -4,6 +4,7 @@
 #include "llama_wrapper.hpp"
 #include "intent_engine.hpp"
 #include "command_log.hpp"
+#include "town_consciousness.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3404,7 +3405,8 @@ std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::jso
     if (!params.empty()) {
         // naive: append first param value
         for (auto it = params.begin(); it != params.end(); ++it) {
-            cmd_str += " " + it->dump();
+            if (it->is_string()) cmd_str += " " + it->get<std::string>();
+            else cmd_str += " " + it->dump();
         }
     }
     return handle_cmd(w, p, cmd_str);
@@ -3489,6 +3491,12 @@ int main(int argc, char** argv) {
     EventBus bus;
     LlamaWrapper llama(model_path);
 
+    // Phase 7: Town Consciousness
+    std::function<std::string(const std::string&, int, float)> llm_callback = [&llama](const std::string& prompt, int max_tokens, float temp) -> std::string {
+        return llama.infer(prompt, max_tokens, temp);
+    };
+    TownConsciousness town_consciousness(world, llm_callback);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3548,69 +3556,82 @@ int main(int argc, char** argv) {
     });
 
     // ---- state ----
-    svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        std::vector<json> plist;
-        for (auto& [id, p] : world.players) {
-            json inv = json::array();
-            for (int i = 0; i < 12; ++i)
-                inv.push_back({{"item", static_cast<int>(p.inv[i].item)},
-                               {"count", p.inv[i].count}});
-            plist.push_back({
-                {"player_id", id}, {"x", p.pos.x}, {"y", p.pos.y}, {"dir", p.dir},
-                {"moving", p.moving}, {"name", p.name}, {"energy", p.energy},
-                {"max_energy", p.max_energy}, {"money", p.money}, {"sel", p.sel},
-                {"region", region_at(world, p.pos.x, p.pos.y)},
-                {"inside", p.inside}, {"inx", p.inx}, {"iny", p.iny},
-                {"inv", inv},
-                {"sanity", p.sanity}, {"sanity_tier", world.perception_tier(p)},
-            });
-        // attach friendship hearts
-        json hearts = json::object();
-        for (auto& [nm, h] : p.hearts) hearts[nm] = h;
-        plist.back()["hearts"] = hearts;
-        }
-json cells = json::array();
-        for (int y = 0; y < MAP_H; ++y)
-            for (int x = 0; x < MAP_W; ++x) {
-                const Cell& c = world.at(x, y);
-                if (c.obj.type != ObjType::None || c.crop.is_crop() ||
-                    c.tile != Tile::Grass) {
-                    json cj{{"x", x}, {"y", y},
-                            {"tile", static_cast<int>(c.tile)},
-                            {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp},
-                            {"ore", c.obj.ore}};
-                    if (c.crop.is_crop()) {
-                        cj["crop"] = static_cast<int>(c.crop.crop);
-                        cj["stage"] = c.crop.stage;
-                        cj["days_left"] = c.crop.days_left;
-                        cj["watered"] = c.crop.watered;
-                    }
-                    cells.push_back(cj);
-                }
+svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
+        // Always ensure we send valid JSON, even on error
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+
+        try {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            std::vector<json> plist;
+            for (auto& [id, p] : world.players) {
+                json inv = json::array();
+                for (int i = 0; i < 12; ++i)
+                    inv.push_back({{"item", static_cast<int>(p.inv[i].item)},
+                                   {"count", p.inv[i].count}});
+                plist.push_back({
+                    {"player_id", id}, {"x", p.pos.x}, {"y", p.pos.y}, {"dir", p.dir},
+                    {"moving", p.moving}, {"name", p.name}, {"energy", p.energy},
+                    {"max_energy", p.max_energy}, {"money", p.money}, {"sel", p.sel},
+                    {"region", region_at(world, p.pos.x, p.pos.y)},
+                    {"inside", p.inside}, {"inx", p.inx}, {"iny", p.iny},
+                    {"inv", inv},
+                    {"sanity", p.sanity}, {"sanity_tier", world.perception_tier(p)},
+                });
+            // attach friendship hearts
+            json hearts = json::object();
+            for (auto& [nm, h] : p.hearts) hearts[nm] = h;
+            plist.back()["hearts"] = hearts;
             }
-        json resp = make_world_state(plist);
-        resp["day"] = world.day;
-        resp["time"] = world.day_seconds;
-        resp["season"] = season_name(season_index(world.day));
-        resp["season_i"] = season_index(world.day);
-        resp["weather"] = weather_of_day(world.day);
-        resp["festival"] = is_festival_day(world.day) ? "Egg Festival" : "";
-        resp["cells"] = cells;
-        json npc_list = json::array();
-        for (auto& n : world.npcs)
-            npc_list.push_back({{"name", n.name}, {"x", n.pos.x}, {"y", n.pos.y},
-                                {"color", n.color}});
-        resp["npcs"] = npc_list;
-        resp["house"] = {{"x", world.house_tl.x}, {"y", world.house_tl.y}};
-        resp["interiors"] = json::object();
-        for (auto& [name, ir] : world.interiors)
-            resp["interiors"][name] = ir.rows;
-        resp["buildings"] = json::array();
-        for (auto& b : world.buildings)
-            resp["buildings"].push_back({{"name", b.name}, {"x", b.x}, {"y", b.y},
-                                         {"w", b.w}, {"h", b.h}});
-        res.set_content(resp.dump(), "application/json");
+            json cells = json::array();
+            for (int y = 0; y < MAP_H; ++y)
+                for (int x = 0; x < MAP_W; ++x) {
+                    const Cell& c = world.at(x, y);
+                    if (c.obj.type != ObjType::None || c.crop.is_crop() ||
+                        c.tile != Tile::Grass) {
+                        json cj{{"x", x}, {"y", y},
+                                {"tile", static_cast<int>(c.tile)},
+                                {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp},
+                                {"ore", c.obj.ore}};
+                        if (c.crop.is_crop()) {
+                            cj["crop"] = static_cast<int>(c.crop.crop);
+                            cj["stage"] = c.crop.stage;
+                            cj["days_left"] = c.crop.days_left;
+                            cj["watered"] = c.crop.watered;
+                        }
+                        cells.push_back(cj);
+                    }
+                }
+            json resp = make_world_state(plist);
+            resp["day"] = world.day;
+            resp["time"] = world.day_seconds;
+            resp["season"] = season_name(season_index(world.day));
+            resp["season_i"] = season_index(world.day);
+            resp["weather"] = weather_of_day(world.day);
+            resp["festival"] = is_festival_day(world.day) ? "Egg Festival" : "";
+            resp["cells"] = cells;
+            json npc_list = json::array();
+            for (auto& n : world.npcs)
+                npc_list.push_back({{"name", n.name}, {"x", n.pos.x}, {"y", n.pos.y},
+                                    {"color", n.color}});
+            resp["npcs"] = npc_list;
+            resp["house"] = {{"x", world.house_tl.x}, {"y", world.house_tl.y}};
+            resp["interiors"] = json::object();
+            for (auto& [name, ir] : world.interiors)
+                resp["interiors"][name] = ir.rows;
+            resp["buildings"] = json::array();
+            for (auto& b : world.buildings)
+                resp["buildings"].push_back({{"name", b.name}, {"x", b.x}, {"y", b.y},
+                                             {"w", b.w}, {"h", b.h}});
+            
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/state] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
     });
 
     // ---- move (BFS) ----
@@ -3697,11 +3718,31 @@ json cells = json::array();
         std::lock_guard<std::mutex> lock(g_mutex);
         json resp = {{"lines", json::array()}};
         if (auto it = world.players.find(pid); it != world.players.end()) {
-            auto lines = handle_cmd(world, it->second, cmd);
+            // Tiered execution: rule/LLM intent drives the command when the
+            // rule fast path did not already handle it. This lets the LLM
+            // understand natural-language commands the whitelist misses.
+            std::vector<std::string> lines;
+            if (tier == "llm" && intent) {
+                lines = process_intent(world, it->second, intent_json);
+            } else {
+                lines = handle_cmd(world, it->second, cmd);
+            }
             for (auto& l : lines) resp["lines"].push_back(l);
             uint64_t latency = now_ms() - t0;
             cmdlog.record(now_ms(), pid, world.day, season_name(season_index(world.day)),
                           hour_of_day(world), cmd, intent_json, tier, latency, lines);
+            // Feed the command into Town Consciousness so consolidation sees
+            // real player behaviour (Phase 7).
+            TownEvent ev;
+            ev.tick = static_cast<uint32_t>(now_ms());
+            ev.day = world.day;
+            ev.system = "player";
+            ev.event_type = "player_cmd";
+            ev.payload = {{"action", intent_json.value("action", "unknown")},
+                          {"tier", tier},
+                          {"raw", cmd}};
+            ev.player_id = static_cast<int>(pid);
+            town_consciousness.observe(ev);
         } else {
             resp["lines"].push_back("No farmer found. Rejoin the game.");
         }
@@ -4078,6 +4119,7 @@ json cells = json::array();
 
     std::thread game_loop([&]() {
         auto last = steady_clock::now();
+        uint64_t last_town_observe_ms = now_ms();
         while (true) {
             auto now = steady_clock::now();
             float dt = std::chrono::duration<float>(now - last).count();
@@ -4090,6 +4132,26 @@ json cells = json::array();
                     // pass out at 2:00 AM
                     world.day_seconds = 0;
                     advance_day(world);
+                }
+                // Phase 7: Town Consciousness consolidation at 04:00 (hour 28)
+                if (hour_of_day(world) == 28 && town_consciousness.is_consolidation_due()) {
+                    town_consciousness.consolidate();
+                }
+                // Phase 7: lightweight system heartbeat into the event buffer so
+                // consolidation sees the environmental state even with no input.
+                if (now_ms() - last_town_observe_ms >= 60000) {
+                    last_town_observe_ms = now_ms();
+                    TownEvent ev;
+                    ev.tick = static_cast<uint32_t>(now_ms());
+                    ev.day = world.day;
+                    ev.system = "weather";
+                    ev.event_type = "state";
+                    ev.payload = {{"weather", weather_of_day(world.day)},
+                                  {"hour", hour_of_day(world)},
+                                  {"players", static_cast<int>(world.players.size())},
+                                  {"npcs", static_cast<int>(world.npcs.size())},
+                                  {"day", world.day}};
+                    town_consciousness.observe(ev);
                 }
                 for (auto& [id, p] : world.players) {
                     if (p.moving && !p.path.empty() &&

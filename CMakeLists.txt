@@ -96,6 +96,7 @@ add_executable(ashgrove_server
   src/llama_wrapper.cpp
   src/intent_engine.cpp
   src/command_log.cpp
+  src/town_consciousness.cpp
 )
 
 # Include plugin sources

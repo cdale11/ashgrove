@@ -8,6 +8,7 @@
 # Save files
 /save.json
 /build/save.json
+/save_*.json
 
 # Editor / OS
 .vscode/
@@ -18,11 +19,20 @@
 /server.log
 /test_smoke.py
 /test_all.py
+/run/
+/backups/
 
 # Phase 8: live command log (training data grows continuously; not committed)
 /data/cmdlog.jsonl
 /data/dataset.jsonl
 /data/dataset_expanded.jsonl
 
+# Town Consciousness runtime state (regenerated each consolidation; not committed)
+/data/town_log.jsonl
+/data/town_memory.json
+/data/adaptations.json
+
 # Model weights (downloaded separately into llama.cpp/models/)
 *.gguf
+/data/lora-adapter/
+/data/lora-merged/
