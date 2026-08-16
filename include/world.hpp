@@ -351,6 +351,19 @@ static inline bool is_tree(ObjType t) {
            t == ObjType::WalnutTree || t == ObjType::HickoryTree || t == ObjType::ChestnutTree ||
            t == ObjType::Deodar;
 }
+
+// L4: forest_state helpers
+static inline uint8_t forest_canopy(uint8_t fs) { return fs & 0x07; }
+static inline uint8_t forest_undergrowth(uint8_t fs) { return (fs >> 3) & 0x03; }
+static inline bool forest_has_nurse_log(uint8_t fs) { return fs & 0x20; }
+static inline bool forest_recent_windthrow(uint8_t fs) { return fs & 0x40; }
+static inline bool forest_player_managed(uint8_t fs) { return fs & 0x80; }
+static inline void forest_set_canopy(uint8_t& fs, uint8_t v) { fs = (fs & ~0x07) | (v & 0x07); }
+static inline void forest_set_undergrowth(uint8_t& fs, uint8_t v) { fs = (fs & ~0x18) | ((v & 0x03) << 3); }
+static inline void forest_set_nurse_log(uint8_t& fs, bool v) { if (v) fs |= 0x20; else fs &= ~0x20; }
+static inline void forest_set_windthrow(uint8_t& fs, bool v) { if (v) fs |= 0x40; else fs &= ~0x40; }
+static inline void forest_set_player_managed(uint8_t& fs, bool v) { if (v) fs |= 0x80; else fs &= ~0x80; }
+
 static inline Item tree_log_item(ObjType t) {
     switch (t) {
         case ObjType::Tree: return Item::Wood;
@@ -477,7 +490,43 @@ struct Cell {
     FarmObj obj;
     Crop crop;
     uint8_t snow_compaction = 0; // 0=fluffy, 128=packed, 255=ice (winter only)
+    uint8_t forest_state = 0; // L4: bits 0-2 canopy_density(0-7), bits 3-4 undergrowth_type(0-3: 0=none,1=fern,2=berry,3=mushroom), bit5=has_nurse_log, bit6=recent_windthrow, bit7=player_managed
+    // L9: Snow tracks
+    uint8_t track_age = 0;        // 0=none, 1=fresh, 255=old (hours since created)
+    uint8_t track_type = 0;       // 0=none, 1=player, 2=npc, 3=deer, 4=rabbit, 5=predator
+    int8_t track_dir = -1;        // direction of travel: 0=S, 1=W, 2=E, 3=N
 };
+
+// L6: Wildlife system
+enum class WildlifeType : uint8_t { None = 0, Deer, Owl, FisherCat };
+
+struct Wildlife {
+    WildlifeType type = WildlifeType::None;
+    Vec2 pos;
+    Vec2 home;           // home range center
+    uint8_t range = 10;  // home range radius
+    int16_t state = 0;   // 0=idle, 1=grazing, 2=fleeing, 3=hunting, 4=perching
+    uint32_t last_move = 0;
+    int16_t target_x = 0, target_y = 0;
+};
+
+static inline const char* wildlife_name(WildlifeType t) {
+    switch (t) {
+        case WildlifeType::Deer: return "deer";
+        case WildlifeType::Owl: return "owl";
+        case WildlifeType::FisherCat: return "fisher-cat";
+        default: return "creature";
+    }
+}
+
+static inline uint8_t wildlife_color(WildlifeType t) {
+    switch (t) {
+        case WildlifeType::Deer: return 2;      // brown
+        case WildlifeType::Owl: return 6;       // gray
+        case WildlifeType::FisherCat: return 1; // dark red
+        default: return 7;
+    }
+}
 
 // ---- Chunk system for infinite map (Phase 4) ----
 constexpr uint16_t CHUNK_SIZE = 128;
@@ -573,6 +622,7 @@ struct World {
     
     std::unordered_map<uint32_t, Player> players;
     std::vector<NPC> npcs;
+    std::vector<Wildlife> wildlife;
     std::vector<Bldg> buildings;
     std::unordered_map<std::string, InteriorRoom> interiors;
     std::unordered_map<std::string, BuildingState> building_states;
@@ -726,6 +776,11 @@ struct World {
     bool complete_quest(Player& p, const std::string& quest_id);
     bool start_job(Player& p, const std::string& job_id);
     void generate_daily_quests_if_needed(Player& p); // Auto-generate on first access
+
+    // L6: Wildlife system
+    void init_wildlife();                    // Spawn initial wildlife
+    void tick_wildlife();                    // Update wildlife behavior (call in advance_day)
+    void spawn_wildlife_near(WildlifeType type, int x, int y, int count); // Spawn specific wildlife
 
     // Phase 6: Horror & Narrative
     void tick_sanity(Player& p);        // daily sanity drift (call in advance_day)

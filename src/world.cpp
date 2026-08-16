@@ -323,6 +323,22 @@ void generate_world(World& world) {
         for (int dx = -1; dx <= 1; ++dx)
             if (world.in_bounds(d.x + dx, d.y + dy))
                 world.at(d.x + dx, d.y + dy).obj = FarmObj{};
+    // L4: Initialize forest_state for farmhouse ornamental trees
+    for (int dy = -6; dy <= 5; ++dy)
+        for (int dx = -6; dx <= 8; ++dx) {
+            int x = world.house_tl.x + dx;
+            int y = world.house_tl.y + dy;
+            if (!world.in_bounds(x, y)) continue;
+            if (!blocked_house(x, y) && near_farmhouse(x, y)) {
+                Cell& c = world.at(x, y);
+                if (is_tree(c.obj.type)) {
+                    c.forest_state = 0;
+                    forest_set_canopy(c.forest_state, 3 + (rng() & 3)); // canopy 3-6
+                    forest_set_undergrowth(c.forest_state, 1); // fern
+                    forest_set_player_managed(c.forest_state, true);
+                }
+            }
+        }
 
     // ---- Whisper Wood: dense old-growth forest west of the stream ----
     for (int y = 16; y < 74; ++y)
@@ -347,6 +363,22 @@ void generate_world(World& world) {
     for (int y = 16; y < 74; ++y) {
         if (world.in_bounds(12, y)) world.at(12, y).obj = FarmObj{};
     }
+    // L4: Initialize forest_state for Whisper Wood tiles
+    for (int y = 16; y < 74; ++y)
+        for (int x = 4; x < 20; ++x) {
+            if (!world.in_bounds(x, y)) continue;
+            Cell& c = world.at(x, y);
+            if (is_water(c.tile) || c.tile == Tile::Dirt || c.tile == Tile::Tilled || c.tile == Tile::Bridge)
+                continue;
+            // Old-growth forest: high canopy, fern/mushroom undergrowth
+            c.forest_state = 0;
+            forest_set_canopy(c.forest_state, 5 + (rng() & 3)); // canopy 5-7
+            // Undergrowth: 0=none, 1=fern, 2=berry, 3=mushroom
+            uint8_t ug = rng() % 4;
+            forest_set_undergrowth(c.forest_state, ug);
+            // Some nurse logs in old growth
+            if ((rng() & 15) == 0) forest_set_nurse_log(c.forest_state, true);
+        }
 
     // ---- tundra pine barrens: scattered pines + some rocks under the snow line ----
     for (int y = 3; y < MAP_H; ++y)
@@ -1498,6 +1530,176 @@ void init_npcs(World& world) {
     add_npc("Thumper", "rabbit", 3, {45, 75}, {48, 75});          // Near farm, east side
 }
 
+// L6: Wildlife system
+void World::init_wildlife() {
+    wildlife.clear();
+    std::mt19937 rng(day * 12345 + 67890);
+    std::uniform_int_distribution<int> dist_x(0, MAP_W - 1);
+    std::uniform_int_distribution<int> dist_y(0, MAP_H - 1);
+    
+    // Spawn deer in forest/edge biomes
+    for (int i = 0; i < 8; ++i) {
+        int x, y;
+        int attempts = 0;
+        do {
+            x = dist_x(rng);
+            y = dist_y(rng);
+            attempts++;
+            if (attempts > 100) break;
+        } while (!in_bounds(x, y) || 
+                 at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar ||
+                 walkable(x, y) == false);
+        if (attempts <= 100) {
+            Wildlife d;
+            d.type = WildlifeType::Deer;
+            d.pos = {int16_t(x), int16_t(y)};
+            d.home = {int16_t(x), int16_t(y)};
+            d.range = 15;
+            d.state = 1; // grazing
+            d.last_move = 0;
+            wildlife.push_back(d);
+        }
+    }
+    
+    // Spawn owls in forest (perch in large trees)
+    for (int i = 0; i < 4; ++i) {
+        int x, y;
+        int attempts = 0;
+        do {
+            x = dist_x(rng);
+            y = dist_y(rng);
+            attempts++;
+            if (attempts > 100) break;
+        } while (!in_bounds(x, y) || 
+                 !is_tree(at(x, y).obj.type) ||
+                 at(x, y).obj.type != ObjType::Tree && at(x, y).obj.type != ObjType::Pine &&
+                 at(x, y).obj.type != ObjType::Oak);
+        if (attempts <= 100) {
+            Wildlife o;
+            o.type = WildlifeType::Owl;
+            o.pos = {int16_t(x), int16_t(y)};
+            o.home = {int16_t(x), int16_t(y)};
+            o.range = 20;
+            o.state = 4; // perching
+            o.last_move = 0;
+            wildlife.push_back(o);
+        }
+    }
+    
+    // Spawn fisher-cats in deep forest
+    for (int i = 0; i < 2; ++i) {
+        int x, y;
+        int attempts = 0;
+        do {
+            x = dist_x(rng);
+            y = dist_y(rng);
+            attempts++;
+            if (attempts > 100) break;
+        } while (!in_bounds(x, y) || 
+                 at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar ||
+                 x < 4 || x > 20 || y < 16 || y > 74); // Whisper Wood area
+        if (attempts <= 100) {
+            Wildlife f;
+            f.type = WildlifeType::FisherCat;
+            f.pos = {int16_t(x), int16_t(y)};
+            f.home = {int16_t(x), int16_t(y)};
+            f.range = 25;
+            f.state = 3; // hunting
+            f.last_move = 0;
+            wildlife.push_back(f);
+        }
+    }
+}
+
+void World::tick_wildlife() {
+    uint32_t now = day * 10000; // approximate ms
+    for (auto& w : wildlife) {
+        // Only move occasionally
+        if (now - w.last_move < 2000 + (w.type == WildlifeType::Owl ? 5000 : 0)) continue;
+        
+        int dx = 0, dy = 0;
+        switch (w.type) {
+            case WildlifeType::Deer: {
+                // Deer: graze near home, flee from player/predators
+                if (w.state == 2) { // fleeing
+                    dx = (w.pos.x > w.target_x) ? 1 : (w.pos.x < w.target_x ? -1 : 0);
+                    dy = (w.pos.y > w.target_y) ? 1 : (w.pos.y < w.target_y ? -1 : 0);
+                } else {
+                    // Graze: random walk near home
+                    static std::mt19937 rng(day * 99991);
+                    std::uniform_int_distribution<int> dist(-1, 1);
+                    dx = dist(rng);
+                    dy = dist(rng);
+                    // Stay near home
+                    if (abs(int(w.pos.x + dx) - w.home.x) > w.range) dx = 0;
+                    if (abs(int(w.pos.y + dy) - w.home.y) > w.range) dy = 0;
+                }
+                break;
+            }
+            case WildlifeType::Owl: {
+                // Owl: nocturnal, perch in trees, hunt at night
+                int hour = hour_of_day(*this);
+                if (hour >= 20 || hour < 6) {
+                    w.state = 3; // hunting
+                    // Move to hunting ground
+                    dx = (w.pos.x > w.home.x) ? -1 : (w.pos.x < w.home.x ? 1 : 0);
+                    dy = (w.pos.y > w.home.y) ? -1 : (w.pos.y < w.home.y ? 1 : 0);
+                } else {
+                    w.state = 4; // perching in tree
+                    // Stay in tree
+                }
+                break;
+            }
+            case WildlifeType::FisherCat: {
+                // Fisher-cat: territorial, hunts small game
+                w.state = 3; // hunting
+                // Patrol territory
+                static std::mt19937 rng(day * 55555);
+                std::uniform_int_distribution<int> dist(-1, 1);
+                dx = dist(rng);
+                dy = dist(rng);
+                if (abs(int(w.pos.x + dx) - w.home.x) > w.range) dx = 0;
+                if (abs(int(w.pos.y + dy) - w.home.y) > w.range) dy = 0;
+                break;
+            }
+            default: break;
+        }
+        
+        // Try to move
+        int nx = w.pos.x + dx;
+        int ny = w.pos.y + dy;
+        if (this->in_bounds(nx, ny) && this->walkable(nx, ny)) {
+            w.pos = {int16_t(nx), int16_t(ny)};
+            w.last_move = day * 10000;
+        }
+    }
+    
+    // Remove wildlife that wandered too far
+    wildlife.erase(std::remove_if(wildlife.begin(), wildlife.end(), 
+        [this](const Wildlife& w) {
+            return !this->in_bounds(w.pos.x, w.pos.y) || 
+                   (abs(w.pos.x - w.home.x) > w.range * 2 && abs(w.pos.y - w.home.y) > w.range * 2);
+        }), wildlife.end());
+}
+
+void World::spawn_wildlife_near(WildlifeType type, int x, int y, int count) {
+    std::mt19937 rng(day * 12345 + 67890);
+    std::uniform_int_distribution<int> dist(-3, 3);
+    for (int i = 0; i < count; ++i) {
+        int nx = x + dist(rng);
+        int ny = y + dist(rng);
+        if (!in_bounds(nx, ny) || !walkable(nx, ny)) continue;
+        Wildlife w;
+        w.type = type;
+        w.pos = {int16_t(nx), int16_t(ny)};
+        w.home = {int16_t(nx), int16_t(ny)};
+        w.range = (type == WildlifeType::Owl) ? 20 : (type == WildlifeType::FisherCat ? 25 : 15);
+        w.state = (type == WildlifeType::Owl) ? 4 : (type == WildlifeType::FisherCat ? 3 : 1);
+        w.last_move = 0;
+        wildlife.push_back(w);
+    }
+}
+
 // ---- NPC daily schedules ----
 // Each slot covers [start_hour, end_hour). The villager walks to the anchor
 // when the slot becomes active and stays there until the next one. Hours are
@@ -1800,7 +2002,8 @@ std::string serialize_world(const World& w) {
                 c.tile == Tile::Grass) continue;
             json cj{{"x", x}, {"y", y}, {"tile", static_cast<int>(c.tile)},
                     {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore},
-                    {"snow_compaction", c.snow_compaction}};
+                    {"snow_compaction", c.snow_compaction}, {"forest_state", c.forest_state},
+                    {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir}};
             if (c.crop.is_crop()) {
                 cj["crop"] = static_cast<int>(c.crop.crop);
                 cj["stage"] = c.crop.stage;
@@ -1903,6 +2106,10 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.obj.hp = static_cast<uint8_t>(cj.value("hp", 1));
             c.obj.ore = static_cast<uint8_t>(cj.value("ore", 0));
             c.snow_compaction = static_cast<uint8_t>(cj.value("snow_compaction", 0));
+            c.forest_state = static_cast<uint8_t>(cj.value("forest_state", 0));
+            c.track_age = static_cast<uint8_t>(cj.value("track_age", 0));
+            c.track_type = static_cast<uint8_t>(cj.value("track_type", 0));
+            c.track_dir = static_cast<int8_t>(cj.value("track_dir", -1));
             if (cj.contains("crop")) {
                 c.crop.crop = static_cast<Item>(cj["crop"]);
                 c.crop.stage = static_cast<uint8_t>(cj.value("stage", 0));

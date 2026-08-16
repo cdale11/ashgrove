@@ -185,21 +185,77 @@ static void advance_day(World& w) {
                 }
             }
         }
-        // 2. Tree windthrow: 1-5% of trees per chunk become nurse logs / snags
+        // 2. Tree windthrow: sophisticated per-tree mechanics (L7)
+        // Wind speed during severe storm: 30-50 m/s
+        // Soil saturation from recent rain increases uprooting chance
+        bool recent_rain = (weather_of_day(w.day - 1) == 1 || weather_of_day(w.day - 2) == 1);
         for (int y = 0; y < MAP_H; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
                 if (is_tree(c.obj.type) && c.obj.hp > 50) {
-                    unsigned roll = ((w.day * 2654435761u) + x * 31 + y * 17) % 1000;
-                    if (roll < 20) { // 2% chance per tree
-                        if (roll < 5) {
-                            // Uprooted: becomes nurse log (stump + leaf litter)
-                            c.obj = {ObjType::Stump, 1, 0};
-                            if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) c.obj.type = ObjType::LeafLitter;
-                        } else {
-                            // Snapped: trunk remains as snag (reduced hp)
-                            c.obj.hp = std::max<uint8_t>(c.obj.hp / 2, 20);
+                    // Tree properties based on type
+                    float wood_density = 0.6f; // g/cm3 default
+                    float root_depth = 1.0f;   // meters default
+                    float canopy_area = 10.0f; // m2 default
+                    float height = 15.0f;      // meters default
+                    
+                    switch (c.obj.type) {
+                        case ObjType::Pine: wood_density = 0.45f; root_depth = 0.8f; canopy_area = 8.0f; height = 20.0f; break;
+                        case ObjType::Oak: wood_density = 0.75f; root_depth = 1.5f; canopy_area = 15.0f; height = 25.0f; break;
+                        case ObjType::Maple: wood_density = 0.65f; root_depth = 1.2f; canopy_area = 12.0f; height = 22.0f; break;
+                        case ObjType::Birch: wood_density = 0.60f; root_depth = 1.0f; canopy_area = 10.0f; height = 18.0f; break;
+                        case ObjType::Cedar: wood_density = 0.50f; root_depth = 1.3f; canopy_area = 11.0f; height = 24.0f; break;
+                        case ObjType::Redwood: wood_density = 0.40f; root_depth = 2.0f; canopy_area = 20.0f; height = 40.0f; break;
+                        case ObjType::Deodar: wood_density = 0.55f; root_depth = 1.4f; canopy_area = 14.0f; height = 30.0f; break;
+                        default: break; // generic tree
+                    }
+                    
+                    // Wind force on tree (simplified)
+                    float wind_speed = 40.0f; // m/s during severe storm
+                    float wind_force = 0.5f * 1.225f * wind_speed * wind_speed * canopy_area; // N
+                    
+                    // Soil resistance (increases with root depth and wood density, decreases with saturation)
+                    float soil_saturation = recent_rain ? 0.8f : 0.3f;
+                    float soil_resistance = root_depth * wood_density * (1.0f - soil_saturation * 0.5f) * 10000.0f; // N
+                    
+                    // Windthrow probability
+                    float uproot_prob = wind_force / (soil_resistance + 1.0f);
+                    uproot_prob = std::min(uproot_prob, 0.15f); // cap at 15%
+                    
+                    // Snap probability (trunk failure)
+                    float snap_prob = (wind_force * height) / (wood_density * 100000.0f);
+                    snap_prob = std::min(snap_prob, 0.10f); // cap at 10%
+                    
+                    // Lean probability (permanent bend)
+                    float lean_prob = 0.05f; // base 5%
+                    
+                    unsigned roll = ((w.day * 2654435761u) + x * 31 + y * 17) % 10000;
+                    float r = roll / 10000.0f;
+                    
+                    if (r < uproot_prob) {
+                        // Uprooted: becomes nurse log + canopy gap
+                        c.obj = {ObjType::Stump, 1, 0};
+                        if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) c.obj.type = ObjType::LeafLitter;
+                        // Create canopy gap → light pulse → undergrowth surge
+                        if (c.forest_state != 0) {
+                            forest_set_canopy(c.forest_state, std::max<uint8_t>(forest_canopy(c.forest_state) - 2, 0));
+                            forest_set_undergrowth(c.forest_state, 3); // mushroom bloom in gap
+                            forest_set_windthrow(c.forest_state, true);
                         }
+                        // Spawn nurse log wildlife
+                        w.spawn_wildlife_near(WildlifeType::Deer, x, y, 1); // deer attracted to gaps
+                    } else if (r < uproot_prob + snap_prob) {
+                        // Snapped: trunk remains as snag
+                        c.obj.hp = std::max<uint8_t>(c.obj.hp / 2, 20);
+                        // Partial canopy loss
+                        if (c.forest_state != 0) {
+                            forest_set_canopy(c.forest_state, std::max<uint8_t>(forest_canopy(c.forest_state) - 1, 0));
+                        }
+                    } else if (r < uproot_prob + snap_prob + lean_prob) {
+                        // Leaned: permanent bend, reduced growth
+                        c.obj.hp = std::max<uint8_t>(static_cast<int>(c.obj.hp * 0.8f), 30);
+                        // Mark as leaned (could add a flag to forest_state)
+                        if (c.forest_state != 0) forest_set_windthrow(c.forest_state, true);
                     }
                 }
             }
@@ -277,7 +333,7 @@ static void advance_day(World& w) {
     // Snow compaction daily tick (L5)
     // In winter (season 3), snow tiles accumulate compaction from foot traffic
     // Each day: natural decay (-2), temperature-based changes
-    if (season == 3) { // Winter
+if (season == 3) { // Winter
         for (int y = 0; y < MAP_H; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
@@ -295,10 +351,19 @@ static void advance_day(World& w) {
                             c.snow_compaction = std::min<uint8_t>(c.snow_compaction + 10, 255);
                         }
                     }
+                    // L9: Track aging - tracks fade over time
+                    if (c.track_age > 0) {
+                        c.track_age++; // age increases each day
+                        if (c.track_age > 48) { // tracks fade after ~48 hours
+                            c.track_age = 0;
+                            c.track_type = 0;
+                            c.track_dir = -1;
+                        }
+                    }
                 }
             }
         }
-    }
+        }
 
     // Tree growth, sap production, and natural regrowth
     // Trees grow slowly (chance to grow from sapling to full tree)
@@ -348,7 +413,46 @@ static void advance_day(World& w) {
                 int flower_season = season_index(w.day);
                 if ((flower_season == 0 || flower_season == 1) && (static_cast<int>(w.day) * 19 + x * 29 + y * 37) % 1000 < 2) {
                     c.obj = {ObjType::Flower, 1, 0};
-}
+                }
+            }
+        }
+
+    // L4: Seasonal forest undergrowth updates (at season change)
+    // Runs once per day but only changes undergrowth_type at season boundaries
+    // 'season' already declared at line 126
+    // Detect season change by comparing current season with previous day's season
+    int prev_day_season = season_index(w.day - 1);
+    if (season != prev_day_season) {
+        std::mt19937 rng(w.day * 98765 + 54321);
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.forest_state == 0) continue; // Not a forest tile
+                uint8_t canopy = forest_canopy(c.forest_state);
+                // Canopy seasonal change
+                if (season == 0) { // Spring: deciduous leaf out
+                    if (canopy < 7) canopy = std::min<uint8_t>(canopy + 1, 7);
+                } else if (season == 2) { // Autumn: leaf fall
+                    if (canopy > 0) canopy = std::max<uint8_t>(canopy - 1, 0);
+                } else if (season == 3) { // Winter: minimal canopy for deciduous
+                    if (canopy > 2) canopy = std::max<uint8_t>(canopy - 1, 2);
+                }
+                forest_set_canopy(c.forest_state, canopy);
+                // Undergrowth seasonal cycle
+                uint8_t ug = 0;
+                if (season == 0) { // Spring: fern, berry
+                    ug = (rng() & 1) ? 1 : 2; // fern or berry
+                } else if (season == 1) { // Summer: berry (ripe)
+                    ug = 2; // berry
+                } else if (season == 2) { // Autumn: mushroom bloom
+                    ug = 3; // mushroom
+                } else { // Winter: dormant
+                    ug = 0; // none
+                }
+                forest_set_undergrowth(c.forest_state, ug);
+                // Windthrow flag decays yearly (cleared in spring)
+                if (season == 0) forest_set_windthrow(c.forest_state, false);
+            }
         }
     }
 
@@ -366,9 +470,12 @@ static void advance_day(World& w) {
                     int recharge = 25 + (static_cast<int>(w.day) * 11 + x * 5 + y * 13) % 15;
                     c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
                 }
-            }
+}
         }
     }
+
+    // L6: Update wildlife
+    w.tick_wildlife();
 
     save_world(w, "save.json");
 }
@@ -881,6 +988,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  axe            chop a tree");
         say("  pickaxe        mine rocks (alias: pick, mine)");
         say("  scythe         clear weeds/grass");
+        say("  explore <dir>  auto-walk until landmark/obstacle");
+        say("  fasttravel <name>  teleport to known landmark (time/energy/sanity cost)");
         say("  fish           cast a line if water is near");
         say("  talk <name>    chat with a nearby villager");
         say("  gift <n> <it>  give a present to adjacent villager");
@@ -1185,6 +1294,11 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 else if (stepped.snow_compaction > 200) cost_mult = 1.5f; // packed
                 else cost_mult = 2.0f; // fluffy
                 p.energy = std::max(0.0f, p.energy - cost_mult);
+                // L9: Create track
+                stepped.track_age = 1; // fresh
+                stepped.track_type = 1; // player
+                // Direction: 0=S, 1=W, 2=E, 3=N
+                stepped.track_dir = static_cast<int8_t>(it->second);
             } else {
                 p.energy = std::max(0.0f, p.energy - 1.0f);
             }
@@ -1196,6 +1310,178 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             }
         }
         if (walked > 0) say("You walk " + std::to_string(walked) + " step" + (walked > 1 ? "s" : "") + " " + std::string(dn[it->second]) + ".");
+        return out;
+    }
+
+    // ---------- explore <dir> (auto-walk until landmark/obstacle) ----------
+    if (cmd == "explore") {
+        if (arg.empty()) { say("Explore where? Try: explore north / explore east / explore south / explore west"); return out; }
+        auto it = dirs.find(arg);
+        if (it == dirs.end()) { say("Explore where? Try: explore north / explore east / explore south / explore west"); return out; }
+        int16_t dx = 0, dy = 0;
+        if (it->second == 3) dy = -1; else if (it->second == 0) dy = 1;
+        else if (it->second == 2) dx = 1; else dx = -1;
+        p.dir = static_cast<uint8_t>(it->second);
+        
+        // Clear any active pathfinding
+        p.path.clear();
+        p.moving = false;
+        
+        static const char* dn[] = {"south", "west", "east", "north"};
+        int walked = 0;
+        
+        say("You start exploring " + std::string(it->first) + "... (type any command to stop)");
+        // Auto-walk loop: move until landmark, obstacle, low energy, or player interrupts
+        for (int step = 0; step < 200; ++step) { // max 200 tiles
+            Vec2 next = p.pos;
+            next.x += dx; next.y += dy;
+            if (!w.in_bounds(next)) {
+                say("You reach the edge of the world."); break;
+            }
+            if (!w.walkable(next)) {
+                Cell& c = w.at(next);
+                say("Blocked by " + std::string(obj_name(c.obj.type) ? obj_name(c.obj.type) : terrain_name(c.tile)) + ".");
+                break;
+            }
+            p.pos = next;
+            // L5: Snow compaction
+            Cell& stepped = w.at(next);
+            if ((stepped.tile == Tile::Snow || stepped.tile == Tile::Ice) && season == 3) {
+                if (stepped.snow_compaction < 245) stepped.snow_compaction += 10;
+                else stepped.snow_compaction = 255;
+                if (stepped.tile == Tile::Snow && stepped.snow_compaction > 200) {
+                    stepped.tile = Tile::Ice;
+                    stepped.snow_compaction = 255;
+                }
+                float cost_mult = 1.0f;
+                if (stepped.tile == Tile::Ice) cost_mult = 1.0f;
+                else if (stepped.snow_compaction > 200) cost_mult = 1.5f;
+                else cost_mult = 2.0f;
+                p.energy = std::max(0.0f, p.energy - cost_mult);
+                stepped.track_age = 1; stepped.track_type = 1; stepped.track_dir = it->second;
+            } else {
+                p.energy = std::max(0.0f, p.energy - 1.0f);
+            }
+            // Check for landmark (building, region boundary, resource)
+            std::string landmark = "";
+            for (auto& b : w.buildings) {
+                if (p.pos.x >= b.x && p.pos.x < b.x + b.w && p.pos.y >= b.y && p.pos.y < b.y + b.h) {
+                    landmark = b.name; break;
+                }
+            }
+            if (w.in_house(p.pos.x, p.pos.y)) landmark = "Farmhouse";
+            std::string region = region_at(w, p.pos.x, p.pos.y);
+            if (region != "Ashgrove Valley" && region != "Ashgrove Farm") landmark = region;
+            // Check for resource nodes
+            Cell& here = w.at(p.pos);
+            if (here.obj.type != ObjType::None && (is_tree(here.obj.type) || here.obj.type == ObjType::Rock || here.obj.type == ObjType::Bush || here.obj.type == ObjType::Mushroom)) {
+                landmark = std::string(obj_name(here.obj.type));
+            }
+            if (!landmark.empty()) {
+                say("You discover: " + landmark + "!");
+                break;
+            }
+            // Low energy check
+            if (p.energy < p.max_energy * 0.2f) {
+                say("You're too exhausted to continue exploring.");
+                break;
+            }
+        }
+        if (walked > 0) say("You explored " + std::to_string(walked) + " tiles " + std::string(dn[p.dir]) + ".");
+        return out;
+    }
+
+    // ---------- fasttravel <name> (teleport to known landmark) ----------
+    if (cmd == "fasttravel" || cmd == "travel") {
+        if (arg.empty()) { say("Fast travel where? Try: fasttravel farmhouse / fasttravel town center / fasttravel carpenter shop"); return out; }
+        if (!p.inside.empty()) { say("You can't fast travel from inside a building. Exit first."); return out; }
+        if (p.energy < p.max_energy * 0.1f) { say("You're too exhausted to travel."); return out; }
+        // Sanity check (L7)
+        if (w.perception_tier(p) >= 3) { say("Your mind is too fractured to navigate safely."); return out; }
+        // Encumbrance check
+        int total_weight = 0;
+        for (auto& s : p.inv) total_weight += s.count;
+        if (total_weight > 80) { say("You're too encumbered to travel quickly."); return out; }
+        // Festival check
+        if (is_festival_day(w.day)) { say("The roads are too crowded for fast travel today."); return out; }
+        
+        std::string landmark = arg;
+        std::transform(landmark.begin(), landmark.end(), landmark.begin(), ::tolower);
+        
+        // Find target building
+        Bldg* target = nullptr;
+        for (auto& b : w.buildings) {
+            std::string bn = b.name;
+            std::transform(bn.begin(), bn.end(), bn.begin(), ::tolower);
+            if (bn.find(landmark) != std::string::npos) { target = &b; break; }
+        }
+        if (!target && (landmark.find("farm") != std::string::npos || landmark.find("house") != std::string::npos)) {
+            target = nullptr; // Farmhouse handled separately
+        }
+        
+        Vec2 destination;
+        std::string dest_name;
+        if (target) {
+            destination = {int16_t(target->x + (target->w - 1) / 2), int16_t(target->y + target->h)};
+            dest_name = target->name;
+        } else if (landmark.find("farm") != std::string::npos || landmark.find("house") != std::string::npos) {
+            destination = w.door();
+            dest_name = "Farmhouse";
+        } else {
+            say("Unknown destination '" + arg + "'. Visit a landmark first to unlock fast travel.");
+            return out;
+        }
+        
+        // Check if player has visited this landmark
+        if (p.known_landmarks.find(dest_name) == p.known_landmarks.end()) {
+            say("You haven't visited " + dest_name + " yet. Walk there first to unlock fast travel.");
+            return out;
+        }
+        
+        // Calculate travel cost
+        int dx = std::abs(destination.x - p.pos.x);
+        int dy = std::abs(destination.y - p.pos.y);
+        int dist_chunks = (std::max(dx, dy) + 63) / 64; // CHUNK_SIZE = 128, so 2 tiles per chunk roughly
+        float base_hours = dist_chunks * 0.5f;
+        
+        // Terrain modifier
+        std::string region = region_at(w, p.pos.x, p.pos.y);
+        std::string dest_region = region_at(w, destination.x, destination.y);
+        float terrain_mod = 0.0f;
+        if (region == "Whisper Wood" || dest_region == "Whisper Wood") terrain_mod += 0.5f;
+        if (region == "Frostveil Tundra" || dest_region == "Frostveil Tundra") terrain_mod += 1.0f;
+        if (region == "Mulberry Lane" || dest_region == "Mulberry Lane") terrain_mod -= 0.5f;
+        float total_hours = std::max(0.5f, base_hours + terrain_mod);
+        
+        // Apply costs
+        int energy_cost = static_cast<int>(p.max_energy * 0.1f); // 10% energy
+        float sanity_cost = 5.0f; // sanity
+        
+        if (p.energy < energy_cost) { say("Not enough energy for the journey."); return out; }
+        if (w.perception_tier(p) >= 3) { say("Your mind is too fractured for safe travel."); return out; }
+        
+        p.energy -= energy_cost;
+        w.damage_sanity(p, sanity_cost);
+        
+        // Advance time
+        int hours_to_add = static_cast<int>(total_hours);
+        w.day_seconds += hours_to_add * 3600; // 3600 seconds per hour (simplified)
+        while (w.day_seconds >= 86400) { // 86400 = DAY_LENGTH_S * 24? Actually DAY_LENGTH_S = 800s = 20 game hours
+            w.day_seconds -= 86400;
+            advance_day(w);
+        }
+        
+        // Teleport
+        p.pos = destination;
+        p.target = destination;
+        p.path.clear();
+        p.moving = false;
+        p.known_landmarks.insert(dest_name);
+        
+        say("You make your way to " + dest_name + ", arriving " + 
+            (total_hours < 1 ? "shortly" : (total_hours < 6 ? "by mid-morning" : total_hours < 12 ? "by afternoon" : "by evening")) + 
+            ". The journey took " + std::to_string(static_cast<int>(total_hours)) + " hours.");
+        say("Energy -" + std::to_string(energy_cost) + " | Sanity -" + std::to_string(static_cast<int>(sanity_cost)) + " | Time advanced " + std::to_string(hours_to_add) + " hours.");
         return out;
     }
 
@@ -1700,11 +1986,24 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (is_water_any(c.tile) || c.tile == Tile::Tilled) { say("Nothing grows here."); return out; }
         bool rainy = weather_of_day(w.day) == 1;
         bool in_wood = std::string(region_at(w, p.pos.x, p.pos.y)) == "Whisper Wood";
+        
+        // L4: Forest state affects forage yields
+        uint8_t ug = forest_undergrowth(c.forest_state);
+        int ug_bonus = 0;
+        if (ug == 1) ug_bonus = 5;     // fern: spring greens
+        else if (ug == 2) ug_bonus = 15; // berry: summer berries
+        else if (ug == 3) ug_bonus = 10; // mushroom: autumn fungi
+        
         int roll = rand() % 100;
-        int chance = (rainy ? 45 : 35) + (in_wood ? 15 : 0);
+        int chance = (rainy ? 45 : 35) + (in_wood ? 15 : 0) + ug_bonus;
         if (roll < chance) {
             int sidx = season < 0 || season > 3 ? 0 : season;
-            const auto& f = forage[sidx][rand() % 4];
+            // L4: Undergrowth type influences forage table selection
+            int table_idx = rand() % 4;
+            if (ug == 3) table_idx = 3; // mushroom patch -> mushroom
+            else if (ug == 2) table_idx = 1; // berry patch -> berry
+            else if (ug == 1) table_idx = 0; // fern -> spring greens
+            const auto& f = forage[sidx][table_idx];
             add_item(p, Item::Forage, 1);
             say("You found a " + std::string(f.name) + "! Worth " + std::to_string(f.price) + "g.");
         } else {
@@ -2795,6 +3094,27 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         return out;
     }
     if (cmd == "search") {
+        // L9: Track tracking on snow/ice
+        Cell& c = w.at(p.pos);
+        if ((c.tile == Tile::Snow || c.tile == Tile::Ice) && c.track_age > 0) {
+            if (p.energy < 2) { say("Too tired to examine tracks."); return out; }
+            p.energy -= 2;
+            static const char* type_names[] = {"", "player", "NPC", "deer", "rabbit", "predator"};
+            static const char* dir_names[] = {"south", "west", "east", "north"};
+            const char* type_name = (c.track_type < 6) ? type_names[c.track_type] : "creature";
+            const char* dir_name = (c.track_dir >= 0 && c.track_dir < 4) ? dir_names[c.track_dir] : "unknown";
+            int hours_old = c.track_age;
+            say("You crouch and examine the tracks...");
+            say("Tracks of a " + std::string(type_name) + " heading " + std::string(dir_name) + " (" + std::to_string(hours_old) + " hours old).");
+            // Tracking skill gives bonus info
+            int tracking_skill = 0; // could be a player skill later
+            if (tracking_skill >= 1) {
+                say("The tracks are " + std::string(hours_old < 6 ? "fresh" : hours_old < 24 ? "a day old" : "old") + ".");
+            }
+            return out;
+        }
+        
+        // Egg Festival search (existing functionality)
         if (!is_festival_day(w.day)) {
             say("There's nothing to search for today. (Egg Festival: Spring 13)");
             return out;
@@ -2862,6 +3182,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         World fresh;
         generate_world(fresh);           // buildings/interiors/house base
         init_npcs(fresh);
+        fresh.init_wildlife();
         if (!load_world(fresh, f)) {
             say("No save file '" + f + "'. Type 'saves' to list them.");
             return out;
@@ -2896,6 +3217,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         World fresh;
         generate_world(fresh);
         init_npcs(fresh);
+        fresh.init_wildlife();
         fresh.players[pid] = make_fresh_player(pid, pname,
             {int16_t(fresh.door().x), int16_t(fresh.door().y + 1)});
         w = std::move(fresh);
@@ -3098,6 +3420,7 @@ int main(int argc, char** argv) {
         if (load_or_generate(world)) std::cout << "Loaded save\n";
         else std::cout << "New world generated\n";
         init_npcs(world);
+        world.init_wildlife();
     }
 
     // ---- locate or download a GGUF model for the local LLM ----
@@ -3799,6 +4122,16 @@ json cells = json::array();
                                      : next.y > n.pos.y ? 0 : 3;
                                 n.pos = next;
                                 ++n.path_i;
+                                // L9: NPC tracks on snow/ice
+                                int season = season_index(world.day);
+                                if (season == 3) {
+                                    Cell& stepped = world.at(next);
+                                    if (stepped.tile == Tile::Snow || stepped.tile == Tile::Ice) {
+                                        stepped.track_age = 1;
+                                        stepped.track_type = 2; // NPC
+                                        stepped.track_dir = static_cast<int8_t>(n.dir);
+                                    }
+                                }
                             } else {
                                 // blocked (e.g. by another villager): recompute
                                 n.path.clear();
