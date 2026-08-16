@@ -3543,13 +3543,13 @@ int main(int argc, char** argv) {
     };
     TownConsciousness town_consciousness(world, llm_callback);
 
-    // Phase 7.7: Cognitive Core — initialize registry and create cores for important NPCs.
-    CognitiveRegistry& cog_registry = CognitiveRegistry::instance();
+// Phase 7.7: Cognitive Core — initialize registry and create cores for important NPCs.
+    ashgrove::CognitiveRegistry& cog_registry = ashgrove::CognitiveRegistry::instance();
     const std::vector<std::string> important_npcs = {
         "Mayor", "Witch", "Traveler", "Doctor", "Teacher", "Carpenter", "Farmer"
     };
     for (const auto& name : important_npcs) {
-        CognitiveCore& core = cog_registry.get_or_create("npc:" + name);
+        ashgrove::CognitiveCore& core = cog_registry.get_or_create("npc:" + name);
         core.mutable_state().agent_id = "npc:" + name;
         core.mutable_state().created_tick = static_cast<uint32_t>(now_ms());
         // Load persisted state if exists.
@@ -4223,7 +4223,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 // Add world-level stimuli that all agents can observe.
                 stimuli.push_back("weather:" + std::to_string(world.weather_of_day_adapted(world.day)));
                 stimuli.push_back("hour:" + std::to_string(hour_of_day(world)));
-                stimuli.push_back("season:" + std::to_string(world.season));
+                stimuli.push_back("season:" + std::to_string(season_index(world.day)));
                 if (world.day > 0) stimuli.push_back("day:" + std::to_string(world.day));
                 cog_registry.tick_all(cog_tick, stimuli);
                 for (auto& [id, p] : world.players) {

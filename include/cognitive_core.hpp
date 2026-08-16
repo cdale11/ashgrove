@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace ashgrove {
 
@@ -20,6 +21,8 @@ namespace ashgrove {
 //
 // Thread-safety: each agent has its own CognitiveCore instance; tick()
 // is single-threaded per agent. Save/load acquire an internal mutex.
+// Uses std::recursive_mutex to allow subconscious_replay() to be called
+// from within tick() which already holds the lock.
 
 class CognitiveCore {
  public:
@@ -73,7 +76,7 @@ class CognitiveCore {
  private:
   std::string agent_id_;
   CognitiveState state_;
-  mutable std::mutex mtx_;
+  mutable std::recursive_mutex mtx_;
 
   // Tiny MLPs (fixed weights at load time, no online updates to weights).
   // - attention_mlp: 4 inputs (salience features) -> 1 output (gate score)

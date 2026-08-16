@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <random>
 #include <sstream>
 
@@ -213,7 +214,7 @@ float CognitiveCore::compute_attention_score(const std::string& stimulus) const 
 
 void CognitiveCore::tick(uint32_t current_tick,
                         const std::vector<std::string>& observed_stimuli) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   state_.last_tick = current_tick;
 
   // 1. Apply tick decay (drives rise, memory decays, emotion reverts).
@@ -318,7 +319,7 @@ void CognitiveCore::tick(uint32_t current_tick,
 }
 
 void CognitiveCore::update_drive(std::size_t drive_idx, float delta) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   if (drive_idx >= state_.drives.drive_satisfaction.size()) return;
   state_.drives.drive_satisfaction[drive_idx] +=
       delta * CognitiveState::kDriveUpdateRate;
@@ -329,7 +330,7 @@ void CognitiveCore::update_drive(std::size_t drive_idx, float delta) {
 
 void CognitiveCore::apply_drive_decay() {
   // Called more frequently than per-tick (e.g. per in-game minute).
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   apply_tick_decay();
 }
 
@@ -337,7 +338,7 @@ void CognitiveCore::record_event(const std::string& event_type,
                                  const std::string& payload_json,
                                  uint32_t current_tick, uint32_t current_day,
                                  const std::string& season) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   EpisodicEvent ev;
   ev.tick = current_tick;
   ev.day = current_day;
@@ -364,7 +365,7 @@ void CognitiveCore::record_event(const std::string& event_type,
 void CognitiveCore::update_social(const std::string& other_agent_id,
                                   float interaction_valence,
                                   bool observed_positive_action) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   auto& edge = state_.social_graph[other_agent_id];
   edge.other_agent_id = other_agent_id;
   // Trust update (bounded).
@@ -386,7 +387,7 @@ void CognitiveCore::update_social(const std::string& other_agent_id,
 }
 
 void CognitiveCore::subconscious_replay([[maybe_unused]] uint32_t current_tick) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   // Pick top-5 events by emotional intensity (sum of tag values).
   std::vector<EpisodicEvent*> ranked;
   for (auto& ev : state_.episodic_memory) {
@@ -413,7 +414,7 @@ void CognitiveCore::subconscious_replay([[maybe_unused]] uint32_t current_tick) 
 }
 
 std::size_t CognitiveCore::select_action() const {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   std::size_t best = 0;
   float best_score = state_.last_action_scores[0];
   for (std::size_t i = 1; i < state_.last_action_scores.size(); ++i) {
@@ -494,7 +495,7 @@ bool CognitiveCore::from_json_locked(const std::string& json_str) {
 }
 
 bool CognitiveCore::save(const std::string& dir) const {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   std::string path = dir + "/" + json_escape(agent_id_) + ".json";
   std::ofstream f(path);
   if (!f) return false;
@@ -503,7 +504,7 @@ bool CognitiveCore::save(const std::string& dir) const {
 }
 
 bool CognitiveCore::load(const std::string& dir) {
-  std::lock_guard<std::mutex> lock(mtx_);
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
   std::string path = dir + "/" + json_escape(agent_id_) + ".json";
   std::ifstream f(path);
   if (!f) return false;
