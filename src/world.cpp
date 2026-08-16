@@ -2384,7 +2384,9 @@ void World::update_market_prices() {
     
     // Update prices based on supply/demand
     std::mt19937 rng(day * 777);
-    std::uniform_int_distribution<int> flux(-10, 10);
+    // Phase 7.3: market volatility widens the random flux band (0 stable .. 1 chaotic)
+    int flux_span = static_cast<int>(10.0f + economy_market_volatility * 40.0f);
+    std::uniform_int_distribution<int> flux(-flux_span, flux_span);
     
     for (auto& mp : market_prices) {
         // Simulate supply changes based on season
@@ -2397,12 +2399,21 @@ void World::update_market_prices() {
             in_season = true;
         }
         
+        // Phase 7.3: demand_shift adaptation nudges demand per commodity.
+        float demand_mult = 1.0f;
+        if (economy_demand_shift.is_object()) {
+            std::string name = item_def(mp.item).name;
+            if (economy_demand_shift.contains(name) && economy_demand_shift[name].is_number()) {
+                demand_mult = economy_demand_shift[name].get<float>();
+            }
+        }
+        
         if (in_season) {
             mp.supply += 5 + flux(rng);
-            mp.demand += flux(rng);
+            mp.demand += static_cast<int>(flux(rng) * demand_mult);
         } else {
             mp.supply -= 2 + flux(rng);
-            mp.demand += 2 + flux(rng);
+            mp.demand += static_cast<int>(2 + flux(rng) * demand_mult);
         }
         
         mp.supply = std::max(1, mp.supply);
@@ -2410,10 +2421,76 @@ void World::update_market_prices() {
         
         // Price = base * (demand/supply) * 0.5..1.5
         float ratio = static_cast<float>(mp.demand) / mp.supply;
+        // Phase 7.3: price_elasticity steepens the demand/supply response
+        // (0.5 dampens swings, 2.0 amplifies them).
+        if (economy_price_elasticity > 0.0f && std::abs(economy_price_elasticity - 1.0f) > 0.01f) {
+            ratio = std::pow(ratio, economy_price_elasticity);
+        }
         mp.current_price = static_cast<int>(mp.base_price * ratio * (0.8f + flux(rng) * 0.01f));
         mp.current_price = std::max(1, mp.current_price);
         mp.last_update = day;
     }
+}
+
+// Phase 7.3: Town Consciousness adaptation consumers.
+// Copies the model's proposed adaptations into typed scalars the game reads.
+// Missing keys keep their current (default) value so a partial JSON is safe.
+void World::apply_adaptations(const json& adaptations) {
+    if (adaptations.contains("weather") && adaptations["weather"].is_object()) {
+        const json& w = adaptations["weather"];
+        if (w.contains("pressure_bias")) weather_pressure_bias = w["pressure_bias"];
+        if (w.contains("humidity_drift")) weather_humidity_drift = w["humidity_drift"];
+        if (w.contains("storm_chance")) weather_storm_chance = w["storm_chance"];
+        if (w.contains("fog_intensity")) weather_fog_intensity = w["fog_intensity"];
+        if (w.contains("temperature_bias")) weather_temperature_bias = w["temperature_bias"];
+    }
+    if (adaptations.contains("economy") && adaptations["economy"].is_object()) {
+        const json& e = adaptations["economy"];
+        if (e.contains("price_elasticity")) economy_price_elasticity = e["price_elasticity"];
+        if (e.contains("market_volatility")) economy_market_volatility = e["market_volatility"];
+        if (e.contains("demand_shift") && e["demand_shift"].is_object()) economy_demand_shift = e["demand_shift"];
+        if (e.contains("shop_price_mod") && e["shop_price_mod"].is_object()) economy_shop_price_mod = e["shop_price_mod"];
+    }
+    if (adaptations.contains("horror") && adaptations["horror"].is_object()) {
+        const json& h = adaptations["horror"];
+        if (h.contains("intensity")) horror_intensity = h["intensity"];
+        if (h.contains("sanity_drain_multiplier")) horror_sanity_drain_multiplier = h["sanity_drain_multiplier"];
+        if (h.contains("night_event_weight")) horror_night_event_weight = h["night_event_weight"];
+        if (h.contains("phantom_sighting_chance")) horror_phantom_sighting_chance = h["phantom_sighting_chance"];
+    }
+    if (adaptations.contains("performance") && adaptations["performance"].is_object()) {
+        const json& p = adaptations["performance"];
+        if (p.contains("npc_decision_interval_ticks")) perf_npc_decision_interval_ticks = p["npc_decision_interval_ticks"];
+        if (p.contains("weather_update_interval_ticks")) perf_weather_update_interval_ticks = p["weather_update_interval_ticks"];
+    }
+}
+
+// Adaptation-aware daily weather. Starts from the deterministic base roll, then
+// shifts storm/fog/rain probability using the town's consolidated weather
+// adaptations. Deterministic per-day (seeded), so a saved game still reproduces.
+int World::weather_of_day_adapted(uint32_t day) const {
+    int base = ::weather_of_day(day);
+    if (weather_storm_chance <= 0.0f && weather_pressure_bias == 0.0f &&
+        weather_humidity_drift == 0.0f && weather_fog_intensity <= 0.0f) {
+        return base;
+    }
+    int season = season_index(day);
+    unsigned r = ((day * 2654435761u) >> 16);
+    // Base thresholds by season (mirror the free function).
+    int storm_thresh = (season == 2) ? 1 : 1;      // ~0.5-1% base
+    int fog_thresh   = (season == 2) ? 3 : 0;      // fall fog
+    int rain_thresh  = (season == 2) ? 5 : 40;     // ~20% rainy
+    // Low pressure (-) => more storms; high (+) => clearer skies.
+    storm_thresh += static_cast<int>(std::max(0.0f, -weather_pressure_bias) * 10);
+    storm_thresh += static_cast<int>(weather_storm_chance * 100);
+    fog_thresh   += static_cast<int>(weather_fog_intensity * 15);
+    rain_thresh  += static_cast<int>(weather_humidity_drift * 30);
+    rain_thresh  += static_cast<int>(std::max(0.0f, -weather_pressure_bias) * 15);
+    unsigned m = (season == 2) ? (r % 100) : (r % 200);
+    if (m < static_cast<unsigned>(storm_thresh)) return 3;
+    if (fog_thresh > 0 && m < static_cast<unsigned>(fog_thresh)) return 2;
+    if (m < static_cast<unsigned>(rain_thresh)) return 1;
+    return 0;
 }
 
 void World::add_job_board_entries() {
@@ -2538,9 +2615,12 @@ void World::tick_sanity(Player& p) {
     if (hour >= 24) drain += 4.0f;
     else if (hour >= 22) drain += 1.5f;
     // Rainy, overcast days are harder on the mind.
-    if (weather_of_day(day) == 1) drain += 0.5f;
+    if (weather_of_day_adapted(day) == 1) drain += 0.5f;
     // In the basement, the air itself weighs on you.
     if (p.inside == "Basement") drain += 6.0f;
+    // Phase 7.3: horror adaptations scale the drain and add ambient dread at night.
+    drain *= horror_sanity_drain_multiplier;
+    if (hour >= 24 && horror_intensity > 0.0f) drain += 2.0f * horror_intensity;
     // A gentle natural recovery during the day when calm and outside.
     float recover = (hour >= 8 && hour < 18) ? 2.0f : 0.0f;
     p.sanity = std::clamp(p.sanity - drain + recover, 0.0f, p.max_sanity);

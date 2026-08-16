@@ -7,6 +7,9 @@
 #include <set>
 #include <string>
 #include <optional>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 constexpr uint16_t MAP_W = 128;
 constexpr uint16_t MAP_H = 96;
@@ -769,6 +772,26 @@ struct World {
     std::string active_horror;        // current narrative event id ("" = none)
     std::string last_night_event;     // last generated night-event text
 
+    // Phase 7.3: Town Consciousness adaptation consumers.
+    // Typed scalars derived from the model's `adaptations.json`, applied by
+    // `apply_adaptations()` (called on consolidation). Consumers read these so
+    // the consolidated town state actually shifts gameplay.
+    float weather_pressure_bias   = 0.0f;   // -1..1 (low = storms, high = clear)
+    float weather_humidity_drift  = 0.0f;   // -1..1
+    float weather_storm_chance    = 0.0f;   // extra daily severe-storm probability (0..0.5)
+    float weather_fog_intensity   = 0.0f;   // 0..1
+    float weather_temperature_bias = 0.0f;  // -5..+5 °C
+    float economy_price_elasticity = 1.0f;  // 0.5..2.0 market responsiveness
+    float economy_market_volatility = 0.0f; // 0 stable .. 1 chaotic price swings
+    json   economy_demand_shift;            // {commodity_name: multiplier}
+    json   economy_shop_price_mod;          // {shop_name: {item: price_delta}}
+    float horror_intensity = 0.0f;          // 0..1
+    float horror_sanity_drain_multiplier = 1.0f; // 0.5..2.0
+    float horror_night_event_weight = 1.0f; // 0..2 (event frequency)
+    float horror_phantom_sighting_chance = 0.0f; // 0..0.5
+    int   perf_npc_decision_interval_ticks = 5;  // NPC think cadence
+    int   perf_weather_update_interval_ticks = 20; // weather recheck cadence
+
     // Quest/Job methods
     void generate_daily_quests(Player& p);
     void update_market_prices();
@@ -776,6 +799,12 @@ struct World {
     bool complete_quest(Player& p, const std::string& quest_id);
     bool start_job(Player& p, const std::string& job_id);
     void generate_daily_quests_if_needed(Player& p); // Auto-generate on first access
+
+    // Phase 7.3: apply Town Consciousness adaptations (typed scalars above)
+    void apply_adaptations(const json& adaptations);
+
+    // Phase 7.3: adaptation-aware daily weather (uses weather_* scalars)
+    int weather_of_day_adapted(uint32_t day) const;
 
     // L6: Wildlife system
     void init_wildlife();                    // Spawn initial wildlife

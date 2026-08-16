@@ -327,6 +327,7 @@ void TownConsciousness::parse_llm_response(const std::string& response) {
         try {
             json j = json::parse(json_str);
             
+            std::lock_guard<std::mutex> lock(adapt_mutex_);
             // Parse each section with damping
             if (j.contains("procgen")) {
                 for (auto& [key, val] : j["procgen"].items()) {
@@ -397,6 +398,7 @@ void TownConsciousness::dampen_json(json& current, const json& proposed, float a
 }
 
 void TownConsciousness::apply_damping(Adaptations& new_adaptations, float alpha) {
+    std::lock_guard<std::mutex> lock(adapt_mutex_);
     dampen_json(current_adaptations_.procgen, new_adaptations.procgen, alpha);
     dampen_json(current_adaptations_.npc, new_adaptations.npc, alpha);
     dampen_json(current_adaptations_.economy, new_adaptations.economy, alpha);

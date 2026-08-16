@@ -15,6 +15,8 @@
 
 **LoRA Student Role**: The fine-tuned Qwen2.5-0.5B *is* the Town Consciousness — small enough to run every tick (or every N ticks) on CPU, specialized for Ashgrove's JSON schemas (intent, adaptation, narrative beat, performance config).
 
+> **Update (2026-08-16)**: The LLM is now framed as a **language interface and complex-reasoning engine**, NOT the brain of any agent or system. The actual cognitive architecture — perception, attention, working memory, episodic/semantic memory, emotion/reward, drives, prediction, learned preferences, social cognition, self/world-models, subconscious, planning — lives in lightweight learned networks + persistent adaptive state. See **`docs/cognitive-architecture.md`** for the full specification (Phase 7.7+). The LLM remains ≤2B params and is invoked only for NLG, interpretation, consolidation prompt, and on-demand reasoning traces.
+
 ---
 
 ## Phase 7: Conscious Town Core (The "Brain" + Memory)
@@ -293,6 +295,11 @@ Between anchors, the Town Consciousness spawns **personalized quest chains** bas
 3. **Wire into `World::tick()`**: call `consolidate()` at in-game 04:00; push events from all systems.
 4. **Add adaptation consumers** (stubs first): Procgen, NPC, Economy, Weather, Horror, Performance.
 5. **Run 30-day soak test** — verify adaptations change, no crashes, performance tuner converges.
+6. **Phase 7.7 — Cognitive Core Foundation** (see `docs/cognitive-architecture.md`):
+   - Build `tiny_mlp.h` + `CognitiveState` structs (`attention.cpp`, `episodic_memory.cpp`, `self_model.cpp`).
+   - Train compact MLPs (`attention`, `action_evaluator`, `world_model`) on synthetic data (~500 samples via `NIM` or `tools/gen_dataset.py`).
+   - Wire per-agent cognitive state to NPC tick loop; observe behavioral drift.
+   - Implement Phase 7.8 (social cognition) and 7.9 (aggregate cognition: Village/Economy/Nature/Culture Mind).
 
 ### Known Gap: LoRA Student Only Trained on Intent Parsing
 

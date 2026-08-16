@@ -60,12 +60,20 @@ static bool load_world(World& w, const std::string& path) {
 
 static bool load_or_generate(World& w) { return load_world(w, "save.json"); }
 
+// Phase 7.3: adaptation-aware weather name (mirrors weather_of_day_name)
+static const char* weather_name_adapted(const World& w, uint32_t day) {
+    int wd = w.weather_of_day_adapted(day);
+    if (wd == 3) return "Severe Storm";
+    if (wd == 2) return "Foggy";
+    return wd ? "Rainy" : "Sunny";
+}
+
 // Advance to the next day: crops that were watered grow, rain waters everything,
 // all farmers get their energy back. Saves immediately.
 static void advance_day(World& w) {
     w.day++;
     w.day_seconds = 0;
-    int todays_weather = weather_of_day(w.day);
+    int todays_weather = w.weather_of_day_adapted(w.day);
     bool rain = (todays_weather == 1 || todays_weather == 3);
     bool severe_storm = (todays_weather == 3);
     for (auto& cell : w.cells) {
@@ -189,7 +197,7 @@ static void advance_day(World& w) {
         // 2. Tree windthrow: sophisticated per-tree mechanics (L7)
         // Wind speed during severe storm: 30-50 m/s
         // Soil saturation from recent rain increases uprooting chance
-        bool recent_rain = (weather_of_day(w.day - 1) == 1 || weather_of_day(w.day - 2) == 1);
+        bool recent_rain = (w.weather_of_day_adapted(w.day - 1) == 1 || w.weather_of_day_adapted(w.day - 2) == 1);
         for (int y = 0; y < MAP_H; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
@@ -1029,7 +1037,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "status" || cmd == "stats") {
         say(clock_str(w));
         say(std::string(season_name(season_index(w.day))) + " " +
-            std::to_string(season_day(w.day)) + " · " + weather_of_day_name(w.day));
+            std::to_string(season_day(w.day)) + " · " + weather_name_adapted(w, w.day));
         say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
             "   Money: " + std::to_string(p.money) + "g");
         // Building condition + farmhouse level
@@ -1535,10 +1543,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                            hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
         say("You stand on " + std::string(terrain_name(c.tile)) + " in " +
             std::string(region_at(w, p.pos.x, p.pos.y)) + ".");
-        say("It's a " + std::string(weather_of_day_name(w.day)) + " " +
+        say("It's a " + std::string(weather_name_adapted(w, w.day)) + " " +
             std::string(season_name(season)) + " " + std::string(part) + ".");
         // R9.3: Foggy weather reduces visibility
-        bool foggy = (weather_of_day(w.day) == 2);
+        bool foggy = (w.weather_of_day_adapted(w.day) == 2);
         if (foggy) say("A thick fog clings to the valley. You can barely see a few feet ahead.");
         if (c.tile == Tile::Grass || c.tile == Tile::GrassVar)
             say("Wild grass rustles in the breeze.");
@@ -1576,12 +1584,21 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         // Phase 6: perception filters at low sanity
         int ptier = w.perception_tier(p);
         if (ptier >= 1) { std::string f = w.horror_flavor(p); if (!f.empty()) say(f); }
-        if (ptier >= 2) {
+        if (ptier >= 2 || w.horror_phantom_sighting_chance > 0.0f) {
             // Distorted vision: a "false" neighbor the player thinks they see.
-            static const char* phantom[] = {"a figure standing at the treeline", "a face at a dark window",
-                                            "the scarecrow closer than before", "a shape that is not there"};
-            std::mt19937 hrng(p.id * 977u + w.day);
-            say("You think you see " + std::string(phantom[hrng() % 4]) + ". It is gone when you look again.");
+            // Phase 7.3: horror.phantom_sighting_chance raises sighting odds even at lower tiers.
+            bool phantom_seen = (ptier >= 2);
+            if (!phantom_seen && w.horror_phantom_sighting_chance > 0.0f) {
+                std::mt19937 prng(p.id * 1579u + w.day);
+                unsigned pc = static_cast<unsigned>(w.horror_phantom_sighting_chance * 100.0f);
+                phantom_seen = (prng() % 100u) < pc;
+            }
+            if (phantom_seen) {
+                static const char* phantom[] = {"a figure standing at the treeline", "a face at a dark window",
+                                                "the scarecrow closer than before", "a shape that is not there"};
+                std::mt19937 hrng(p.id * 977u + w.day);
+                say("You think you see " + std::string(phantom[hrng() % 4]) + ". It is gone when you look again.");
+            }
         }
         if (ptier >= 3) { std::string v = w.internal_voice(p); if (!v.empty()) say(v); }
         // notable neighbors
@@ -1942,7 +1959,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             {{"Perch",90,6,21},{"Squid",100,18,2},{"Sturgeon",150,6,21},{"Ice Pip",200,6,21},{"Glacierfish",260,6,21}},
         };
         int hour = hour_of_day(w);
-        bool rainy = weather_of_day(w.day) == 1;
+        bool rainy = w.weather_of_day_adapted(w.day) == 1;
         int roll = rand() % 100;
         int catch_chance = rainy ? 65 : 55;
         if (roll < catch_chance) {
@@ -1985,7 +2002,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         };
         Cell& c = w.at(p.pos);
         if (is_water_any(c.tile) || c.tile == Tile::Tilled) { say("Nothing grows here."); return out; }
-        bool rainy = weather_of_day(w.day) == 1;
+        bool rainy = w.weather_of_day_adapted(w.day) == 1;
         bool in_wood = std::string(region_at(w, p.pos.x, p.pos.y)) == "Whisper Wood";
         
         // L4: Forest state affects forage yields
@@ -2137,7 +2154,19 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (arg == "bread") seed = Item::Bread;
         if (seed == Item::None) { say("The shop sells: parsnip, potato, cauliflower, corn, tomato, wheat, blueberry seeds, bread."); return out; }
         const ItemDef& def = item_def(seed);
-        if (p.money < def.buy) { say("You can't afford " + std::string(def.name) + " (" + std::to_string(def.buy) + "g)."); return out; }
+        // Phase 7.3: economy adaptations modulate shop price via demand_shift / shop_price_mod
+        int price = def.buy;
+        if (w.economy_shop_price_mod.is_object()) {
+            std::string shop = (p.inside == "General Store") ? "General Store" : "Market";
+            if (w.economy_shop_price_mod.contains(shop)) {
+                const json& mods = w.economy_shop_price_mod[shop];
+                if (mods.is_object() && mods.contains(def.name) && mods[def.name].is_number()) {
+                    price += mods[def.name].get<int>();
+                }
+            }
+        }
+        if (price < 1) price = 1;
+        if (p.money < price) { say("You can't afford " + std::string(def.name) + " (" + std::to_string(price) + "g)."); return out; }
         Vec2 d = w.door();
         bool in_shop = p.inside == "General Store" || p.inside == "Market";
         if (!in_shop && (std::abs(int(d.x) - p.pos.x) > 3 || std::abs(int(d.y) - p.pos.y) > 3)) {
@@ -2145,9 +2174,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             say("or step inside a shop building to 'buy'.");
             return out;
         }
-        p.money -= def.buy;
+        p.money -= price;
         add_item(p, seed, 1);
-        say("You buy " + std::string(def.name) + " for " + std::to_string(def.buy) + "g.");
+        say("You buy " + std::string(def.name) + " for " + std::to_string(price) + "g.");
         return out;
     }
     if (cmd == "sell") {
@@ -2168,6 +2197,15 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int price = item_def(it->second).sell;
         if (it->second == Item::Fish) price = 45;
         if (it->second == Item::Forage) price = 50;
+        // Phase 7.3: demand_shift modulates sell price (high demand = better price)
+        if (w.economy_demand_shift.is_object()) {
+            std::string name = item_def(it->second).name;
+            if (w.economy_demand_shift.contains(name) && w.economy_demand_shift[name].is_number()) {
+                float mult = w.economy_demand_shift[name].get<float>();
+                price = static_cast<int>(price * mult);
+                if (price < 1) price = 1;
+            }
+        }
         auto idx = static_cast<size_t>(slot);
         p.inv[idx].count--;
         if (p.inv[idx].count == 0) p.inv[idx].item = Item::None;
@@ -2874,10 +2912,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                         say("Anchor: \"Good morning, Valley! This is ..."
                             + std::string(season_name(season_index(w.day)))
                             + " " + std::to_string(season_day(w.day)) + ".\"");
-                        int nd = weather_of_day(w.day + 1) == 1;
+                        int nd = w.weather_of_day_adapted(w.day + 1) == 1;
                         say("Weather: Tomorrow's forecast — " +
-                            (nd ? std::string(weather_of_day_name(w.day + 1)) + ", bring a coat."
-                                : std::string(weather_of_day_name(w.day + 1)) + ", skies will clear."));
+                            (nd ? std::string(weather_name_adapted(w, w.day + 1)) + ", bring a coat."
+                                : std::string(weather_name_adapted(w, w.day + 1)) + ", skies will clear."));
                         std::vector<std::string> tips = {
                             "SPRING: Blueberry seeds (80g) sell for 100g — plant in Spring for a fat Summer harvest.",
                             "SUMMER: Preserve your blueberries & tomatoes in kegs. Quality stars sell for more.",
@@ -3025,10 +3063,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             + std::string(season_name(season_index(w.day)))
             + " " + std::to_string(season_day(w.day)) + ".\"");
         // next-day weather peek
-        int nd = weather_of_day(w.day + 1) == 1;
+        int nd = w.weather_of_day_adapted(w.day + 1) == 1;
         say("Weather: Tomorrow's forecast — " +
-            (nd ? std::string(weather_of_day_name(w.day + 1)) + ", bring a coat."
-                : std::string(weather_of_day_name(w.day + 1)) + ", skies will clear."));
+            (nd ? std::string(weather_name_adapted(w, w.day + 1)) + ", bring a coat."
+                : std::string(weather_name_adapted(w, w.day + 1)) + ", skies will clear."));
         // seasonal consequential tip
         std::vector<std::string> tips = {
             "SPRING: Blueberry seeds (80g) sell for 100g — plant in Spring for a fat Summer harvest.",
@@ -3052,11 +3090,17 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int sleep_hour = hour_of_day(w);   // before day rolls over
         advance_day(w);
         std::string new_season = season_name(season_index(w.day));
-        int nextWeather = weather_of_day(w.day);
+        int nextWeather = w.weather_of_day_adapted(w.day);
         say("Zzz...");
         // Phase 6: the night has its own story. Every sleep after midnight can
         // surface a chapter of the hidden narrative.
-        if (sleep_hour >= 22) {
+        // Phase 7.3: horror.night_event_weight scales how often the narrative surfaces.
+        bool night_event_rolls = (sleep_hour >= 22);
+        if (night_event_rolls && w.horror_night_event_weight < 1.0f) {
+            int span = static_cast<int>(100.0f / std::max(0.01f, w.horror_night_event_weight));
+            night_event_rolls = ((w.day * 9187u + 13u) % static_cast<unsigned>(std::max(1, span))) < 100u;
+        }
+        if (night_event_rolls) {
             std::string ev = w.roll_night_event();
             std::istringstream evss(ev);
             std::string line;
@@ -3610,7 +3654,7 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
             resp["time"] = world.day_seconds;
             resp["season"] = season_name(season_index(world.day));
             resp["season_i"] = season_index(world.day);
-            resp["weather"] = weather_of_day(world.day);
+resp["weather"] = world.weather_of_day_adapted(world.day);
             resp["festival"] = is_festival_day(world.day) ? "Egg Festival" : "";
             resp["cells"] = cells;
             json npc_list = json::array();
@@ -4137,6 +4181,9 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
                 if (hour_of_day(world) == 28 && town_consciousness.is_consolidation_due()) {
                     town_consciousness.consolidate();
                 }
+                // Phase 7.3: push consolidated adaptations into the world's
+                // consumer scalars (weather, economy, horror, performance).
+                world.apply_adaptations(town_consciousness.snapshot_adaptations());
                 // Phase 7: lightweight system heartbeat into the event buffer so
                 // consolidation sees the environmental state even with no input.
                 if (now_ms() - last_town_observe_ms >= 60000) {
@@ -4146,7 +4193,7 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
                     ev.day = world.day;
                     ev.system = "weather";
                     ev.event_type = "state";
-                    ev.payload = {{"weather", weather_of_day(world.day)},
+                    ev.payload = {{"weather", world.weather_of_day_adapted(world.day)},
                                   {"hour", hour_of_day(world)},
                                   {"players", static_cast<int>(world.players.size())},
                                   {"npcs", static_cast<int>(world.npcs.size())},

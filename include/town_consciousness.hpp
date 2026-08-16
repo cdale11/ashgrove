@@ -121,6 +121,20 @@ public:
     // Get current day's adaptations for a system
     const Adaptations& get_adaptations() const { return current_adaptations_; }
     
+    // Thread-safe JSON snapshot of current adaptations for consumers
+    // (game systems run on a different thread than the consolidation worker).
+    json snapshot_adaptations() const {
+        std::lock_guard<std::mutex> lock(adapt_mutex_);
+        json j;
+        j["procgen"] = current_adaptations_.procgen;
+        j["npc"] = current_adaptations_.npc;
+        j["economy"] = current_adaptations_.economy;
+        j["weather"] = current_adaptations_.weather;
+        j["horror"] = current_adaptations_.horror;
+        j["performance"] = current_adaptations_.performance;
+        return j;
+    }
+    
     // Get current town memory (read-only)
     const TownMemory& get_memory() const { return memory_; }
     
@@ -163,6 +177,8 @@ private:
     std::atomic<bool> consolidation_requested_{false};
     std::mutex consolidation_mutex_;
     std::condition_variable consolidation_cv_;
+    // Guards current_adaptations_ between the consolidation worker and consumers
+    mutable std::mutex adapt_mutex_;
     
     // Consolidation thread
     void consolidation_worker();

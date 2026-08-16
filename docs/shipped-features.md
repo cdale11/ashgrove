@@ -514,6 +514,36 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 
 ---
 
+## 26. Phase 7 (Town Consciousness) — In Progress
+
+### Legacy Completion (L1-L12) ✅ SHIPPED
+Commit `764ccbe` completed the remaining legacy items from the map-redesign roadmap:
+- **L1** Severe-weather storm variant (pressure drop, wind, lightning, crop flattening/destruction, building condition damage, windthrows).
+- **L2** NPC schedule disruption when building condition < 20 (repair/search behavior, accelerated heart decay, dialogue).
+- **L3** Building render severity tiers (5-tier condition → visual variants).
+- **L4** `forest_state` per-tile byte (canopy_density, undergrowth_type, nurse_log, windthrow, player_managed) + seasonal undergrowth + forage interaction.
+- **L5** Snowpath compaction (fluffy→ice; movement cost and tracks).
+- **L6** Wildlife: deer, owls, fisher-cats (ambient entities, biome-appropriate, simple steering, no full pathfinding).
+- **L7** Storms knock down trees (windthrow → nurse log, canopy gap, succession).
+- **L8** Rain recharges well/pond (groundwater + drought mechanics, `look well` water-table feedback).
+- **L9** Snow tracks (track_age/type/dir; `search` reveals type/direction/age; wind/snow erases).
+- **L10** Subterranean under-map layer — **deferred** to Phase 9.
+- **L11** `explore <dir>` auto-walk (stops at landmark/obstacle, interruptible, energy guard).
+- **L12** `fasttravel <name>` / `travel` (time cost, constraints on encumbrance/sanity/etc).
+
+### Town Consciousness Core ✅ SHIPPED (foundation)
+- `src/town_consciousness.cpp/.hpp`: observes town events (ring buffer, `observe(TownEvent)`), aggregates into a day-window event log, and runs a **consolidation job** at in-game hour 28 (once per day) that summarizes memory and produces a `data/adaptations.json` (6 sections: procgen, npc, economy, weather, horror, performance) via an LLM callback. Loads existing adaptations at startup; thread-safe (buffer + consolidation mutexes).
+- Wired into `src/main.cpp:3498` (instance), `:3745`/`:4154` (observe on player/system events), `:4137` (consolidation trigger at hour 28 when due).
+- `data/town_log.jsonl` + memory aggregation + `data/adaptations.json` persistence.
+
+### In Progress (as of 2026-08-16)
+- Additive LoRA training (`tools/train_lora.py`) teaching the intent 0.5B student the consolidation task (resume from intent adapter, consolidation rows appended — no intent forgetting). ~26 h runtime.
+- Post-training pipeline `tools/merge_and_quantize.py` (adapter → merged HF → F16 GGUF → Q4_K_M, overwrites runtime gguf).
+- Intent regression harness `tools/eval_intent_accuracy.py` + baseline `data/intent_accuracy_baseline.txt` (26/30 = 86.7%, action match 30/30).
+- **Not yet wired**: adaptation consumers (nothing reads `get_adaptations()` — weather/economy/horror/NPC still hardcoded), `/town/*` API endpoints, performance tuner, 10.2 debug tools.
+
+---
+
 ## Current command surface (MUD)
 
 Core: `help`, `status`/`stats`, `inventory`/`inv`, `time`, `look`/`l`,
@@ -543,6 +573,11 @@ Land/persistence: `buy plot`, `plots`/`deeds`, `save`, `load`, `saves`,
 
 ## Commits (recent, on `origin/main`)
 
+- `47f1898` feat: additive LoRA training (resume from intent adapter) + post-training tooling
+- `37eba40` feat: NIM teacher dataset generation for Town Consciousness consolidation
+- `efe6551` feat: wire town consciousness event recording + memory aggregation, add agent SOP
+- `764ccbe` feat: complete all legacy roadmap items L1-L12
+- `d5cb83b` docs: add comprehensive game systems test report
 - `3010f92` docs: record Phase 8 training blocker (llama-finetune ggml autodiff can't handle Qwen2.5)
 - `24774bb` feat: rate-limited cloud teacher with progress bar, resume, and lightning model
 - `9c9c8fe` feat: Phase 8 seed dataset pipeline (canonical seeds + cloud teacher expansion)

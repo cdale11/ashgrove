@@ -3,28 +3,30 @@
 
 **Purpose**: Complete all explicitly deferred/remaining work from `docs/map-redesign-plan.md` before advancing to Conscious Town (Phase 7+). These are concrete, scoped features with clear acceptance criteria.
 
+> **Status (updated 2026-08-16)**: Groups 1-4 (L1-L9, L11, L12) are **complete** — shipped in commit `764ccbe`. L10 (subterranean) and P1-P4 (parallelism) remain intentionally deferred to Phase 9/10. This document is retained for reference; the shipped work is also recorded in `docs/shipped-features.md`.
+
 ---
 
 ## Open Items Inventory (from `map-redesign-plan.md`)
 
 | ID | Source | Item | Status | Effort |
 |----|--------|------|--------|--------|
-| L1 | A1 | Severe-weather storm variant | ⏳ Not started | M |
-| L2 | A1 | NPC schedule disruption when building condition < 20 | ⏳ Not started | S |
-| L3 | A1 | 🏚️ Render severity tiers for building decay | ⏳ Not started | S |
-| L4 | A6 | `forest_state` byte + seasonal undergrowth | ⏳ Not started | M |
-| L5 | A6 | Snowpath compaction | ⏳ Not started | S |
-| L6 | A6 | Wildlife: deer, owls, fisher-cats | ⏳ Not started | M |
-| L7 | A6 | Storms knocking down trees | ⏳ Not started | M |
-| L8 | A6 | Rain recharging well/pond | ⏳ Not started | S |
-| L9 | A6 | Snow tracks (visual + tracking) | ⏳ Not started | S |
-| L10 | A6 | Subterranean under-map layer (parallel terrain) | ⏳ Not started | L |
-| L11 | A7 | `explore <dir>` auto-walk (mode 3) | ⏳ Not started | M |
-| L12 | A7 | `fasttravel <name>` teleport at in-game time cost (mode 5) | ⏳ Not started | M |
-| P1 | Parallelism | Fine-grained locking (split World mutex) | ⏳ Not started | L |
-| P2 | Parallelism | Double-buffered tick (front/back World) | ⏳ Not started | L |
-| P3 | Parallelism | Parallel systems (`std::execution::par_unseq`) | ⏳ Not started | L |
-| P4 | Parallelism | Async persistence (background serialization) | ⏳ Not started | L |
+| L1 | A1 | Severe-weather storm variant | ✅ Shipped (`764ccbe`) | M |
+| L2 | A1 | NPC schedule disruption when building condition < 20 | ✅ Shipped (`764ccbe`) | S |
+| L3 | A1 | 🏚️ Render severity tiers for building decay | ✅ Shipped (`764ccbe`) | S |
+| L4 | A6 | `forest_state` byte + seasonal undergrowth | ✅ Shipped (`764ccbe`) | M |
+| L5 | A6 | Snowpath compaction | ✅ Shipped (`764ccbe`) | S |
+| L6 | A6 | Wildlife: deer, owls, fisher-cats | ✅ Shipped (`764ccbe`) | M |
+| L7 | A6 | Storms knocking down trees | ✅ Shipped (`764ccbe`) | M |
+| L8 | A6 | Rain recharging well/pond | ✅ Shipped (`764ccbe`) | S |
+| L9 | A6 | Snow tracks (visual + tracking) | ✅ Shipped (`764ccbe`) | S |
+| L10 | A6 | Subterranean under-map layer (parallel terrain) | ⏳ Deferred (Phase 9) | L |
+| L11 | A7 | `explore <dir>` auto-walk (mode 3) | ✅ Shipped (`764ccbe`) | M |
+| L12 | A7 | `fasttravel <name>` teleport at in-game time cost (mode 5) | ✅ Shipped (`764ccbe`) | M |
+| P1 | Parallelism | Fine-grained locking (split World mutex) | ⏳ Deferred (Phase 10) | L |
+| P2 | Parallelism | Double-buffered tick (front/back World) | ⏳ Deferred (Phase 10) | L |
+| P3 | Parallelism | Parallel systems (`std::execution::par_unseq`) | ⏳ Deferred (Phase 10) | L |
+| P4 | Parallelism | Async persistence (background serialization) | ⏳ Deferred (Phase 10) | L |
 
 ---
 
@@ -234,13 +236,9 @@ if (building_condition(home) < 20 || building_condition(workplace) < 20) {
 
 ## Decision Point
 
-**Recommendation**: Complete Groups 1-4 (L1-L9, L11, L12, L2) in ~3-4 weeks before starting Phase 7 Conscious Town Core. This:
-1. Clears all explicit legacy debt
-2. Provides rich substrate (forest_state, wildlife, storms, tracks) for Conscious Town to observe/adapt
-3. Completes movement + NPC responsiveness — core loop feels "finished"
-4. Parallelism (P1-P4) and Subterranean (L10) properly belong in Phase 10 infrastructure
+**Resolution (2026-08-16)**: Groups 1-4 (L1-L9, L11, L12, L2) were **completed** in commit `764ccbe`, prior to Phase 7 Conscious Town Core. This cleared all legacy debt and provided the rich substrate (forest_state, wildlife, storms, tracks) that Town Consciousness now observes/adapts.
 
-**Alternative**: Skip to Phase 7 now, let legacy items bleed into Conscious Town as "first adaptation targets" (Town Consciousness learns to spawn storms, grow wildlife, etc.). Risk: technical debt compounds.
+**Remaining**: Parallelism (P1-P4) and Subterranean (L10) belong in Phase 10 infrastructure and Phase 9 questline respectively — as originally scoped.
 
 ---
 
