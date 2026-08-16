@@ -26,6 +26,12 @@
 /data/cmdlog.jsonl
 /data/dataset.jsonl
 /data/dataset_expanded.jsonl
+/data/dataset_consolidation.jsonl
+/data/dataset_consolidation_progress.json
+
+# Python
+__pycache__/
+*.pyc
 
 # Town Consciousness runtime state (regenerated each consolidation; not committed)
 /data/town_log.jsonl

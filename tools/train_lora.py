@@ -22,8 +22,15 @@ PROMPT_TMPL = (
     "### Input:\n{input}\n\n### Response:\n{output}"
 )
 
+CONSOLIDATION_TMPL = "{input}\n\n{output}"
+
 
 def build_prompt(example):
+    if example.get("task") == "consolidation":
+        # Input is already the full consolidation prompt (mirrors
+        # build_consolidation_prompt()); the model must continue with the JSON.
+        return CONSOLIDATION_TMPL.format(
+            input=example["input"], output=example["output"])
     return PROMPT_TMPL.format(
         instruction=example["instruction"],
         input=example["input"],
@@ -58,6 +65,12 @@ def main():
     parser.add_argument("--accum", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--log-file", default="/tmp/opencode/lora_train.log")
+    parser.add_argument("--task", choices=["intent", "consolidation", "mixed"], default="mixed")
+    parser.add_argument("--consolidation", default="data/dataset_consolidation.jsonl",
+                        help="JSONL of consolidation rows (task: consolidation) appended to "
+                             "the intent train/val splits. Empty/missing file = intent only.")
+    parser.add_argument("--consolidation-val-ratio", type=float, default=0.15,
+                        help="Fraction of consolidation rows held out as val (rest added to train)")
     args = parser.parse_args()
     globals()["args"] = args
 
@@ -83,6 +96,42 @@ def main():
 
     train_ds = load_dataset("json", data_files=args.train)["train"]
     val_ds = load_dataset("json", data_files=args.val)["train"]
+
+    # ADDITIVE consolidation training: append consolidation rows to the intent
+    # splits (concatenation, NOT replacement). Each row carries its own task
+    # marker so build_prompt picks the right template per row. The model keeps
+    # intent knowledge (rows still present) while learning the consolidation task.
+    import os
+    from datasets import Dataset, concatenate_datasets
+    if args.task in ("consolidation", "mixed") and os.path.exists(args.consolidation):
+        cons = []
+        with open(args.consolidation) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    cons.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        if cons:
+            n_val = max(1, int(len(cons) * args.consolidation_val_ratio))
+            val_rows, train_rows = cons[:n_val], cons[n_val:]
+            # Rewrite row shape to what tokenize/build_prompt expect.
+            def shape(rows):
+                return [{"task": "consolidation", "input": r["input"],
+                         "output": r["output"]} for r in rows]
+            if train_rows:
+                train_ds = concatenate_datasets(
+                    [train_ds, Dataset.from_list(shape(train_rows))])
+            if val_rows:
+                val_ds = concatenate_datasets(
+                    [val_ds, Dataset.from_list(shape(val_rows))])
+            print("ADDED %d consolidation rows to train, %d to val "
+                  "(total train=%d val=%d)" % (
+                      len(train_rows), len(val_rows), len(train_ds), len(val_ds)),
+                  flush=True)
+
     train_ds = train_ds.map(
         lambda e: tokenize(e, tokenizer), remove_columns=train_ds.column_names
     )

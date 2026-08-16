@@ -9,6 +9,8 @@ Three related files are produced/consumed:
 | `data/dataset.jsonl` | `tools/build_seed_dataset.py` | Canonical seed corpus: every command × slot × alias mapped to `{action, parameters}`, generated deterministically from the game code. |
 | `data/dataset_expanded.jsonl` | `tools/gen_dataset.py` | Distillation training set: canonical seeds + cloud-teacher paraphrases → `{action, parameters}`. |
 | `data/eval_set.jsonl` | `tools/eval_intents.py` | Curated golden examples with expected intents for accuracy/latency measurement. |
+| `data/dataset_consolidation.jsonl` | `tools/gen_consolidation_dataset.py` | Town Consciousness distillation set: consolidation prompt → canonical adaptations JSON, teacher-generated (NVIDIA NIM). |
+| `data/dataset_consolidation_progress.json` | `tools/gen_consolidation_dataset.py` | Live progress snapshot consumed by `tools/monitor_dataset_gen.py` (web UI on :8138). |
 
 ## Common `Intent` shape
 
@@ -88,3 +90,46 @@ to measure Tier 0/Tier 1 accuracy and latency. Fields:
 
 The eval harness compares parsed `action` + `parameters` against the expected
 values and reports per-tier accuracy, p50/p95 latency, and a confusion matrix.
+
+## 4. Town Consciousness dataset (`data/dataset_consolidation.jsonl`)
+
+Produced by `tools/gen_consolidation_dataset.py` using a cloud teacher
+(NVIDIA NIM `nvidia/nemotron-3.5-lightning-30b-a3b`, OpenAI-compatible API).
+The 0.5B student was originally trained ONLY on intent parsing; when given a
+Town Consciousness consolidation prompt it emits intent-shaped JSON
+(`{"status":"new",...}`), so adaptations never change. This corpus teaches the
+consolidation format so one LoRA can do both tasks.
+
+Input is a synthetic scenario rendered in exactly the same format as
+`TownConsciousness::build_consolidation_prompt()`:
+`You are the Town Consciousness of Ashgrove Valley...` + `=== MEMORY ===` +
+`=== CURRENT ADAPTATIONS ===` (six sections) + `=== EVENTS (last 24h) ===`
+(actual events, not just a count) + `=== TASK ===`.
+
+The teacher PROPOSES the next day's adaptation values (pre-damping). Each row is
+schema-validated against the `Adaptations` struct (key names, types, numeric
+ranges, e.g. `storm_chance` ∈ [0, 0.5]) and clamped before being written.
+
+One JSON object per line:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task` | string | Always `"consolidation"` (drives per-row template in `train_lora.py`). |
+| `input` | string | Full consolidation prompt (identical to the game's runtime prompt). |
+| `output` | string | Serialized canonical adaptations JSON (`procgen`/`npc`/`economy`/`weather`/`horror`/`performance`). |
+| `source` | string | `teacher`. |
+| `day` | int | World day of the scenario. |
+| `season` | string | `Spring`/`Summer`/`Autumn`/`Winter`. |
+| `seed` | int | Deterministic scenario seed (resume key). |
+| `teacher` | string | Teacher model id. |
+| `validated` | bool | Schema validation passed. |
+
+### Additive training (concatenation, never replacement)
+
+`tools/train_lora.py` reads this file and **appends** the rows onto the existing
+intent train/val splits (`/tmp/opencode/train.json` / `val.json`). Each row
+carries its own `task` marker, so `build_prompt` picks the consolidation
+template (`{input}\n\n{output}`) per row while intent rows keep the
+instruction template. The model retains intent knowledge (those rows are still
+present) while learning the consolidation task. Run with `--task mixed`
+(default) to enable the merge.

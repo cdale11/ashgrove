@@ -264,7 +264,25 @@ std::string TownConsciousness::build_consolidation_prompt() const {
     oss << "performance: " << current_adaptations_.performance.dump() << "\n\n";
     
     oss << "=== EVENTS (last 24h) ===\n";
-    oss << "events: " << buffer_count_ << " entries\n\n";
+    oss << "events: " << buffer_count_ << " entries\n";
+    {
+        // Include the actual recent events so the model can reason about them.
+        // Snapshot the buffer under the lock (max 50, newest first), then render.
+        std::vector<TownEvent> snapshot;
+        {
+            std::lock_guard<std::mutex> lock(buffer_mutex_);
+            size_t show = std::min<size_t>(buffer_count_, 50);
+            size_t idx = (buffer_head_ + MAX_EVENTS - buffer_count_) % MAX_EVENTS;
+            for (size_t i = 0; i < show; ++i) {
+                snapshot.push_back(event_buffer_[(idx + i) % MAX_EVENTS]);
+            }
+        }
+        for (const auto& e : snapshot) {
+            oss << "  - [" << e.system << ":" << e.event_type << "] day=" << e.day
+                << " payload=" << e.payload.dump() << "\n";
+        }
+    }
+    oss << "\n";
     
     oss << "=== TASK ===\n";
     oss << "Output ONLY valid JSON with keys: procgen, npc, economy, weather, horror, performance.\n";
