@@ -621,6 +621,17 @@ struct Player {
     std::vector<std::string> secrets_found;
     // Night-event log (chapter-style), most recent last.
     std::vector<std::string> night_event_log;
+    // ---- Phase 6 / ROADMAP 1.4: perception filters + basement procgen ----
+    // One-shot 4th-wall meta-narrative break (fires once total, on Nth death).
+    bool meta_break_fired = false;
+    // Persistent surface consequence of a basement descent: a "mark" the player
+    // carries out, applying a small daily sanity malus for N days. "" = none.
+    std::string basement_mark;
+    int mark_days_left = 0;
+    // Player dread profile: per-theme encounter counters used by ValleyMind to
+    // bias horror filter content toward what unsettles THIS player most.
+    // Indices: 0=shadows/phantoms, 1=cold/basement, 2=whispers/ritual, 3=rot/corruption.
+    std::array<uint16_t, 4> dread_counters = {0, 0, 0, 0};
 };
 
 // ---- world ----
@@ -844,6 +855,31 @@ struct World {
     std::string horror_flavor(const Player& p) const; // ambient horror line at low sanity
     std::string internal_voice(const Player& p) const; // Disco-Elysium-style inner monologue
     void find_secret(Player& p, const std::string& secret); // Higurashi secret discovery
+
+    // ROADMAP 1.4 — sanity/perception filters + basement procedural horror.
+    // distort_dialogue() rewrites an NPC line through a tier-gated filter:
+    // whispered underlayer (tier 1), word-swap (tier 2), hallucinated extra
+    // clause (tier 3). Biased by the player's dread profile.
+    std::string distort_dialogue(const Player& p, const std::string& npc_name,
+                                 const std::string& line) const;
+    // hallucinate_scene() returns a fabricated scene line (or "") gated by
+    // tier + valley_awakening + corruption. Tagged "(?)" so a careful player
+    // can distinguish. Biased by dread profile.
+    std::string hallucinate_scene(const Player& p) const;
+    // Roll a 4th-wall meta-break. once: fires a single unique line on the Nth
+    // death (tracked by Player::meta_break_fired). location: rare repeatable
+    // line inside horror anchors at tier >= 3.
+    std::string roll_meta_break(Player& p, bool once);
+    // Procedurally generate the basement's room description + hazard for this
+    // descent, seeded by (horror_cycle, basement_visits). Applies a persistent
+    // "mark" the player carries to the surface (small daily sanity malus).
+    std::string roll_basement_procgen(Player& p);
+    // Apply + decay the basement mark's daily sanity malus (called from tick_sanity).
+    void tick_basement_mark(Player& p);
+    // Record a dread-encounter counter bump (theme 0..3) for the given player.
+    void bump_dread(Player& p, uint8_t theme);
+    // Return the player's dominant dread theme (0..3), or weighted random if tied.
+    uint8_t dread_bias(const Player& p) const;
 
     // ROADMAP 1.2 — Valley Entity mechanics. add_guilt() feeds collective_guilt
     // (clamped 0..1); tick_valley() is the daily Valley heartbeat: decay guilt,

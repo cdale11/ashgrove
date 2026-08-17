@@ -86,6 +86,15 @@ ValleyMind::Snapshot ValleyMind::get_snapshot() const {
   snap.weather_fog_intensity = world_ ? world_->weather_fog_intensity : 0.0f;
   snap.horror_phantom_sighting_chance = world_ ? world_->horror_phantom_sighting_chance : 0.0f;
   snap.horror_cycle = world_ ? world_->horror_cycle : 0;
+  snap.dread_bias_theme = 0;
+  snap.dread_counters = {0, 0, 0, 0};
+
+  // ROADMAP 1.4: surface the first player's dread profile (single-player game).
+  if (world_ && !world_->players.empty()) {
+    const auto& p0 = world_->players.begin()->second;
+    snap.dread_bias_theme = world_->dread_bias(p0);
+    snap.dread_counters = p0.dread_counters;
+  }
 
   snap.recent_events.clear();
   std::size_t start = memory_.size() > 10 ? memory_.size() - 10 : 0;

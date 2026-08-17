@@ -137,6 +137,8 @@ static void advance_day(World& w) {
         p.path.clear();
         p.gifted_today.clear();
         w.tick_sanity(p);
+        // ROADMAP 1.4: apply the persistent basement mark's daily sanity malus.
+        w.tick_basement_mark(p);
     }
 
     // Fruit trees: produce once per season after maturing (28 days)
@@ -1044,7 +1046,23 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
 
     // ---------- status / inventory ----------
     if (cmd == "status" || cmd == "stats") {
-        say(clock_str(w));
+        // ROADMAP 1.4: at fractured sanity, the clock string occasionally lies.
+        {
+            int ptier = w.perception_tier(p);
+            std::string clock = clock_str(w);
+            if (ptier >= 3) {
+                std::mt19937 rng(p.id * 3797u + w.day * 89u);
+                if ((rng() % 100u) < 30u) {
+                    // The clock shows a wrong but unsettling time.
+                    const char* false_clocks[] = {"3:33 AM", "12:00 AM", "0:00 AM", "13:13 PM"};
+                    say(std::string(false_clocks[rng() % 4]) + " (?)");
+                } else {
+                    say(clock);
+                }
+            } else {
+                say(clock);
+            }
+        }
         say(std::string(season_name(season_index(w.day))) + " " +
             std::to_string(season_day(w.day)) + " · " + weather_name_adapted(w, w.day));
         say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
@@ -1053,6 +1071,11 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             "   Sanity: " + std::to_string(static_cast<int>(p.sanity)) + "/" + std::to_string(static_cast<int>(p.max_sanity)));
         if (p.death_count > 0)
             say("The valley has watched you die " + std::to_string(p.death_count) + " time" + (p.death_count == 1 ? "." : "s."));
+        // ROADMAP 1.4: surface the persistent basement mark.
+        if (!p.basement_mark.empty() && p.mark_days_left > 0) {
+            say("Carrying a " + p.basement_mark + " mark from the cellar (" +
+                std::to_string(p.mark_days_left) + " day" + (p.mark_days_left == 1 ? "" : "s") + " left).");
+        }
         // Surface any pending death narration from the time-based death check.
         if (!p.pending_death.empty()) {
             say(p.pending_death);
@@ -1078,6 +1101,15 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                     (p.inv[i].count > 1 ? " x" + std::to_string(p.inv[i].count) : ""));
             }
         if (!any) say("You carry nothing.");
+        // ROADMAP 1.4: at fractured sanity, a phantom item appears in the listing.
+        if (w.perception_tier(p) >= 3) {
+            std::mt19937 rng(p.id * 2833u + w.day * 17u);
+            if ((rng() % 100u) < 25u) {
+                const char* phantoms[] = {"?tarnished locket?", "?a key to no door?", "?a bone button?",
+                                          "?a folded note in your own hand?"};
+                say("  " + std::string(phantoms[rng() % 4]));
+            }
+        }
         return out;
     }
     if (cmd == "time") { say(clock_str(w)); return out; }
@@ -1610,6 +1642,11 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             else if (cor >= 128) say("Something clings to this ground. You taste it on your tongue.");
             else if (cor >= 64) say("The light falls differently here, heavy and slow.");
         }
+        // ROADMAP 1.4: hallucinated scene descriptions at low sanity (tagged (?)).
+        {
+            std::string hs = w.hallucinate_scene(p);
+            if (!hs.empty()) say(hs);
+        }
         if (ptier >= 2 || w.horror_phantom_sighting_chance > 0.0f) {
             // Distorted vision: a "false" neighbor the player thinks they see.
             // Phase 7.3: horror.phantom_sighting_chance raises sighting odds even at lower tiers.
@@ -1624,6 +1661,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                                                 "the scarecrow closer than before", "a shape that is not there"};
                 std::mt19937 hrng(p.id * 977u + w.day);
                 say("You think you see " + std::string(phantom[hrng() % 4]) + ". It is gone when you look again.");
+                w.bump_dread(p, 0);  // phantoms -> shadows theme
             }
         }
         if (ptier >= 3) { std::string v = w.internal_voice(p); if (!v.empty()) say(v); }
@@ -2698,7 +2736,13 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (found->pos.y < p.pos.y) p.dir = 3;
         else if (found->pos.x > p.pos.x) p.dir = 2;
         else if (found->pos.x < p.pos.x) p.dir = 1;
-        say(found->name + ": " + npc_line(found->name.c_str(), season));
+        // ROADMAP 1.4: at low sanity, NPC dialogue distorts (whispered
+        // underlayer, word-swap, hallucinated extra clause).
+        {
+            std::string base = npc_line(found->name.c_str(), season);
+            std::string distorted = w.distort_dialogue(p, found->name, base);
+            say(found->name + ": " + distorted);
+        }
         // P2: NPCs remember the player's deaths — survivors of the loops
         // (Mayor, Witch, Traveler, Doctor) reference them directly.
         if (p.death_count > 0) {
@@ -2801,6 +2845,12 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             w.damage_sanity(p, 5.0f);
             say("The stone at the center is warm to the touch. Something here is still listening.");
         }
+        // ROADMAP 1.4: rare 4th-wall meta-break inside deep places at fractured sanity.
+        if (p.inside == "Witch's Hut" || p.inside == "Abandoned Sanitarium" ||
+            p.inside == "Ritual Circle" || p.inside == "Basement") {
+            std::string mb = w.roll_meta_break(p, /*once=*/false);
+            if (!mb.empty()) say(mb);
+        }
         return out;
     }
     if (cmd == "exit" || cmd == "leave") {
@@ -2842,8 +2892,14 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("The floorboards shift. A cold stairwell opens beneath the farmhouse.");
         say("You descend into the dark.");
         w.trigger_basement(p);
-        say("The basement is damp and wrong. The walls remember your footsteps.");
-        say("A voice like your own whispers: \"You keep coming back. Why do you keep coming back?\"");
+        // ROADMAP 1.4: procedurally-generated room + hazard for this descent,
+        // carrying a persistent "mark" the player brings to the surface.
+        {
+            std::string pg = w.roll_basement_procgen(p);
+            std::istringstream pgss(pg);
+            std::string ln;
+            while (std::getline(pgss, ln)) if (!ln.empty()) say(ln);
+        }
         return out;
     }
 
@@ -3206,6 +3262,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             }
             if (p.night_event_log.size() > 12) p.night_event_log.erase(p.night_event_log.begin());
             p.night_event_log.push_back(ev);
+            // ROADMAP 1.4: night events tilt the dread profile toward whispers.
+            w.bump_dread(p, 2);
         }
         say("--- Day " + std::to_string(w.day) + " · " + std::string(new_season) + " ---");
         say(clock_str(w));
@@ -3894,6 +3952,11 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             resp["weather_fog_intensity"] = snap.weather_fog_intensity;
             resp["horror_phantom_sighting_chance"] = snap.horror_phantom_sighting_chance;
             resp["horror_cycle"] = snap.horror_cycle;
+            // ROADMAP 1.4 — dread profile (per-player diagnostics).
+            resp["dread_bias_theme"] = snap.dread_bias_theme;
+            json dcs = json::array();
+            for (uint8_t t = 0; t < 4; ++t) dcs.push_back(snap.dread_counters[t]);
+            resp["dread_counters"] = dcs;
             json ev = json::array();
             for (const auto& s : snap.recent_events) ev.push_back(s);
             resp["recent_events"] = ev;
@@ -4053,6 +4116,9 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             // "loop" reset and surface the death narration.
             if (world.is_dead(it->second)) {
                 lines.push_back(world.handle_death(it->second));
+                // ROADMAP 1.4: one-shot 4th-wall meta-break after enough loops.
+                std::string mb = world.roll_meta_break(it->second, /*once=*/true);
+                if (!mb.empty()) lines.push_back(mb);
             }
             for (auto& l : lines) resp["lines"].push_back(l);
             uint64_t latency = now_ms() - t0;
@@ -4422,8 +4488,11 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 resp["lines"].push_back("The floorboards shift. A cold stairwell opens beneath the farmhouse.");
                 resp["lines"].push_back("You descend into the dark.");
                 world.trigger_basement(p);
-                resp["lines"].push_back("The basement is damp and wrong. The walls remember your footsteps.");
-                resp["lines"].push_back("A voice like your own whispers: \"You keep coming back.\"");
+                // ROADMAP 1.4: per-cycle procedurally generated room + hazard + mark.
+                std::string pg = world.roll_basement_procgen(p);
+                std::istringstream pgss(pg);
+                std::string ln;
+                while (std::getline(pgss, ln)) if (!ln.empty()) resp["lines"].push_back(ln);
             }
         } else {
             resp["lines"].push_back("No farmer found. Rejoin the game.");
@@ -4522,6 +4591,12 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                         (now_ms() - p.move_start_ms) >= 110) {
                         Vec2 next = p.path.front();
                         if (world.walkable(next)) p.pos = next;
+                        // ROADMAP 1.4: walking on corrupted ground feeds the
+                        // dread profile toward the rot theme.
+                        {
+                            uint8_t cor = world.at(p.pos).corruption;
+                            if (cor >= 128) world.bump_dread(p, 3);
+                        }
                         p.path.erase(p.path.begin());
                         p.move_start_ms = now_ms();
                         if (p.pos == p.target || p.path.empty()) p.moving = false;
@@ -4535,6 +4610,9 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                         valley_mind.record_event("death",
                             "player " + p.name + " died (loop "
                             + std::to_string(p.death_count) + ")", 0.15f);
+                        // ROADMAP 1.4: one-shot 4th-wall meta-break.
+                        std::string mb = world.roll_meta_break(p, /*once=*/true);
+                        if (!mb.empty()) p.pending_death += "\n" + mb;
                     }
                 }
                 for (auto& n : world.npcs) {

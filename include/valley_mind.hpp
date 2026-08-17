@@ -53,6 +53,9 @@ class ValleyMind {
     float horror_phantom_sighting_chance; // 0..0.5
     uint32_t horror_cycle;     // Higurashi-style loop count
     std::vector<std::string> recent_events; // last ~10
+    // ROADMAP 1.4 — dread profile (per-player, surfaced for diagnostics).
+    uint8_t dread_bias_theme;          // 0..3 dominant theme
+    std::array<uint16_t, 4> dread_counters; // per-theme encounter counts
   };
   Snapshot get_snapshot() const;
 

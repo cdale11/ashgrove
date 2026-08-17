@@ -656,6 +656,58 @@ behavior. Fog zones remain atmospheric (weather-driven) per the original design.
 
 ---
 
+## 31. Sanity / Perception Filters & Procedural Basement (ROADMAP 1.4)
+
+Shipped 2026-08-18. Verified end-to-end against the running server.
+
+### Distorted dialogue (`World::distort_dialogue`)
+At low sanity, NPC dialogue distorts:
+- **Word-swap** (tier ≥1): a small synonym table replaces a word in the spoken line
+  (`sees`→`feeds`, `water`→`blood`, `sky`→`ceiling`, `morning`→`midnight`, etc.).
+- **Whispered underlayer** (tier ≥1, 35%): `[you catch a word that wasn't spoken: 'X']`.
+- **Hallucinated extra clause** (tier ≥3, 45%): a dread-biased appended sentence.
+
+### Hallucinated scene text (`World::hallucinate_scene`)
+Gated by tier + valley awakening + corruption. Injects lines tagged `(?)` into `look`/explore,
+e.g. `the path behind you is iced over, though it was clear a moment ago (?)`, plus a phantom
+scarecrow sighting. Deterministic seeds (no LLM).
+
+### False UI (tier ≥3)
+- **False inventory item**: 25% chance a phantom item appears (`?tarnished locket?`,
+  `?a key to no door?`, `?a bone button?`, `?a folded note in your own hand?`). Seeded
+  `p.id*2833 + day*17`.
+- **False clock**: 30% chance the `/status` clock lies (`3:33 AM`, `12:00 AM`, etc.). Seeded
+  `p.id*3797 + day*89` — deterministic per day.
+
+### Meta-narrative breaks (`World::roll_meta_break`)
+- **One-shot**: fires exactly once when `death_count ≥ 2`, sets `meta_break_fired`.
+- **Rare repeatable**: 5% inside horror anchors at tier ≥3.
+
+### Procedural basement (`World::roll_basement_procgen`)
+Per descent (seeded by `horror_cycle`, `basement_visits`):
+- Room name + hazard (cold / oily / whispering), weighted by the player's dread bias.
+- Applies a persistent **mark** (`basement_mark`, `mark_days_left = 3 + horror_cycle`).
+- Mark surfaces in `/status`; `World::tick_basement_mark` in `advance_day` drains
+  1.5 sanity/day (bonus 1.5 for whispering at night).
+
+### Adaptive dread profile (per-player)
+`Player::dread_counters[4]` (shadows / cold / whispers / rot). Bumped by phantom sightings
+(shadows), night events (whispers), corrupted-tile traversal (rot), basement hazard (cold).
+`World::dread_bias` returns the dominant theme, which biases filter content + basement hazard.
+Surfaced via `/valley` (`dread_bias_theme`, `dread_counters`).
+
+### Verified (2026-08-18)
+- ✅ distorted dialogue (whispered underlayer shown), hallucinated scene `(?)` line, phantom
+  scarecrow, `[INTERNAL]` meta-break on explore.
+- ✅ false inventory item (`?a key to no door?`), false-clock path wired (deterministic per day).
+- ✅ basement procgen (`The Slick Stair`, oily mark 4 days), mark in `/status`,
+  mark daily sanity malus (80→78, `mark_days_left` 4→3 on sleep).
+- ✅ death meta-break one-shot (death_count 1→2 triggered; flag set).
+- ✅ dread profile in `/valley` (`dread_counters [1,0,0,0]`, bias theme 0).
+- ✅ intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline.
+
+---
+
 ## 30. QA & Bug-Fix History (2026-08-16)
 
 ### Movement / Pathfinding fixes

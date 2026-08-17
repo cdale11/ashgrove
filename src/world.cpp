@@ -3,6 +3,7 @@
 #include <random>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <deque>
 #include <sstream>
 #include <iostream>
@@ -2077,6 +2078,13 @@ std::string serialize_world(const World& w) {
         json nel = json::array();
         for (auto& e : p.night_event_log) nel.push_back(e);
         pl["night_event_log"] = nel;
+        // ROADMAP 1.4 — perception-filter / basement-procgen state.
+        pl["meta_break_fired"] = p.meta_break_fired;
+        pl["basement_mark"] = p.basement_mark;
+        pl["mark_days_left"] = p.mark_days_left;
+        json dc = json::array();
+        for (uint8_t t = 0; t < 4; ++t) dc.push_back(p.dread_counters[t]);
+        pl["dread_counters"] = dc;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -2189,6 +2197,17 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 p.secrets_found.push_back(s.get<std::string>());
             for (auto& e : pl.value("night_event_log", json::array()))
                 p.night_event_log.push_back(e.get<std::string>());
+            // ROADMAP 1.4 — perception-filter / basement-procgen state.
+            p.meta_break_fired = pl.value("meta_break_fired", false);
+            p.basement_mark = pl.value("basement_mark", std::string());
+            p.mark_days_left = pl.value("mark_days_left", 0);
+            {
+                json dcs = pl.value("dread_counters", json::array());
+                for (uint8_t t = 0; t < 4; ++t) {
+                    if (t < dcs.size() && dcs[t].is_number())
+                        p.dread_counters[t] = static_cast<uint16_t>(dcs[t]);
+                }
+            }
             w.players[p.id] = p;
         }
         for (auto& cj : j.value("cells", json::array())) {
@@ -2880,6 +2899,242 @@ void World::find_secret(Player& p, const std::string& secret) {
     restore_sanity(p, 8.0f);   // understanding restores a little clarity
     // ROADMAP 1.2: uncovering a hidden truth feeds the Valley's collective guilt.
     add_guilt(0.05f);
+    // ROADMAP 1.4: secrets tilt the dread profile toward whispers/ritual.
+    bump_dread(p, 2);
+}
+
+// ----------------------------------------------------------------------
+// ROADMAP 1.4 — sanity/perception filters + basement procedural horror.
+// Continuous, tier-gated filters (distorted dialogue, hallucinated scene
+// text, false UI, meta-narrative breaks) + per-cycle basement procgen with
+// a persistent surface "mark". A lightweight per-player dread profile biases
+// filter content toward what unsettles THIS player most (deterministic; the
+// LLM-driven adaptation is the deferred ROADMAP 1.5 work).
+// ----------------------------------------------------------------------
+
+namespace {
+
+// Unsettling synonym table for word-swap at tier>=2. Case-insensitive
+// whole-word replacement; deterministic per call via the provided RNG.
+struct WordSwap { const char* from; const char* to; };
+const WordSwap word_swaps[] = {
+    {"happy", "hungry"},   {"friend", "witness"},   {"hello", "we've been waiting"},
+    {"good", "wrong"},     {"nice", "hollow"},      {"fine", "barely"},
+    {"love", "need"},      {"hope", "dread"},       {"smile", "stare"},
+    {"warm", "cold"},      {"bright", "flickering"},{"safe", "watched"},
+    {"home", "trap"},      {"welcome", "expected"}, {"glad", "tired"},
+    {"today", "again"},    {"morning","same"},      {"lovely", "uncertain"},
+};
+
+// Replace up to `max_swaps` whole-word matches (case-insensitive) using `rng`
+// to pick which matches to swap. Returns the distorted string.
+std::string word_swap(std::string s, std::mt19937& rng, int max_swaps) {
+    int swapped = 0;
+    for (const auto& ws : word_swaps) {
+        if (swapped >= max_swaps) break;
+        std::string needle = ws.from;
+        // case-insensitive find
+        std::string hay = s;
+        std::transform(hay.begin(), hay.end(), hay.begin(), ::tolower);
+        size_t pos = hay.find(needle);
+        if (pos == std::string::npos) continue;
+        // Only swap whole words: check boundaries.
+        bool left_ok = (pos == 0) || !isalnum(static_cast<unsigned char>(s[pos - 1]));
+        bool right_ok = (pos + needle.size() >= s.size()) ||
+                        !isalnum(static_cast<unsigned char>(s[pos + needle.size()]));
+        if (!left_ok || !right_ok) continue;
+        // 50% chance per candidate (deterministic via rng) to avoid over-swapping.
+        if ((rng() % 100u) >= 50u) continue;
+        s.replace(pos, needle.size(), ws.to);
+        ++swapped;
+    }
+    return s;
+}
+
+}  // namespace
+
+std::string World::distort_dialogue(const Player& p, const std::string& npc_name,
+                                    const std::string& line) const {
+    int tier = perception_tier(p);
+    if (tier <= 0) return line;
+
+    // Deterministic per (player, day, npc) so distortion is stable within a day.
+    std::mt19937 rng(p.id * 8191u + day * 31u +
+                     static_cast<unsigned>(std::hash<std::string>{}(npc_name)));
+
+    std::string out = line;
+
+    // Whispered underlayer (tier >= 1): sometimes prefix a barely-caught whisper.
+    if (tier >= 1 && (rng() % 100u) < 35u) {
+        const char* whispers[] = {
+            "[she mouths something you can't quite read]",
+            "[there's a second voice under his, just out of reach]",
+            "[you catch a word that wasn't spoken: 'again']",
+            "[her lips move a beat too long for the words you heard]",
+        };
+        out = std::string(whispers[rng() % 4]) + " " + out;
+    }
+
+    // Word-swap (tier >= 2): rewrite unsettling synonyms.
+    if (tier >= 2) {
+        out = word_swap(std::move(out), rng, tier >= 3 ? 4 : 2);
+    }
+
+    // Hallucinated extra clause (tier >= 3): append a line the NPC
+    // didn't say, biased by the player's dread theme.
+    if (tier >= 3 && (rng() % 100u) < 45u) {
+        uint8_t theme = dread_bias(p);
+        const char* extra[][3] = {
+            {"'You came back.'",                       "'It's here, isn't it. Below.'",     "'I saw you, last time. You didn't see me.'"},
+            {"'Your hands are so cold.'",              "'The floor remembers you.'",         "'You smell like the cellar.'"},
+            {"'Say it again. The part about the door.'","'The third one is still down there.'","'Don't. I already know what you'll tell me.'"},
+            {"'You've been standing too long in one place.'", "'The ground doesn't want you here.'", "'You look ill. The soil looks ill.'"},
+        };
+        out += " " + std::string(extra[theme % 4][rng() % 3]);
+    }
+
+    return out;
+}
+
+std::string World::hallucinate_scene(const Player& p) const {
+    int tier = perception_tier(p);
+    if (tier < 2) return "";
+    // Probability rises with tier and with the Valley's awakening.
+    unsigned chance = (tier >= 3) ? 35u : 18u;
+    unsigned awake_pct = static_cast<unsigned>(valley_awakening * 100.0f);
+    chance = std::min(80u, chance + awake_pct / 3u);
+    // Corruption at the player's tile amplifies local hallucinations.
+    unsigned cor = at(p.pos).corruption;
+    chance = std::min(80u, chance + cor / 8u);
+
+    std::mt19937 rng(p.id * 54059u + day * 7919u);
+    if ((rng() % 100u) >= chance) return "";
+
+    uint8_t theme = dread_bias(p);
+    const char* scenes[][4] = {
+        {"a figure standing at the well, drawing water (?)",
+         "the scarecrow's head turned toward you, just for a moment (?)",
+         "a child you don't recognize wave to you from the treeline (?)",
+         "a dark window lit from within by no lamp (?)"},                              // shadows
+        {"frost creeping across the ground toward your boots (?)",
+         "your breath hangs too long, not dispersing (?)",
+         "the path behind you is iced over, though it was clear a moment ago (?)",
+         "a thin skin of ice forms on the puddles as you pass (?)"},                    // cold
+        {"a low chanting, just below hearing, from under the hill (?)",
+         "words scratched into the dirt that vanish when you look directly (?)",
+         "the wind says a name. It isn't yours. It isn't anyone's (?)",
+         "a circle of pressed grass where nothing has walked (?)"},                     // whispers
+        {"the leaves on the trees here are curling black at the edges (?)",
+         "a patch of earth has gone soft and grey, as if something leaked out (?)",
+         "you see a dead bird, then another, then a row of them (?)",
+         "the soil is damp and wrong-colored where nothing has been planted (?)"},    // rot
+    };
+    return scenes[theme % 4][rng() % 4];
+}
+
+std::string World::roll_meta_break(Player& p, bool once) {
+    if (once) {
+        if (p.meta_break_fired) return "";
+        if (p.death_count < 2) return "";   // needs at least two loops to recognize a pattern
+        p.meta_break_fired = true;
+        // The one-shot line. Fires exactly once across the entire save.
+        return "The screen holds on a frame too long. Somewhere behind it, "
+               "something notices you noticing. THIS IS NOT YOUR FIRST TIME "
+               "HERE. is it? You blink, and the farmhouse is just a farmhouse again.";
+    }
+    // Rare repeatable 4th-wall break inside horror anchors at tier >= 3.
+    int tier = perception_tier(p);
+    if (tier < 3) return "";
+    std::mt19937 rng(p.id * 99991u + day * 13u + p.death_count * 7u);
+    if ((rng() % 100u) >= 5u) return "";
+    const char* breaks[] = {
+        "The game hesitates, as if it noticed you watching.",
+        "There is a frame here with no code for it. You feel the gap.",
+        "For one breath, the world is a held breath — and it's holding yours.",
+        "Something is reading the same line of text you are, right now.",
+    };
+    return breaks[rng() % 4];
+}
+
+std::string World::roll_basement_procgen(Player& p) {
+    // Seed by (horror_cycle, basement_visits) so each descent is a new room.
+    std::mt19937 rng(horror_cycle * 6151u + basement_visits * 131u + 1u);
+
+    // Hazard type also determines the mark carried to the surface.
+    // 0 = cold, 1 = oily, 2 = whispering. Weighted by dread bias: the player's
+    // feared theme is more likely to manifest in the basement.
+    uint8_t bias = dread_bias(p);
+    unsigned roll = static_cast<unsigned>(rng() % 100u);
+    uint8_t hazard;
+    if (bias == 1)      hazard = (roll < 45) ? 0 : (roll < 75) ? 1 : 2;
+    else if (bias == 2) hazard = (roll < 25) ? 0 : (roll < 50) ? 1 : 2;
+    else if (bias == 3) hazard = (roll < 30) ? 0 : (roll < 70) ? 1 : 2;
+    else                hazard = (roll < 40) ? 0 : (roll < 65) ? 1 : 2;
+
+    const char* room_names[] = {"The Cold Cellar", "The Slick Stair", "The Whispering Hall"};
+    const char* room_desc[] = {
+        "The air drops to a bitter, cellar cold. Your breath fogs. The walls weep.",
+        "The floor is slick with something darker than water. Each step sticks, then releases.",
+        "The corridor is silent, then not. Voices rasp from nowhere, just under hearing.",
+    };
+    // sanity/HP drain scaling with cycle is already applied in trigger_basement;
+    // the mark adds a persistent surface consequence.
+    p.basement_mark = (hazard == 0) ? "cold" : (hazard == 1) ? "oily" : "whispering";
+    p.mark_days_left = 3 + static_cast<int>(horror_cycle);   // longer with deeper cycles
+
+    std::string out = room_names[hazard];
+    out += "\n" + std::string(room_desc[hazard]);
+    out += "\nSomething of this place will follow you up. (" + p.basement_mark + " mark, " +
+           std::to_string(p.mark_days_left) + " days)";
+    // Bump the dread profile toward the encountered hazard's theme.
+    bump_dread(p, hazard == 0 ? 1 : (hazard == 1 ? 3 : 2));
+    return out;
+}
+
+void World::tick_basement_mark(Player& p) {
+    if (p.mark_days_left <= 0 || p.basement_mark.empty()) return;
+    // Small daily sanity malus while the mark lingers.
+    float malus = 1.5f;
+    // Whispers are worse at night.
+    int hour = hour_of_day(*this);
+    if (p.basement_mark == "whispering" && hour >= 22) malus += 1.5f;
+    damage_sanity(p, malus);
+    --p.mark_days_left;
+    if (p.mark_days_left <= 0) p.basement_mark.clear();
+}
+
+void World::bump_dread(Player& p, uint8_t theme) {
+    if (theme >= 4) return;
+    // Saturate at 255 so one repeated encounter can't dominate forever.
+    if (p.dread_counters[theme] < 65535) ++p.dread_counters[theme];
+}
+
+uint8_t World::dread_bias(const Player& p) const {
+    uint16_t max_v = 0;
+    uint8_t max_i = 0;
+    uint16_t total = 0;
+    for (uint8_t i = 0; i < 4; ++i) {
+        uint16_t v = p.dread_counters[i];
+        total += v;
+        if (v > max_v) { max_v = v; max_i = i; }
+    }
+    if (total == 0) {
+        // No encounters yet — return a deterministic default per player.
+        std::mt19937 rng(p.id * 2654435761u + day);
+        return static_cast<uint8_t>(rng() % 4);
+    }
+    // Weighted random among themes, but bias toward the dominant one:
+    // 60% chance to pick the max, 40% weighted by counters.
+    std::mt19937 rng(p.id * 40503u + day * 3607u);
+    if ((rng() % 100u) < 60u) return max_i;
+    std::uniform_int_distribution<unsigned> dist(0, total - 1);
+    unsigned pick = dist(rng);
+    uint16_t acc = 0;
+    for (uint8_t i = 0; i < 4; ++i) {
+        acc += p.dread_counters[i];
+        if (pick < acc) return i;
+    }
+    return max_i;
 }
 
 // ----------------------------------------------------------------------

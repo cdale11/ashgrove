@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Sanity / Perception Filters & Procedural Basement (ROADMAP 1.4, 2026-08-18)
+- **Distorted dialogue** (`World::distort_dialogue`): word-swap + whispered underlayer
+  (tier ≥1) + hallucinated dread-biased clause (tier ≥3).
+- **Hallucinated scene text** (`World::hallucinate_scene`): `(?)`-tagged false descriptions
+  + phantom scarecrow sighting in `look`/explore, gated by tier + awakening + corruption.
+- **False UI** (tier ≥3): phantom inventory items (25%, seeded per day) + lying `/status`
+  clock (30%, deterministic per day).
+- **Meta-narrative breaks** (`World::roll_meta_break`): one-shot at death_count ≥2
+  (sets `meta_break_fired`) + rare 5% repeatable inside horror anchors at tier ≥3.
+- **Procedural basement** (`World::roll_basement_procgen`): per-descent room/hazard/mark
+  (cold/oily/whispering) weighted by dread bias; persistent mark with daily sanity malus
+  (`tick_basement_mark`, 1.5/day, +1.5 whispering at night).
+- **Adaptive dread profile** (per-player `dread_counters[4]`): bumps from phantom sightings,
+  night events, corrupted-tile traversal, basement hazard; `dread_bias` dominant theme biases
+  filter content; surfaced via `/valley` (`dread_bias_theme`, `dread_counters`).
+- New player save fields persisted: `meta_break_fired`, `basement_mark`, `mark_days_left`,
+  `dread_counters`.
+- Verified end-to-end (all filters, basement procgen + mark malus, death meta-break, dread
+  profile); intent baseline unchanged 26/30.
+
 ### Added — Valley Entity Mechanics (ROADMAP 1.2, 2026-08-17)
 - **ValleyMind** aggregate: the Valley itself (genius loci) as a living system state
   (collective guilt → spatial corruption CA → awakening → horror feedback loop).

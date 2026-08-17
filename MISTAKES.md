@@ -59,3 +59,16 @@ surfaced at the next build.
 
 **Lesson:** Build and fix warnings after every edit, immediately, not at the end. Never ship a
 file with warnings you added. (`cmake --build build -j4`, watch `-Wshadow`, `-Wsign-conversion`.)
+
+### M6 — `/cmd` expects JSON field `"cmd"`, not `"text"`
+**What happened:** While verifying ROADMAP 1.4, test curl calls sent `{"player_id":1,"text":"..."}`.
+The server reads `j.value("cmd","")`, so `cmd` was empty → every `/cmd` fell to the LLM tier,
+which returned `{"action":"load"}` → every response was "Loaded save.json — ...". This looked
+like an intent/regression bug. Worse, hammering the empty-cmd LLM path repeatedly triggered
+concurrent `w = std::move(fresh)` in the `load` handler and crashed the server (segfault in a
+worker; gdb only showed the main `accept()` thread).
+
+**Lesson:** Confirm the request schema first. `/cmd` uses `"cmd"` (see
+`tools/eval_intent_accuracy.py` which posts `{"cmd": text, ...}`). Test the correct field before
+debugging. Also: never fire the LLM `load`/`newgame` path concurrently in a loop — it replaces
+the whole `World` under the mutex while worker threads may hold references; treat it as fragile.
