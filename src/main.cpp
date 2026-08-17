@@ -7,6 +7,8 @@
 #include "town_consciousness.hpp"
 #include "cognitive_core.hpp"
 #include "cognitive_registry.hpp"
+#include "social_cognition.hpp"
+#include "nature_mind.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3556,6 +3558,9 @@ int main(int argc, char** argv) {
         core.load("data/npc_cognitive_state");
     }
 
+    // Phase 7.9: Nature Mind — aggregate forest ecology cognition.
+    ashgrove::NatureMind nature_mind(&world);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3689,6 +3694,34 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/state] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- town/nature ----
+    svr.Get("/town/nature", [&](const httplib::Request&, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            auto snap = nature_mind.get_snapshot();
+            json resp;
+            resp["day"] = snap.day;
+            resp["mean_succession_stage"] = snap.mean_succession_stage;
+            resp["total_carbon_stock"] = snap.total_carbon_stock;
+            resp["biodiversity_shannon"] = snap.biodiversity_shannon;
+            resp["mean_disturbance_legacy"] = snap.mean_disturbance_legacy;
+            resp["climate_velocity"] = snap.climate_velocity;
+            resp["allele_frequencies"] = snap.allele_frequencies;
+            resp["procgen_biases"] = snap.procgen_biases;
+            resp["weather_storm_bias"] = snap.weather_storm_bias;
+            resp["disaster_chance_bias"] = snap.disaster_chance_bias;
+            resp["foraging_yield"] = snap.foraging_yield;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/town/nature] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });
@@ -4196,6 +4229,8 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 // Phase 7: Town Consciousness consolidation at 04:00 (hour 28)
                 if (hour_of_day(world) == 28 && town_consciousness.is_consolidation_due()) {
                     town_consciousness.consolidate();
+                    // Phase 7.9: Nature Mind consolidation (runs after Town Consciousness)
+                    nature_mind.tick(world.day);
                 }
                 // Phase 7.3: push consolidated adaptations into the world's
                 // consumer scalars (weather, economy, horror, performance).

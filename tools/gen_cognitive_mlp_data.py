@@ -37,13 +37,16 @@ class RateLimiter:
         self.last = time.monotonic()
 
 def call_nim(prompt: str, max_tokens: int = 128, temp: float = 0.1, max_retries: int = 3) -> str:
-    """Call NIM API with retry logic. Returns raw content."""
+    """Call NIM API with retry logic. Returns raw content. Disables thinking for pure JSON output."""
     payload = {
         "model": NIM_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
         "stream": False,
+        # Disable thinking/reasoning for pure JSON output (Nemotron 3.5 Lightning)
+        "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_budget": 0,
     }
     for attempt in range(max_retries):
         try:
