@@ -69,11 +69,11 @@ screen -dmS ashgrove bash -c 'cd /home/umang/ashgrove && exec ./build/ashgrove_s
    (`cmake --build build -j4` — do not ignore warnings, including `-Wsign-conversion`,
    `-Wshadow`, `-Wunused-parameter`.)
 5. **Document exhaustively** for future agents. Update the relevant docs
-   (`docs/ROADMAP.md`, `docs/shipped-features.md`, `README.md`, this SOP, `mistakes.md`)
+   (`docs/ROADMAP.md`, `docs/shipped-features.md`, `README.md`, this SOP, `MISTAKES.md`)
    whenever behavior or architecture changes.
 6. **When in doubt, ASK.** If something is ambiguous, risky, or beyond your confidence, use the
    question tool to ask the user instead of guessing.
-7. **Keep a `mistakes.md`.** Every mistake made by any agent gets recorded there with the lesson.
+7. **Keep a `MISTAKES.md`.** Every mistake made by any agent gets recorded there with the lesson.
    This file is a living record — read it at the start of every session too.
 8. **Commit and push regularly.** Small, frequent, well-scoped commits. Never leave the tree dirty
    at the end of a session. Follow conventional commit messages (`feat:`, `fix:`, `docs:`, etc.).
@@ -141,12 +141,12 @@ adaptations stay at defaults. Retraining with consolidation-format examples is t
 
 ## 5. Working Style Checklist (per task)
 
-- [ ] Read `mistakes.md` and this SOP first.
+- [ ] Read `MISTAKES.md` and this SOP first.
 - [ ] Read `docs/ROADMAP.md` (open work) and `docs/shipped-features.md` (what's live).
 - [ ] Understand the relevant code before editing (read surrounding context, follow conventions).
 - [ ] Build: `cmake --build build -j4` — zero errors, zero new warnings.
 - [ ] Test against the running server (or relaunch per §2).
 - [ ] Fix any bug or warning discovered — immediately.
 - [ ] Update docs that describe the changed behavior.
-- [ ] Record mistakes in `mistakes.md`.
+- [ ] Record mistakes in `MISTAKES.md`.
 - [ ] Commit + push with a conventional message.

@@ -136,7 +136,7 @@ Target: Linear scaling to 16+ cores.
 
 ## Contributing
 
-1. Read `opencode_agent.md` (SOP) + `docs/ROADMAP.md` — the roadmap is the source of truth
+1. Read `AGENTS.md` (SOP) + `docs/ROADMAP.md` — the roadmap is the source of truth
 2. Follow the roadmap in priority/blocking order
 3. Every `[Q]` step requires user confirmation before coding
 4. Write verbose MUD output — test by playing via `nc localhost 8080`

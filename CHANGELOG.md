@@ -20,10 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/conscious-town-roadmap.md`, `docs/vision-gap-analysis.md`,
   `docs/legacy-completion-plan.md`, `docs/map-redesign-plan.md`, `docs/design-decisions.md`,
   `BUG_REPORT.md`, `TEST_REPORT.md`.
-- **`opencode_agent.md`** (SOP): merged standing rules (audit before major work, agent
+- **`AGENTS.md`** (SOP): merged standing rules (audit before major work, agent
   suggestions, emergence over hard-coding, parallelism, player simplification, verify before
   push, model policy), updated doc map + HTTP API list (`/town/*` endpoints).
-- **`README.md`** / **`docs/cognitive-architecture.md`** / **`mistakes.md`**: references
+- **`README.md`** / **`docs/cognitive-architecture.md`** / **`MISTAKES.md`**: references
   updated to the new doc set.
 
 ### Added — Phase 1 Core Stardew Features

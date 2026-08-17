@@ -2,7 +2,7 @@
 
 **Single source of truth for all open work.** Ordered by priority and blocking relationships.
 Shipped work lives in [`docs/shipped-features.md`](./shipped-features.md).
-Agent rules/SOP live in [`opencode_agent.md`](../opencode_agent.md).
+Agent rules/SOP live in [`AGENTS.md`](../AGENTS.md).
 Architecture spec lives in [`docs/cognitive-architecture.md`](./cognitive-architecture.md).
 Consolidated 2026-08-17 from `vision-and-roadmap.md`, `conscious-town-roadmap.md`,
 `vision-gap-analysis.md`, `legacy-completion-plan.md`, `map-redesign-plan.md`,
@@ -288,7 +288,7 @@ horror); recovery (rain, predators, trade-route rewrite); memory persists in Tow
 | `docs/ROADMAP.md` | **This file** — all open work, priority/blocking ordered |
 | `docs/shipped-features.md` | Everything shipped (R0–R16, A1–A9, Phases 1–8, cognitive core, aggregates, QA) |
 | `docs/cognitive-architecture.md` | Cognitive architecture spec (Tier 1/2, components, integration) |
-| `opencode_agent.md` | Agent SOP + rules (read first every session) |
-| `mistakes.md` | Living mistake log (read first every session) |
+| `AGENTS.md` | Agent SOP + rules (read first every session) |
+| `MISTAKES.md` | Living mistake log (read first every session) |
 | `CHANGELOG.md` | Version history |
 | `tools/dataset_schema.md` | Training dataset schemas |
