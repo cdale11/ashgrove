@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Death & the "Loop" (P2 / ROADMAP 1.3, 2026-08-17)
+- Player HP (`health`/`max_health`, default 100) + last-safe-point (`last_safe_pos`) + death
+  counter (`death_count`), persisted in save.
+- Death model: `health <= 0` or `sanity <= 0` → `World::is_dead()`; `World::handle_death`
+  applies P2 penalties — HP full, position → safe point, sanity reduced (40%, never zero);
+  world/NPCs/knowledge/items persist. Every death is a narratively remembered "loop".
+- Basement entry now damages HP (`12 + 8 × horror_cycle`).
+- Death-aware wiring in `/cmd` (action) and the game loop (time-based, queued in
+  `pending_death`, surfaced once by `/state`/`status`).
+- NPC death references (`npc_death_line`): Mayor/Witch/Traveler/Doctor remember loops;
+  the 5 villagers react once you've died ≥2 times.
+- Verified: basement HP drain, death reset (HP→100, sanity→40, death_count→1, pos→door),
+  status death line, villager death dialogue. Intent baseline unchanged (26/30).
+
 ### Tier 0 — Design Decisions Locked (2026-08-17)
 - **P0 geography**: river as **braid/multiple channels** creating islands; player farm on a
   **river island** (Farmstead district, bridge/boat access); horror anchor placement **kept

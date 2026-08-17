@@ -578,6 +578,12 @@ struct Player {
     std::string name;
     float energy = 270.0f;
     uint16_t max_energy = 270;
+    // Phase 2.3 / ROADMAP 1.3: HP + death ("loop") tracking. Death = penalties, not reset.
+    float health = 100.0f;
+    float max_health = 100.0f;
+    Vec2 last_safe_pos;        // position returned to on death (defaults to farmhouse door)
+    uint32_t death_count = 0;  // every death is a narratively remembered "loop"
+    std::string pending_death; // death narration surfaced once by /state or status
     int money = 500;
     uint8_t sel = 0;           // selected inventory slot
     std::array<InvSlot, 12> inv; // tools + items
@@ -816,6 +822,9 @@ struct World {
     void tick_sanity(Player& p);        // daily sanity drift (call in advance_day)
     void restore_sanity(Player& p, float amt);
     void damage_sanity(Player& p, float amt);
+    void damage_health(Player& p, float amt);        // HP damage (basement hazards, etc.)
+    bool is_dead(const Player& p) const;             // health <= 0 or sanity <= 0
+    std::string handle_death(Player& p);             // apply P2 reset rules; returns death narration
     // Perception tier for a player's sanity: 0=sane,1=uneasy,2=strained,3=fractured
     int perception_tier(const Player& p) const;
     std::string roll_night_event();     // chapter-style scripted night event (deterministic)
@@ -865,6 +874,9 @@ int  weather_of_day(uint32_t day);     // 0 sunny, 1 rainy
 const char* weather_of_day_name(uint32_t day);
 const char* region_at(const World& w, int x, int y);
 const char* npc_line(const char* name, int season);
+// P2 death-aware NPC line for villagers who remember the player's loops.
+// Returns "" (empty) when the NPC has nothing to say about the deaths.
+std::string npc_death_line(const char* name, uint32_t death_count);
 int  npc_at(const World& w, int x, int y);   // index into world.npcs or -1
 bool is_festival_day(uint32_t day);          // Egg Festival: Spring 13
 // daily schedule slot for hour; writes the anchor to walk to (-1 = free-roam)

@@ -1868,6 +1868,41 @@ const char* npc_line(const char* name, int season) {
     return npc_greeting(name, season);
 }
 
+// P2: death-aware references from survivors of the loops. The 4 design-survivor
+// NPCs (Mayor, Witch, Traveler, Doctor — ROADMAP §2.1) remember across cycles
+// explicitly; the 5 talkable villagers react to the rumor of your deaths.
+std::string npc_death_line(const char* name, uint32_t death_count) {
+    if (death_count == 0) return "";
+    std::string nm(name);
+    if (nm == "Mayor") {
+        return death_count == 1
+            ? "I heard you had a bad night. The valley forgives, farmer — but it forgets nothing."
+            : "That's " + std::to_string(death_count) + ". I count, even when I pretend not to.";
+    }
+    if (nm == "Witch") {
+        return death_count == 1
+            ? "Ah, you've seen it now. The first death is a door. The rest are a hallway."
+            : "You keep dying and the valley keeps waking. I've watched you " + std::to_string(death_count) + " times now.";
+    }
+    if (nm == "Traveler") {
+        return "I remember you. Everyone else forgets, but I don't. You've been through this " + std::to_string(death_count) + " times.";
+    }
+    if (nm == "Doctor") {
+        return death_count == 1
+            ? "I patched you up once already. Be careful — I can only do so much."
+            : "You're a hard patient. " + std::to_string(death_count) + " visits to my care.";
+    }
+    // Talkable villagers: they don't know about loops, but rumors travel.
+    if (death_count >= 2) {
+        if (nm == "Leah")   return "I heard you collapsed out there. The town was talking all day.";
+        if (nm == "Abigail")return "You look pale. Whatever got you — it didn't keep you down.";
+        if (nm == "Elliot") return "That was a close one. I write tragedies, but I'd rather not star in yours.";
+        if (nm == "Robin")  return "Tough luck out there. Rest up — the wood won't chop itself.";
+        if (nm == "Evelyn") return "Oh, dear heart, you gave us a fright. Take care of yourself.";
+    }
+    return "";   // everyone else doesn't dwell on it
+}
+
 // ---- seasonal forage/fish tables ----
 struct ForageEntry { const char* name; int price; };
 struct FishEntry { const char* name; int price; int min_hour, max_hour; };
@@ -1986,6 +2021,11 @@ std::string serialize_world(const World& w) {
         pl["sanity"] = p.sanity;
         pl["max_sanity"] = p.max_sanity;
         pl["last_sanity_day"] = p.last_sanity_day;
+        pl["health"] = p.health;
+        pl["max_health"] = p.max_health;
+        pl["death_count"] = p.death_count;
+        pl["safe_x"] = p.last_safe_pos.x;
+        pl["safe_y"] = p.last_safe_pos.y;
         json sf = json::array();
         for (auto& s : p.secrets_found) sf.push_back(s);
         pl["secrets_found"] = sf;
@@ -2091,6 +2131,11 @@ bool deserialize_world(World& w, const std::string& json_str) {
             p.sanity = pl.value("sanity", 100.0f);
             p.max_sanity = pl.value("max_sanity", 100.0f);
             p.last_sanity_day = static_cast<uint32_t>(pl.value("last_sanity_day", 0));
+            p.health = pl.value("health", 100.0f);
+            p.max_health = pl.value("max_health", 100.0f);
+            p.death_count = static_cast<uint32_t>(pl.value("death_count", 0));
+            p.last_safe_pos = {static_cast<int16_t>(pl.value("safe_x", p.pos.x)),
+                               static_cast<int16_t>(pl.value("safe_y", p.pos.y))};
             for (auto& s : pl.value("secrets_found", json::array()))
                 p.secrets_found.push_back(s.get<std::string>());
             for (auto& e : pl.value("night_event_log", json::array()))
@@ -2636,6 +2681,53 @@ void World::damage_sanity(Player& p, float amt) {
     p.last_sanity_day = day;
 }
 
+void World::damage_health(Player& p, float amt) {
+    p.health = std::clamp(p.health - amt, 0.0f, p.max_health);
+}
+
+bool World::is_dead(const Player& p) const {
+    return p.health <= 0.0f || p.sanity <= 0.0f;
+}
+
+// P2 recurring-runs model (ROADMAP 1.3): death = penalties, not a full reset.
+// World state, NPC memories/relationships, player knowledge, stored items, and
+// building progress all persist. On death: HP -> full, position -> last safe point,
+// sanity -> reduced (not zero), temp buffs cleared. Each death is a narratively
+// remembered "loop". Returns a multi-line narration for the death.
+std::string World::handle_death(Player& p) {
+    ++p.death_count;
+    bool broke_mind = (p.sanity <= 0.0f);
+    // 1. HP -> full.
+    p.health = p.max_health;
+    // 2. Sanity -> reduced, not zero (start of the new loop, carrying a scar).
+    p.sanity = std::max(1.0f, p.max_sanity * 0.4f);
+    p.last_sanity_day = day;
+    // 3. Position -> last safe point (farmhouse door default).
+    if (p.inside != "Farmhouse") p.inside.clear();
+    Vec2 safe = p.last_safe_pos;
+    if (safe.x == 0 && safe.y == 0) safe = door();
+    p.pos = safe;
+    p.target = safe;
+    p.inside_exit = safe;
+    p.path.clear();
+    p.moving = false;
+    p.train_used = false;
+    // 4. Night-event log: a "loop" chapter is recorded (persists across cycles).
+    std::string ev = broke_mind ? "chapter:The Loop Ends in the Dark"
+                                : "chapter:The Body Gives Out";
+    if (p.night_event_log.size() > 12) p.night_event_log.erase(p.night_event_log.begin());
+    p.night_event_log.push_back(ev + "\n(death " + std::to_string(p.death_count) + ")");
+
+    std::string out = broke_mind
+        ? "Your mind folds inward and the world goes white. Somewhere the Valley sighs—\n"
+          "it has seen this before. It will see it again."
+        : "Darkness folds around you. Your last thought is of the farmhouse door.\n"
+          "The Valley holds you, and lets you go.";
+    out += "\nYou wake at the door of the farmhouse, breathless. You have died " +
+           std::to_string(p.death_count) + (p.death_count == 1 ? " time." : " times.");
+    return out;
+}
+
 // Deterministic chapter-style night event. Uses world state (season, day,
 // economy mood) to pick a scripted scenario.
 std::string World::roll_night_event() {
@@ -2663,6 +2755,8 @@ void World::trigger_basement(Player& p) {
     basement_unlocked = true;
     ++basement_visits;
     damage_sanity(p, 10.0f);
+    // Phase 6: the deeper the cycle, the more the basement's air taxes the body.
+    damage_health(p, 12.0f + 8.0f * static_cast<float>(horror_cycle));
     p.inside = "Basement";
     p.inside_exit = p.pos;
     auto rit = interiors.find("Basement");

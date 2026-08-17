@@ -565,9 +565,34 @@ Commit `764ccbe` completed the remaining legacy items from the map-redesign road
 - **PerformanceMind**: already existed (`PerformanceMonitor`); the four new aggregates + PerformanceMind complete the 5-system collective-cognition loop.
 - All tick at 04:00 after TownConsciousness consolidation; expose `/town/{nature,village,economy,culture}` JSON snapshots.
 
+## 27. Death & the "Loop" (P2 / ROADMAP 1.3)
+
+Implements the recurring-runs model — **death = penalties, not a reset** (ROADMAP §2.3).
+
+- **Player HP**: `health`/`max_health` fields (default 100) added to `Player`; shown in `/status`
+  and `/state`. Persisted in `save.json`.
+- **Death triggers**: `health <= 0` **or** `sanity <= 0` → `World::is_dead()`.
+- **Basement hazard**: entering the basement now also damages HP (`12 + 8 × horror_cycle`),
+  scaling with how deep the loop has run (`World::trigger_basement`).
+- **Death reset** (`World::handle_death`): HP → full; position → last safe point (farmhouse
+  door / `last_safe_pos`); sanity → reduced (`max_sanity × 0.4`, never zero); temp buffs
+  cleared. **Everything else persists** — world state, NPC memories/relationships, player
+  knowledge (map, recipes, secrets), stored items, building progress.
+- **Death-aware wiring**: `/cmd` applies death after an action; the game loop applies it when
+  sanity/HP zero out over time (narration queued in `pending_death`, surfaced once by `/state`
+  or `status`).
+- **"Loop" narrative hooks**: each death increments `death_count` and appends a
+  `chapter:...` entry to the player's `night_event_log` (persists across cycles).
+- **NPC death references** (`npc_death_line`): Mayor, Witch, Traveler, Doctor (design survivors
+  who remember across loops) reference deaths directly; the 5 talkable villagers
+  (Leah/Abigail/Elliot/Robin/Evelyn) react to the rumor once you've died ≥2 times.
+- **Verified**: health drains on basement entry; death at 0 HP resets HP→100, sanity→40,
+  death_count→1, position→door; `/status` reports the death-count line; villager talk shows
+  death-aware dialogue. Intent baseline unchanged (26/30).
+
 ---
 
-## 27. QA & Bug-Fix History (2026-08-16)
+## 28. QA & Bug-Fix History (2026-08-16)
 
 ### Movement / Pathfinding fixes
 - `403bf3e` — coordinate `go` from farmhouse door (farm gate clearing in `clear_paths()`),

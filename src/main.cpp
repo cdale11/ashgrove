@@ -917,6 +917,7 @@ static Player make_fresh_player(uint32_t id, const std::string& name, Vec2 pos) 
     p.name = name;
     p.pos = pos;
     p.target = pos;
+    p.last_safe_pos = pos;   // fresh farmers wake at the farmhouse door
     p.inv[0] = {Item::Hoe, 1};
     p.inv[1] = {Item::WateringCan, 40};
     p.inv[2] = {Item::Axe, 1};
@@ -1047,6 +1048,15 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             std::to_string(season_day(w.day)) + " · " + weather_name_adapted(w, w.day));
         say("Energy: " + std::to_string(static_cast<int>(p.energy)) + "/" + std::to_string(p.max_energy) +
             "   Money: " + std::to_string(p.money) + "g");
+        say("Health: " + std::to_string(static_cast<int>(p.health)) + "/" + std::to_string(static_cast<int>(p.max_health)) +
+            "   Sanity: " + std::to_string(static_cast<int>(p.sanity)) + "/" + std::to_string(static_cast<int>(p.max_sanity)));
+        if (p.death_count > 0)
+            say("The valley has watched you die " + std::to_string(p.death_count) + " time" + (p.death_count == 1 ? "." : "s."));
+        // Surface any pending death narration from the time-based death check.
+        if (!p.pending_death.empty()) {
+            say(p.pending_death);
+            p.pending_death.clear();
+        }
         // Building condition + farmhouse level
         const char* level_names[] = {"", "Starter", "Cottage", "House", "Manor"};
         say("Farmhouse: Level " + std::to_string(w.farmhouse_level) + " (" + level_names[w.farmhouse_level] + ")");
@@ -2680,6 +2690,12 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         else if (found->pos.x > p.pos.x) p.dir = 2;
         else if (found->pos.x < p.pos.x) p.dir = 1;
         say(found->name + ": " + npc_line(found->name.c_str(), season));
+        // P2: NPCs remember the player's deaths — survivors of the loops
+        // (Mayor, Witch, Traveler, Doctor) reference them directly.
+        if (p.death_count > 0) {
+            std::string dl = npc_death_line(found->name.c_str(), p.death_count);
+            if (!dl.empty()) say(found->name + " adds, quietly: " + dl);
+        }
         uint8_t h = p.hearts[found->name];
         if (h >= 6) say(found->name + " has a warm look as they chat — they clearly like you.");
         else if (h >= 3) say(found->name + " chats happily with you. Things are going well.");
@@ -3656,7 +3672,12 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
                     {"inside", p.inside}, {"inx", p.inx}, {"iny", p.iny},
                     {"inv", inv},
                     {"sanity", p.sanity}, {"sanity_tier", world.perception_tier(p)},
+                    {"health", p.health}, {"max_health", p.max_health},
+                    {"death_count", p.death_count},
+                    {"pending_death", p.pending_death},
                 });
+                // Surface pending time-based death narration exactly once.
+                if (!p.pending_death.empty()) p.pending_death.clear();
             // attach friendship hearts
             json hearts = json::object();
             for (auto& [nm, h] : p.hearts) hearts[nm] = h;
@@ -3918,6 +3939,11 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 lines = process_intent(world, it->second, intent_json);
             } else {
                 lines = handle_cmd(world, it->second, cmd);
+            }
+            // P2 death: if the action drained HP or sanity to zero, apply the
+            // "loop" reset and surface the death narration.
+            if (world.is_dead(it->second)) {
+                lines.push_back(world.handle_death(it->second));
             }
             for (auto& l : lines) resp["lines"].push_back(l);
             uint64_t latency = now_ms() - t0;
@@ -4376,6 +4402,12 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                         p.path.erase(p.path.begin());
                         p.move_start_ms = now_ms();
                         if (p.pos == p.target || p.path.empty()) p.moving = false;
+                    }
+                    // P2 death: sanity can reach zero from staying up / horror;
+                    // apply the "loop" reset. The narration is surfaced by the
+                    // next /state or status query via pending_death.
+                    if (world.is_dead(p) && p.pending_death.empty()) {
+                        p.pending_death = world.handle_death(p);
                     }
                 }
                 for (auto& n : world.npcs) {
