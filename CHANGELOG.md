@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Horror Location Structures (ROADMAP 1.1, 2026-08-17)
+- New real map structures with interiors + horror behavior: **Witch's Hut** (Whisper Wood,
+  scrolls/mirror/kettle), **Abandoned Sanitarium** (East Moor, beds/records/instruments),
+  **Ritual Circle** (forest border, candles/altar). Basement already existed.
+- New `InteriorType::{WitchHut, Sanitarium, RitualCircle}`.
+- Entry drains sanity + surfaces narrative; furniture `interact` yields fragments and grants
+  secrets (`sanitarium_records`, `ritual_altar`) via `World::find_secret` (surfaced in `/horror`).
+- Fix: `interact`/`use` added to rule intent engine (was falling through to LLM).
+- Verified: enter/exit, sanity drain (100→85), interact narrative + secrets, intent baseline 26/30.
+
 ### Added — Death & the "Loop" (P2 / ROADMAP 1.3, 2026-08-17)
 - Player HP (`health`/`max_health`, default 100) + last-safe-point (`last_safe_pos`) + death
   counter (`death_count`), persisted in save.

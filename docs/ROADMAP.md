@@ -134,7 +134,7 @@ Legend: **[USER]** = needs user collaboration/sign-off · **[DEFERRED]** = defer
 
 | # | Item | Blocked by | Blocks |
 |---|------|-----------|--------|
-| 1.1 | **Horror location structures** — basement, witch hut, sanitarium, ritual circle, fog zones as real map structures with interiors/behavior | 0.1 | 1.4, 4.1 |
+| 1.1 | **Horror location structures** — basement, witch hut, sanitarium, ritual circle, fog zones as real map structures with interiors/behavior. **DONE 2026-08-17** (basement existed; Witch's Hut, Abandoned Sanitarium, Ritual Circle added with interiors + entry/interact horror; fog zones atmospheric — exist) | 0.1 | 1.4, 4.1 |
 | 1.2 | **Valley Entity mechanics** — collective guilt → corruption → horror intensity feedback loop (valley-as-entity system state) | 0.2 | 1.4 |
 | 1.3 | **Death consequences (P2 impl)** — HP/position/sanity reset rules, NPC references to past player deaths, "loop" narrative hooks. **DONE 2026-08-17** | — | — |
 | 1.4 | **Sanity/perception filters depth** — hallucinations, distorted dialogue, false UI, meta-narrative breaks; basement procedural horror content + persistent surface consequences | 0.1, 0.2, 1.1, 1.2 | 4.1 |

@@ -717,6 +717,10 @@ void place_buildings(World& world) {
         // docks district (south)
         {"Fish Shack", 96, 82, 2, 2},
         {"Lighthouse", 122, 88, 2, 2},
+        // ---- horror location structures (ROADMAP 1.1) ----
+        {"Witch's Hut", 12, 52, 2, 2},          // Whisper Wood (Woodland district)
+        {"Abandoned Sanitarium", 100, 42, 3, 3},// East Moor (Horror district)
+        {"Ritual Circle", 20, 60, 2, 2},        // Whisper Wood / forest border
     };
     for (auto& b : bs) {
         world.buildings.push_back({b.name, b.x, b.y, b.w, b.h});
@@ -1407,6 +1411,47 @@ void init_interiors(World& world) {
         "##   ##",
     });
     world.interiors["Shed Interior"].type = InteriorType::ShedInterior;
+
+    // ============================================================
+    // HORROR LOCATION STRUCTURES (ROADMAP 1.1)
+    // ============================================================
+
+    // Witch's Hut (Woodland) — the Witch's home; knowledge broker / cycle witness.
+    room("Witch's Hut", {
+        "##########",
+        "#..YYYY..#",  // Scrolls & lore shelves (Y)
+        "#..T......#", // Table with an old mirror
+        "#...KK...#",  // Kettle (brews things)
+        "#..<>....#",  // Stairs back out
+        "##       ##",
+    });
+    world.interiors["Witch's Hut"].type = InteriorType::WitchHut;
+
+    // Abandoned Sanitarium (Horror district) — collective guilt made manifest.
+    room("Abandoned Sanitarium", {
+        "############",
+        "#..DDDD....#",  // Derelict examination beds (D)
+        "#..........#",
+        "#..WWWW....#",  // Worn writings / patient records (W)
+        "#..........#",
+        "#..IIII....#",  // Instruments (I)
+        "#..........#",
+        "#..<>......#",  // Stairs back out
+        "##        ##",
+    });
+    world.interiors["Abandoned Sanitarium"].type = InteriorType::Sanitarium;
+
+    // Ritual Circle (forest border) — the cycle mechanics; entity communication.
+    room("Ritual Circle", {
+        "##########",
+        "#....RR...#",  // Ritual candles / marks (R)
+        "#..........#",
+        "#..AAAA....#",  // Altar stone (A)
+        "#..........#",
+        "#..<>......#",  // Stairs back out
+        "##        ##",
+    });
+    world.interiors["Ritual Circle"].type = InteriorType::RitualCircle;
 
     // ============================================================
     // THE BASEMENT (Phase 6) — under-map, reachable only after midnight

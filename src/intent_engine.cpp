@@ -75,6 +75,7 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"look", "l", "inspect", "examine"})) { set("look"); return intent; }
     if (one_of(c, {"enter", "inside"})) { set("enter"); intent.parameters["building"] = arg; return intent; }
     if (one_of(c, {"exit", "leave", "out"})) { set("exit"); return intent; }
+    if (one_of(c, {"interact", "use"})) { set("interact"); intent.parameters["thing"] = arg; return intent; }
 
     // Inventory / self
     if (one_of(c, {"inventory", "inv", "bag", "items"})) { set("inventory"); return intent; }

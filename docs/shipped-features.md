@@ -592,7 +592,32 @@ Implements the recurring-runs model — **death = penalties, not a reset** (ROAD
 
 ---
 
-## 28. QA & Bug-Fix History (2026-08-16)
+## 28. Horror Location Structures (ROADMAP 1.1)
+
+The deep places of Ashgrove as real, enterable map structures with interiors and horror
+behavior. Fog zones remain atmospheric (weather-driven) per the original design.
+
+- **Witch's Hut** (Whisper Wood, @12,52) — interior with scrolls (`Y`), a table/mirror (`T`),
+  and a bubbling kettle (`K`). Entering drains 4 sanity; interacting with the scrolls/mirror
+  drains more and surfaces narrative fragments.
+- **Abandoned Sanitarium** (East Moor / Horror district, @100,42) — interior with derelict
+  beds (`D`), patient records (`W`), and strange instruments (`I`). Entering drains 6 sanity;
+  the records grant the `sanitarium_records` secret.
+- **Ritual Circle** (Whisper Wood / forest border, @20,60) — interior with ritual candles
+  (`R`) and a warm altar stone (`A`). Entering drains 5 sanity; the altar grants the
+  `ritual_altar` secret.
+- **Basement** (farmhouse, after midnight) — already shipped (Phase 6); now also damages HP.
+- **Interior types**: `InteriorType::{WitchHut, Sanitarium, RitualCircle}` added.
+- **Entry/interact behavior** wired in `handle_cmd`; secrets tracked via
+  `World::find_secret` and surfaced by `/horror`.
+- **Fix**: `interact`/`use` added to the rule intent engine so it no longer falls through to
+  the LLM (which hallucinated "talk to the oak").
+- **Verified**: all three locations enter/exit correctly, entry drains sanity (100→85 across
+  the three), furniture interact triggers narrative + secrets, intent baseline unchanged (26/30).
+
+---
+
+## 29. QA & Bug-Fix History (2026-08-16)
 
 ### Movement / Pathfinding fixes
 - `403bf3e` — coordinate `go` from farmhouse door (farm gate clearing in `clear_paths()`),

@@ -443,7 +443,7 @@ enum class InteriorType : uint8_t {
     BarnInterior = 6, CoopInterior = 7, ShedInterior = 8, SiloInterior = 9,
     WellInterior = 10, WindmillInterior = 11, CabinInterior = 12,
     RuinInterior = 13, CaveInterior = 14, ShrineInterior = 15,
-    Basement = 16,
+    Basement = 16, WitchHut = 17, Sanitarium = 18, RitualCircle = 19,
 };
 
 // ---- interiors ----

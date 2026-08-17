@@ -2780,6 +2780,18 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         p.dir = 3;
         say("You step inside the " + p.inside + ".");
+        // Horror location structures (ROADMAP 1.1): entering the deep places
+        // taxes the mind and surfaces a fragment of the hidden narrative.
+        if (p.inside == "Witch's Hut") {
+            w.damage_sanity(p, 4.0f);
+            say("The air smells of dried herbs and old secrets. A mirror at the table shows you a face that is almost your own.");
+        } else if (p.inside == "Abandoned Sanitarium") {
+            w.damage_sanity(p, 6.0f);
+            say("The corridors hum with a wrongness that has nothing to do with sound. The beds are empty, but they are not unoccupied.");
+        } else if (p.inside == "Ritual Circle") {
+            w.damage_sanity(p, 5.0f);
+            say("The stone at the center is warm to the touch. Something here is still listening.");
+        }
         return out;
     }
     if (cmd == "exit" || cmd == "leave") {
@@ -2974,6 +2986,59 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 say("--- Day " + std::to_string(w.day) + " · " +
                     std::string(season_name(season_index(w.day))) + " ---");
                 say("You wake up refreshed. Energy restored.");
+                return out;
+            }
+
+            // Horror location structure interactions (ROADMAP 1.1): each deep
+            // place yields a fragment of the hidden narrative on 'interact'.
+            if (b == "Witch's Hut") {
+                for (auto [ch, dir] : adjacent) {
+                    if (ch == 'Y') {
+                        w.damage_sanity(p, 2.0f);
+                        say("The scrolls are written in a hand you almost recognise. One reads: \"The first death is a door.\"");
+                        return out;
+                    } else if (ch == 'K') {
+                        say("A kettle bubbles with something green. You decide not to ask what's inside.");
+                        return out;
+                    } else if (ch == 'T') {
+                        w.damage_sanity(p, 2.0f);
+                        say("You touch the mirror. It stays cold. Your reflection smiles a moment too long.");
+                        return out;
+                    }
+                }
+                say("The hut is cluttered with years of the Witch's waiting. Everything here knows something.");
+                return out;
+            }
+            if (b == "Abandoned Sanitarium") {
+                for (auto [ch, dir] : adjacent) {
+                    if (ch == 'W') {
+                        w.find_secret(p, "sanitarium_records");
+                        say("A patient ledger lies open. Every name is crossed out except one — and it's yours, written in fresh ink.");
+                        return out;
+                    } else if (ch == 'D') {
+                        say("The beds are stiff with dust. Each one has been slept in recently, despite the years.");
+                        return out;
+                    } else if (ch == 'I') {
+                        say("Strange instruments. You don't recognise a single one, and you're not sure you want to.");
+                        return out;
+                    }
+                }
+                say("The sanitarium waits. It has been waiting since before you arrived.");
+                return out;
+            }
+            if (b == "Ritual Circle") {
+                for (auto [ch, dir] : adjacent) {
+                    if (ch == 'A') {
+                        w.find_secret(p, "ritual_altar");
+                        say("The altar stone is warm. Symbols circle it that you've only seen in your dreams.");
+                        return out;
+                    } else if (ch == 'R') {
+                        w.damage_sanity(p, 3.0f);
+                        say("The candles flicker in a breeze that isn't there. They are counting something.");
+                        return out;
+                    }
+                }
+                say("The circle hums faintly, waiting to be completed.");
                 return out;
             }
         }
