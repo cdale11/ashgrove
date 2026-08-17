@@ -102,6 +102,7 @@ add_executable(ashgrove_server
   src/social_cognition.cpp
   src/nature_mind.cpp
   src/village_mind.cpp
+  src/economy_mind.cpp
 )
 
 # Include plugin sources

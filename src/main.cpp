@@ -10,6 +10,7 @@
 #include "social_cognition.hpp"
 #include "nature_mind.hpp"
 #include "village_mind.hpp"
+#include "economy_mind.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3565,6 +3566,9 @@ int main(int argc, char** argv) {
     // Phase 7.9: Village Mind — aggregate NPC collective cognition.
     ashgrove::VillageMind village_mind(&world, &cog_registry);
 
+    // Phase 7.9: Economy Mind — aggregate commodity-cycle cognition.
+    ashgrove::EconomyMind economy_mind(&world);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3762,6 +3766,32 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/town/village] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- town/economy ----
+    svr.Get("/town/economy", [&](const httplib::Request&, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            auto snap = economy_mind.get_snapshot();
+            json resp;
+            resp["day"] = snap.day;
+            resp["inflation_rate"] = snap.inflation_rate;
+            resp["trade_route_health"] = snap.trade_route_health;
+            resp["price_elasticity"] = snap.price_elasticity;
+            resp["market_volatility"] = snap.market_volatility;
+            resp["average_price_ratio"] = snap.average_price_ratio;
+            resp["demand_shift"] = snap.demand_shift;
+            resp["commodity_volatility"] = snap.commodity_volatility;
+            resp["cycle_drivers"] = snap.cycle_drivers;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/town/economy] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });
@@ -4273,6 +4303,9 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     nature_mind.tick(world.day);
                     // Phase 7.9: Village Mind consolidation (aggregate NPC mood)
                     village_mind.tick(world.day);
+                    // Phase 7.9: Economy Mind consolidation (refresh prices, then track)
+                    world.update_market_prices();
+                    economy_mind.tick(world.day);
                 }
                 // Phase 7.3: push consolidated adaptations into the world's
                 // consumer scalars (weather, economy, horror, performance).
