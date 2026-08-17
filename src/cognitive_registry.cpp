@@ -84,6 +84,20 @@ void CognitiveRegistry::aggregate_stats(float& out_mean_valence,
   out_agent_count = cores_.size();
 }
 
+float CognitiveRegistry::average_edge_trust() const {
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
+  float trust_sum = 0.0f;
+  std::size_t edge_count = 0;
+  for (const auto& kv : cores_) {
+    for (const auto& edge_kv : kv.second->state().social_graph) {
+      trust_sum += edge_kv.second.trust;
+      ++edge_count;
+    }
+  }
+  if (edge_count == 0) return 0.0f;
+  return trust_sum / static_cast<float>(edge_count);
+}
+
 std::size_t CognitiveRegistry::size() const {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
   return cores_.size();

@@ -9,6 +9,7 @@
 #include "cognitive_registry.hpp"
 #include "social_cognition.hpp"
 #include "nature_mind.hpp"
+#include "village_mind.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3561,6 +3562,9 @@ int main(int argc, char** argv) {
     // Phase 7.9: Nature Mind — aggregate forest ecology cognition.
     ashgrove::NatureMind nature_mind(&world);
 
+    // Phase 7.9: Village Mind — aggregate NPC collective cognition.
+    ashgrove::VillageMind village_mind(&world, &cog_registry);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3722,6 +3726,42 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/town/nature] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- town/village ----
+    svr.Get("/town/village", [&](const httplib::Request&, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            auto snap = village_mind.get_snapshot();
+            json resp;
+            resp["day"] = snap.day;
+            resp["npc_count"] = snap.npc_count;
+            resp["mean_valence"] = snap.mean_valence;
+            resp["mean_arousal"] = snap.mean_arousal;
+            resp["average_edge_trust"] = snap.average_edge_trust;
+            resp["collective_fear"] = snap.collective_fear;
+            resp["collective_joy"] = snap.collective_joy;
+            resp["schedule_bias"] = snap.schedule_bias;
+            resp["market_volatility"] = snap.market_volatility;
+            resp["horror_night_event_weight"] = snap.horror_night_event_weight;
+            resp["horror_intensity"] = snap.horror_intensity;
+            json mem = json::array();
+            for (const auto& rec : snap.recent_memory) {
+                mem.push_back({{"day", rec.day},
+                               {"event_type", rec.event_type},
+                               {"detail", rec.detail},
+                               {"emotional_weight", rec.emotional_weight}});
+            }
+            resp["recent_memory"] = mem;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/town/village] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });
@@ -4231,6 +4271,8 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     town_consciousness.consolidate();
                     // Phase 7.9: Nature Mind consolidation (runs after Town Consciousness)
                     nature_mind.tick(world.day);
+                    // Phase 7.9: Village Mind consolidation (aggregate NPC mood)
+                    village_mind.tick(world.day);
                 }
                 // Phase 7.3: push consolidated adaptations into the world's
                 // consumer scalars (weather, economy, horror, performance).

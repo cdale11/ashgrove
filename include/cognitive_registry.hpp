@@ -48,6 +48,11 @@ class CognitiveRegistry {
                        float& out_mean_arousal,
                        std::size_t& out_agent_count) const;
 
+  // Average trust across all social-graph edges of all agents (0..1).
+  // Returns 0.0 when there are no edges. Used by VillageMind for social
+  // cohesion. No writes; read-only traversal under the registry mutex.
+  float average_edge_trust() const;
+
   std::size_t size() const;
 
  private:

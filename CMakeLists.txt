@@ -101,6 +101,7 @@ add_executable(ashgrove_server
   src/cognitive_registry.cpp
   src/social_cognition.cpp
   src/nature_mind.cpp
+  src/village_mind.cpp
 )
 
 # Include plugin sources
