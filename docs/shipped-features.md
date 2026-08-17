@@ -1,10 +1,10 @@
 # Ashgrove Valley — Shipped Features
 
 This document consolidates **everything that has shipped** across the map-redesign
-roadmap (R0–R16), the expanded-vision addenda (A1–A9), and the forestation/tree
-expansions. Each entry notes where it lives in the code so it can be found and
-extended. The `docs/map-redesign-plan.md` roadmap now contains only unfinished,
-deferred work.
+roadmap (R0–R16), the expanded-vision addenda (A1–A9), the forestation/tree
+expansions, phases 1–8, and QA/bug-fix history. Each entry notes where it lives
+in the code so it can be found and extended. **All open/unfinished work lives in
+[`docs/ROADMAP.md`](./ROADMAP.md).**
 
 ---
 
@@ -537,7 +537,7 @@ Commit `764ccbe` completed the remaining legacy items from the map-redesign road
 - `data/town_log.jsonl` + memory aggregation + `data/adaptations.json` persistence.
 
 ### In Progress (as of 2026-08-16)
-- Additive LoRA training (`tools/train_lora.py`) teaching the intent 0.5B student the consolidation task (resume from intent adapter, consolidation rows appended — no intent forgetting). ~26 h runtime.
+- Additive LoRA training (`tools/train_lora.py`) teaching the intent 0.5B student the consolidation task (resume from intent adapter, consolidation rows appended — no intent forgetting). ~26 h runtime. **Deferred per user — tracked in `docs/ROADMAP.md` Tier 1.5.**
 - Post-training pipeline `tools/merge_and_quantize.py` (adapter → merged HF → F16 GGUF → Q4_K_M, overwrites runtime gguf).
 - Intent regression harness `tools/eval_intent_accuracy.py` + baseline `data/intent_accuracy_baseline.txt` (26/30 = 86.7%, action match 30/30).
 
@@ -564,6 +564,33 @@ Commit `764ccbe` completed the remaining legacy items from the map-redesign road
 - **CultureMind** (`/town/culture`): shared beliefs/fears/preferences from semantic memory consensus, cultural cohesion, practice frequency, biases schedule_bias/dialogue_topic_weight.
 - **PerformanceMind**: already existed (`PerformanceMonitor`); the four new aggregates + PerformanceMind complete the 5-system collective-cognition loop.
 - All tick at 04:00 after TownConsciousness consolidation; expose `/town/{nature,village,economy,culture}` JSON snapshots.
+
+---
+
+## 27. QA & Bug-Fix History (2026-08-16)
+
+### Movement / Pathfinding fixes
+- `403bf3e` — coordinate `go` from farmhouse door (farm gate clearing in `clear_paths()`),
+  farmhouse interior/exterior state mismatch (`exit` from farmhouse exterior), spurious fence
+  post at (38,84) blocking gate, `pickaxe` command alias.
+- `1b2523f` — false "You walk" message: clear pathfinding state on direct movement.
+- `9db0875` — tools (`axe`/`pickaxe`/`scythe`) also act on current cell when facing cell has
+  no target; coordinate `go` finds nearest walkable tile (radius 5) with informative message.
+
+### Verified behavior (comprehensive test pass of 2026-08-16)
+- ✅ PASS: movement (all modes), farming loop, resource gathering (facing + current cell),
+  NPC interaction, building interaction, economy, crafting, placement, time progression,
+  weather system, fishing, foraging, tree planting, pathfinding (BFS + coordinate), save/load,
+  new game, fuzzy commands, Tier 0/1 intent, NPC repair behavior (L2), well/pond recharge (L8),
+  coordinate movement (L11), fast travel (L12), building render tiers (L3).
+- ⚠️ Untested (season/random-dependent, tracked in ROADMAP Tier 5.4): severe storms (L1, 1%),
+  snow compaction (L5), festival variety beyond Spring 13, winter crops.
+- Known minor issue: Bus Stop path blocked by river (needs bridge-crossing logic) — open,
+  tracked in ROADMAP Tier 5.4.
+
+### Performance profile (i3-4160, 4 cores, CPU-only)
+- Model load ~30 s (373 MB Q4_K_M); Tier 1 inference <100 ms; movement 110 ms/step;
+  ~500 MB RSS. Tier-0 commands ~10 ms round trip (vs 10–30 s LLM path pre-Tier-0).
 
 ---
 
@@ -596,6 +623,11 @@ Land/persistence: `buy plot`, `plots`/`deeds`, `save`, `load`, `saves`,
 
 ## Commits (recent, on `origin/main`)
 
+- `a4e913b` docs: mark Phase 7.7/7.8/7.9 cognitive core + aggregates as shipped
+- `d98ec28` feat(cog-core): Phase 7.9 CultureMind aggregate collective-culture cognition
+- `5f245a3` feat(cog-core): Phase 7.9 EconomyMind aggregate commodity-cycle cognition
+- `d6d8a95` feat(cog-core): Phase 7.9 VillageMind aggregate collective cognition
+- `3710f1e` feat(cog-core): Phase 7.9 NatureMind aggregate forest cognition
 - `47f1898` feat: additive LoRA training (resume from intent adapter) + post-training tooling
 - `37eba40` feat: NIM teacher dataset generation for Town Consciousness consolidation
 - `efe6551` feat: wire town consciousness event recording + memory aggregation, add agent SOP

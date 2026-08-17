@@ -49,7 +49,7 @@ adaptations stay at defaults.
 
 **Lesson:** A model trained for one task will not magically do another. Before expecting
 "town consciousness" output, the training set must include consolidation-format examples
-(roadmap: `docs/conscious-town-roadmap.md` → "Known Gap"). Deferred per user — don't start.
+(tracked in `docs/ROADMAP.md` Tier 1.5). Deferred per user — don't start.
 
 ### M5 — Debug builds / warnings ignored during LLM-path testing
 

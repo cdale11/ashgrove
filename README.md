@@ -65,8 +65,9 @@ ashgrove/
 │   ├── emoji/             # Twemoji PNG sprites for crisp rendering
 │   └── vendor/            # PIXI.js minified
 ├── docs/
-│   ├── map-redesign-plan.md  # Source-of-truth design document + roadmap
-│   └── CHANGELOG.md          # Version history
+│   ├── ROADMAP.md             # All open work, priority-ordered (source of truth for next steps)
+│   ├── shipped-features.md    # Everything shipped (R0–R16, phases 1–8, cognition, QA)
+│   └── cognitive-architecture.md  # Cognitive AI architecture spec
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -135,8 +136,8 @@ Target: Linear scaling to 16+ cores.
 
 ## Contributing
 
-1. Read `docs/map-redesign-plan.md` — it is the source of truth
-2. Follow the roadmap (R0→R17) in order
+1. Read `opencode_agent.md` (SOP) + `docs/ROADMAP.md` — the roadmap is the source of truth
+2. Follow the roadmap in priority/blocking order
 3. Every `[Q]` step requires user confirmation before coding
 4. Write verbose MUD output — test by playing via `nc localhost 8080`
 5. Fix bugs immediately; add regression tests

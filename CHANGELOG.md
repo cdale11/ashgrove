@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs — Roadmap Consolidation (2026-08-17)
+- **New canonical `docs/ROADMAP.md`**: all open work consolidated into one file, ordered by
+  priority and blocking (Tier 0 user design sessions → Tier 1 engineering → Tier 2 deep
+  simulation → Tier 3 procedural expansion → Tier 4 questline → Tier 5 infrastructure).
+  Includes vision, user-approved design decisions (districts, horror anchors, NPCs, runs
+  model), emergence toolkit, layer specs, risks, success criteria.
+- **`docs/shipped-features.md`** extended: QA & bug-fix history (commits `403bf3e`,
+  `1b2523f`, `9db0875`), verified test pass of 2026-08-16, performance profile, updated
+  commit list (through `a4e913b`).
+- **Deleted (content absorbed into ROADMAP/shipped-features)**: `docs/vision-and-roadmap.md`,
+  `docs/conscious-town-roadmap.md`, `docs/vision-gap-analysis.md`,
+  `docs/legacy-completion-plan.md`, `docs/map-redesign-plan.md`, `docs/design-decisions.md`,
+  `BUG_REPORT.md`, `TEST_REPORT.md`.
+- **`opencode_agent.md`** (SOP): merged standing rules (audit before major work, agent
+  suggestions, emergence over hard-coding, parallelism, player simplification, verify before
+  push, model policy), updated doc map + HTTP API list (`/town/*` endpoints).
+- **`README.md`** / **`docs/cognitive-architecture.md`** / **`mistakes.md`**: references
+  updated to the new doc set.
+
 ### Added — Phase 1 Core Stardew Features
 - **Seasonal festivals** — one festival per season on day 13:
   - Spring Fair (egg hunt via `search`), Summer Luau, Autumn Harvest Festival, Winter Star Festival

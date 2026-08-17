@@ -1,0 +1,294 @@
+# Ashgrove Valley — Roadmap (Canonical)
+
+**Single source of truth for all open work.** Ordered by priority and blocking relationships.
+Shipped work lives in [`docs/shipped-features.md`](./shipped-features.md).
+Agent rules/SOP live in [`opencode_agent.md`](../opencode_agent.md).
+Architecture spec lives in [`docs/cognitive-architecture.md`](./cognitive-architecture.md).
+Consolidated 2026-08-17 from `vision-and-roadmap.md`, `conscious-town-roadmap.md`,
+`vision-gap-analysis.md`, `legacy-completion-plan.md`, `map-redesign-plan.md`,
+`design-decisions.md`, `BUG_REPORT.md`, `TEST_REPORT.md` (all deleted — content absorbed here).
+
+---
+
+## 1. Vision & North Star
+
+- **Dual-system architecture**: (1) Deterministic/RNG core — authoritative simulation, seeded,
+  reproducible, parallel-friendly; no cognition. (2) Cognitive AI/ML layer — local LLM ≤2B as
+  **language interface and reasoning engine only** (intent parsing, dialogue, consolidation,
+  narrative synthesis, `/town/why` traces). All AI outputs convert to deterministic actions
+  before touching core state.
+- **Text-first**: primary interface is prose MUD commands; PIXI.js minimap is a passive
+  reference prompt. "The real game lives in the simulation and the player's imagination."
+- **Living, thinking, learning world**: NPC schedules, economy, weather, crops, horror run
+  without the player; adaptive systems learn from player actions; offline simulation (compressed
+  tick) so the world advances while the server is down.
+- **Horror inspirations**: Stardew (cozy loop), FROM (uncanny town), Higurashi (cyclical horror),
+  DDLC (meta-narrative), Disco Elysium (internal voices, philosophical depth).
+- **Emergence as first-class goal**: systems interact via Event Bus → cascades never explicitly
+  coded. The game should *become something it was not originally coded for*.
+- **Extensible plugins**: `extern "C" void register_plugin(EventBus&)` in `plugins/*.so`
+  (partial — `command_dispatcher` exists).
+- **Human-like core NPCs**: 7 important NPCs are simulated minds (goals, fears, secrets), not
+  scripted quest-givers.
+
+---
+
+## 2. Design Decisions (user-approved, 2026-08-16)
+
+### 2.1 P0 — Authored Town: districts, anchors, NPCs
+
+**8 districts**: Civic, Commercial, Residential, Industrial, Riverside, Woodland, Farmstead, Horror.
+
+**5 horror location anchors**:
+
+| Location | District | Narrative Role |
+|----------|----------|----------------|
+| Basement entrance | Civic (Town Hall cellar) | Central mystery access; only after midnight |
+| Witch's hut | Woodland | Knowledge broker, cycle witness |
+| Abandoned sanitarium | Horror | Past trauma site, collective guilt manifestation |
+| Ritual circle | Forest (Woodland/Forest border) | Cycle mechanics, entity communication |
+| Fog zones | Riverside (night) | Perception filter, entity manifestation |
+
+**7 important NPCs (full cognition)**:
+
+| NPC | Role | District | Secret / Horror Connection |
+|-----|------|----------|---------------------------|
+| **Mayor** | Governance, order | Civic | Knows the cycle; suppresses truth to maintain control |
+| **Witch** | Knowledge, magic | Woodland | Sees cycles; guides/manipulates player |
+| **Traveler** | Outsider, observer | Commercial (inn) | Not bound by cycle; remembers across loops |
+| **Doctor** | Health, sanity | Civic/Residential | Complicit; treats symptoms not cause |
+| **Teacher** | Education, history | Civic | Witness; records but cannot act |
+| **Carpenter** | Building, repair | Industrial | Maintains physical barriers; knows structural weaknesses |
+| **Farmer** | Food, land steward | Farmstead | Connection to Valley's body; notices ecological shifts |
+
+**Background NPCs**: cheaper cognition (statistical/behavioral only — no episodic memory, no
+social graph, no self-model; simple drive-based action selection).
+
+### 2.2 P1 — Horror narrative: core concept (mechanics still need authoring)
+
+- **The Valley itself (genius loci)**: the land is alive/cursed; collective guilt (witch trials,
+  betrayal, massacre) gave it consciousness. Three intertwined mechanisms:
+  1. Time loops / cyclical tragedy — events repeat with variations; truth hidden in each cycle.
+  2. Entity feeding on fear/sanity — the Valley consumes sanity/fear to grow stronger.
+  3. Collective guilt manifests physically — corruption, fog, mutations are guilt made manifest.
+- **Cycle structure (Higurashi-inspired)**: 4–5 major cycles before "true ending" path unlocks;
+  escalation per cycle; divergence points from player choices; memory across cycles (Traveler,
+  Witch, Valley, player retain knowledge).
+- **Sanity/perception filters**: hallucinations (PIXI effects), distorted dialogue, false UI,
+  meta-narrative breaks (DDLC), internal voices (Disco Elysium).
+- **Basement**: accessible only after midnight (24:00–04:00); procedural horror content per
+  cycle; persistent consequences affecting the surface; the Valley's "heart".
+
+### 2.3 P2 — Recurring runs (DESIGN DONE, implementation open)
+
+- **Single persistent world; death = penalties, not reset.**
+- **Persists**: all world state, NPC memories/relationships (they remember player deaths),
+  player knowledge (map, recipes, horror truths, secrets), stored items, building progress.
+- **Resets on death**: HP → full, position → last safe point, sanity → reduced (not zero),
+  temp buffs cleared.
+- No run counter / no full reset; each death is a "loop" narratively.
+
+### 2.4 Cognitive architecture priorities
+
+- 7 important NPCs get full CognitiveCore (done); background NPCs statistical only.
+- **Aggregate order** (all shipped): NatureMind → VillageMind → EconomyMind → CultureMind →
+  PerformanceMind (existed).
+- **Next**: Valley Entity mechanics (collective guilt → corruption → horror intensity).
+
+---
+
+## 3. Open Work — Priority & Blocking Order
+
+Legend: **[USER]** = needs user collaboration/sign-off · **[DEFERRED]** = deferred per user ·
+**blocker arrows** show dependency direction (A → B means A blocks B).
+
+### Tier 0 — User design prerequisites (block all content phases)
+
+| # | Item | Blocked by | Blocks |
+|---|------|-----------|--------|
+| 0.1 | **P0: Authored Town Design session** — districts zoning, building purposes/rooms, NPC home interiors, river/island geography + bridges + flood zones, railway + station + tunnels, horror location placement, farm layouts. Districts/anchors/NPCs pre-decided (§2.1); session fills geography + interiors + placement. **[USER]** | — | 1.1, 1.4, 4.1 |
+| 0.2 | **P1: Horror narrative authoring** — detailed chapter/loop design per cycle, each horror NPC's specific secrets/arc, mystery escalation beats, sanity filter specifics. Core concept decided (§2.2). **[USER]** | 0.1 | 1.2, 1.4, 4.1 |
+
+### Tier 1 — Immediate engineering (unblocks narrative & content)
+
+| # | Item | Blocked by | Blocks |
+|---|------|-----------|--------|
+| 1.1 | **Horror location structures** — basement, witch hut, sanitarium, ritual circle, fog zones as real map structures with interiors/behavior | 0.1 | 1.4, 4.1 |
+| 1.2 | **Valley Entity mechanics** — collective guilt → corruption → horror intensity feedback loop (valley-as-entity system state) | 0.2 | 1.4 |
+| 1.3 | **Death consequences (P2 impl)** — HP/position/sanity reset rules, NPC references to past player deaths, "loop" narrative hooks | — | — |
+| 1.4 | **Sanity/perception filters depth** — hallucinations, distorted dialogue, false UI, meta-narrative breaks; basement procedural horror content + persistent surface consequences | 0.1, 0.2, 1.1, 1.2 | 4.1 |
+| 1.5 | **LoRA consolidation-format training** — build town-consciousness dataset (consolidation prompt format), append to training, retrain with `tools/train_lora.py`, merge+quantize, re-run soak. **[DEFERRED]** (user: "we will do training later") | user sign-off | 1.6 |
+| 1.6 | **Town Consciousness verification + endpoints** — 30-day soak test (adaptations drift from defaults, no crashes, perf tuner converges); `/town/inspect`, `/town/why`, `/town/memory`, `/town/adaptations` endpoints | 1.5 (meaningful drift) | — |
+| 1.7 | **Cognitive depth** — Cognitive LOD (important vs background NPCs; distant entities statistical), memory budgeting/LRU eviction, LLM one-line dialogue wired to NPC cognitive state (emotional tag + preferences + social graph), causal traces for debugging | — | — |
+
+### Tier 2 — Deep simulation layers (sequential: 8.1a → 8.1e → 8.2 → 8.3 → 8.4 → 8.5)
+
+Mechanistic, deterministic, emergent — see §5 toolkit and §6 layer specs.
+
+| # | Item | Blocked by | Blocks |
+|---|------|-----------|--------|
+| 2.1 | **8.1a Soil Chemistry** — NPK + pH + OM + microbiome per tile; rain leaching CA; compost; root exudates | — | 2.2–2.5 |
+| 2.2 | **8.1b Water Table** — 2D groundwater Darcy→CA; recharge/discharge; cone of depression; well drying | 2.1 | 2.3–2.5 |
+| 2.3 | **8.1c Plant Genetics** — allele sets per variety; EA recombination; L-System morphology; seed saving/breeding; giant crops from homozygosity | 2.2 | 2.4, 2.5 |
+| 2.4 | **8.1d Pest/Disease** — pest agents + spore CA + transmission graph; predators; companion planting | 2.3 | 2.5 |
+| 2.5 | **8.1e Forest Ecology & Tree Evolution** — 8 steps: (1) tree individual physiology (L-System + carbon/water), (2) light env + carbon/water economy, (3) reproduction/dispersal (seed agents, seed bank), (4) succession & community assembly, (5) intraspecific evolution (breeder's equation), (6) mycorrhizal & coevolution, (7) disturbance legacy & old-growth, (8) player feedback integration. NatureMind (shipped) is the aggregate bias consumer | 2.4 | 2.6, 2.8, 3.2 |
+| 2.6 | **8.2 Atmospheric physics** — pressure/temp/humidity fields, spectral advection, cloud/precip CA, microclimates | 2.5 | 2.8 |
+| 2.7 | **8.3 Structural physics** — rot/erosion CA, tool wear grammar, fire spread CA, stress fields, basement hatch escape | — | 2.8 |
+| 2.8 | **8.4 Creature biology** — metabolism Petri nets, disease on contact graph, aging L-systems, social graph rewriting | 2.5, 2.6, 2.7 | 2.9 |
+| 2.9 | **8.5 Terrain & ecological change** — flood CA, river migration, erosion CA, fire spread, succession, soil degradation | 2.8 | 3.2 |
+
+### Tier 3 — Procedural expansion
+
+| # | Item | Blocked by | Blocks |
+|---|------|-----------|--------|
+| 3.1 | **8.6 Procedural wilderness** — seamless authored→procgen transition, infinite exploration, biome transitions, landmark generation | — | 4.1 |
+| 3.2 | **8.7 Procedural stories** — quest generator sampling world state/history/relationships/unresolved goals (basic template+state generator exists since Phase 5; deepen + emergent narrative) | 2.9 | 4.1 |
+| 3.3 | **8.8 Offline simulation** — compressed tick on restart (crops, NPC schedules, weather, economy, ecology), deterministic replay, batch processing | 2.9 | — |
+
+### Tier 4 — Questline backbone (Phase 9)
+
+| # | Item | Blocked by | Blocks |
+|---|------|-----------|--------|
+| 4.1 | **Narrative anchors + emergent branches** — 5 anchors (below), Town Consciousness as quest director, personalized branches from playstyle/relationships/world state; Journal auto-records discoveries; escalating pressure until engaged | 0.1, 0.2, 1.1, 1.4, 3.1 | 4.2 |
+| 4.2 | **L10: Subterranean under-map layer** — parallel under-map terrain, Old Mill basement access, merges with 4.1 + 2.5 | 4.1 | — |
+
+**Anchor table**:
+
+| Anchor | Location | Core Revelation | Emergent Gates |
+|--------|----------|-----------------|----------------|
+| The Mayor's Ledger | Town Hall (night, high hearts) | Founding pact with *something* under the valley | Mayor ≥8 hearts, basement unlocked, specific night event |
+| The Witch's Bargain | Witch's Hut (basement access) | The Fog is a living entity; the town feeds it sanity | Witch ≥6 hearts, 3+ night events, sanity <50 once |
+| The Traveler's Map | Random encounter (procgen chunk) | The valley is one of many; the basement connects them | 5+ chunks explored, 2+ ruins, Traveler met 3× |
+| The Old Mill Machine | Under-map basement (deep) | A device that *writes* the town's reality — the "OS" | All 3 above + horror_cycle ≥3 + specific secret |
+| The Choice | Old Mill Machine room | **Player rewrites one rule of the valley** (permanent, saved to world seed) | All 4 anchors + Town Consciousness trust ≥ threshold |
+
+### Tier 5 — Infrastructure & polish
+
+| # | Item | Notes |
+|---|------|-------|
+| 5.1 | **Parallelism P1–P4** — fine-grained locking (split World mutex), double-buffered tick, parallel systems (`std::execution::par_unseq`, NPC thread pool), async persistence (dirty-chunk, zstd) | **[DEFERRED]** to Phase 10 |
+| 5.2 | **WebSocket push + PIXI.js browser client** — real-time NPC/player movement, weather, chat, events | — |
+| 5.3 | **CI gates** — clang-tidy, cppcheck, warning-free build gate, Doxygen API reference in CI | — |
+| 5.4 | **QA backlog** — bus stop path blocked by river (needs bridge-crossing logic); ObjType enum gap (value 18 missing, `include/world.hpp`); client keyboard shortcuts (Ctrl+C clear, copy/paste); verify severe storms (L1, 1% chance), snow compaction (L5), festival variety, winter crops | — |
+| 5.5 | **Content breadth** — crop catalogue toward 100+ (currently 45); skill lines beyond Farming; deeper gift/interaction tables | — |
+
+---
+
+## 4. Dependencies & Ordering
+
+| Phase/Item | Depends on |
+|------------|-----------|
+| 7 (Conscious Town Core) | ✅ DONE (7.1–7.5, 7.7–7.9 shipped) |
+| 8.1 (Soil/Plant) | ✅ 7 adaptation hooks wired |
+| 8.2 (Weather) | 8.1b water table |
+| 8.3 (Structural) | 7 |
+| 8.4 (Creature Bio) | 8.1, 8.2, 8.3 |
+| 8.5 (Disasters/Terrain) | 8.1–8.4 |
+| 9 (Questline) | 7, 6 (anchors), P0/P1, horror locations, L10 |
+| 10 (Integration) | All above |
+
+---
+
+## 5. Non-AI Emergence Toolkit (deterministic techniques for Phase 8)
+
+Town Consciousness only *biases parameters*; mechanics run on these deterministic,
+parallelizable techniques (no ML at runtime):
+
+| Technique | Where It Shines | Example in Ashgrove |
+|-----------|-----------------|---------------------|
+| **L-Systems** | Plant growth, river networks, caves, mycelium | Crop morphology, tree growth stages, root networks, procgen caves |
+| **Graph Rewriting / Grammars** | Social networks, quest dependency graphs, disease networks | NPC relationship web, quest templates, building upgrades, pathogen spread |
+| **CFG / Attribute Grammars** | DSL, narrative beats, recipes, blueprints | `dsl` parser, night-event chapter grammar, crafting DAG, interiors |
+| **Evolutionary Algorithms** | Creature AI, plant breeding, personality drift, procgen tuning | Crop allele optimization, NPC schedule neuroevolution, self-tuning hyperparams |
+| **Cellular Automata** | Fire, water diffusion, disease, fog, corruption | Fire CA (wind+humidity+fuel), groundwater Darcy→CA, horror fog CA, basement corruption |
+| **Agent-Based / Particles** | Pollen, insects, rain, debris, sanity echoes | Pollination agents, pest swarms, rain→soil moisture, horror echoes |
+| **Constraint Satisfaction / WFC** | Building placement, interiors, dungeon gen, schedules | `region add` procgen, interior layout, NPC daily schedule CSP |
+| **Signal Processing / Fields** | Weather, sound, scent, ley lines | 2D pressure/temp FFT advection, stealth sound, tracking scent |
+| **Petri Nets / Process Calculi** | Crafting pipelines, metabolism, quest state machines | Keg→Preserves→Cask, NPC metabolism, quest concurrency |
+| **Genetic Programming** | NPC micro-behaviors, ritual synthesis, spell synthesis | NPC "hoe then plant" programs, ritual step composition |
+
+Key principle: deterministic given seed + parameters; reproducible, debuggable, parallel.
+
+---
+
+## 6. Phase 8 Layer Specs (condensed)
+
+### 8.1 Soil & Plant Biology — ship order
+8.1a Soil Chemistry (CA + fields) → 8.1b Water Table (CA + fields) → 8.1c Plant Genetics
+(EA + L-System + graph) → 8.1d Pest/Disease (agents + CA + graph) → 8.1e Forest Ecology (below).
+
+### 8.1e Forest Ecology & Tree Evolution — key elements
+- **Tree individual**: genome (16 alleles: growth_rate, wood_density, shade_tol, drought_tol,
+  seed_mass, root_depth, branching, phenology), L-System morphology (height/dbh/crown/root),
+  carbon pools (leaf/sapwood/heartwood/root/storage/repro), hydraulic state (psi, conductivity,
+  embolism), age + cohort_id.
+- **ForestChunk**: `vector<TreeIndividual>`, seed bank (species × age class), mycorrhizal
+  network graph, precomputed seasonal light field, disturbance legacy (fire age, windthrow
+  mounds, nurse logs), allele frequencies per species.
+- **Dynamics**: daily photosynthesis = f(PPFD, temp, VPD, leaf_N, genome); carbon allocation
+  (height/radial/root/storage/repro); mortality from carbon deficit or hydraulic failure;
+  mast years via climate cue + resource threshold; seed dispersal kernels; succession
+  assembly (pioneer → mid → climax); breeder's equation allele shift per cohort; fire/wind
+  disturbance CA + legacy; old-growth emergence.
+- **Town Consciousness biases** (`adaptations.json` → `forest`): fire_suppression,
+  harvest_pressure, planting_genotypes, climate_velocity, co2_fertilization, deer_browsing_pressure.
+- **Emergent phenomena**: shifting treelines, genetic rescue, mycorrhizal collapse after
+  clear-cut, mast-year synchrony, old-growth persistence, deer/defense arms race.
+- **Player feedback**: clear-cut → pioneer pulse + erosion; selective harvest → age/genetic
+  shifts; planting → genotype introduction; fire suppression → catastrophic-fire risk.
+- NatureMind (shipped) consumes these to bias procgen/storm/disaster/foraging.
+
+### 8.2 Atmosphere
+Signal fields + spectral advection (FFT) + cloud/precip CA + storm-front L-systems; terrain
+microclimates; bias: `weather_tendency`.
+
+### 8.3 Structural
+Building decay CA (rot/erosion), foundation stress fields (CSP integrity), tool wear grammar,
+fire spread CA (fuel + wind + humidity; basement hatch = fire escape path).
+
+### 8.4 Creature biology
+Metabolism Petri nets (hunger/thirst/energy/body_temp/circadian), disease on contact graph,
+aging L-systems, social/emotional graph rewriting; outputs: population immunity, social graph,
+metabolic state per NPC.
+
+### 8.5 Disasters & cascades
+Petri net cascade logic + spatial CA + graph rewriting; risk from state (dry CA + pests +
+low water = wildfire risk); propagation (fire → smoke → respiratory → schedule → economy →
+horror); recovery (rain, predators, trade-route rewrite); memory persists in Town Consciousness.
+
+---
+
+## 7. Risks & Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| LoRA too slow for daily consolidation | Q4_K_M quantized (done); batch consolidation; KV cache; 4 cores |
+| Memory grows unbounded | town_log ring buffer (7 days); town_memory fixed schema ~50 KB; bounded memories per agent |
+| Adaptations oscillate | Damping `new = 0.3*proposed + 0.7*old`; smooth-delta training |
+| Player feels "manipulated" | `/town/why` transparency; adaptations are biases not overrides |
+| Scope creep | Phase 7 shipped core loop only; each 8.x separate PR; quest templates data-driven |
+| Cognitive systems conflict | LLM consolidation acts as tiebreaker/authority on adaptations.json |
+
+---
+
+## 8. Success Criteria ("Conscious Game" feel)
+
+1. **Replayability**: two saves, same player, diverge visibly by Day 30.
+2. **Hardware adaptivity**: stable tick rate on i3-4160 *and* Ryzen 9 without config.
+3. **Narrative coherence**: player recounts a *story* that happened — not a quest completed.
+4. **Surprise**: developer observes behavior not explicitly coded (e.g., NPC bucket brigade
+   because Town Consciousness biased `helpfulness` after player helped them).
+
+---
+
+## 9. Doc Map
+
+| File | Role |
+|------|------|
+| `docs/ROADMAP.md` | **This file** — all open work, priority/blocking ordered |
+| `docs/shipped-features.md` | Everything shipped (R0–R16, A1–A9, Phases 1–8, cognitive core, aggregates, QA) |
+| `docs/cognitive-architecture.md` | Cognitive architecture spec (Tier 1/2, components, integration) |
+| `opencode_agent.md` | Agent SOP + rules (read first every session) |
+| `mistakes.md` | Living mistake log (read first every session) |
+| `CHANGELOG.md` | Version history |
+| `tools/dataset_schema.md` | Training dataset schemas |

@@ -1,9 +1,11 @@
 # Cognitive Architecture — Ashgrove Valley AI Design
 
-> **Status**: Design / Planning — Not yet implemented. Targets Phase 7.7–10.
+> **Status**: Phases 7.7–7.9 **implemented & wired** (CognitiveCore, SocialCognition, all four
+> aggregates). Remaining: cognitive LOD, memory budgeting, LLM dialogue wiring, causal traces
+> (see `docs/ROADMAP.md` Tier 1.7). Phase 8–10 integration pending.
 > **Principle**: The local LLM (≤2B parameters) is a **language interface and reasoning engine**, not the brain of any agent or system. All persistent cognition lives in lightweight learned networks + structured adaptive state, with fixed weights and bounded online updates.
 > **Author**: 2026-08-16 (post-training pipeline + docs survey session)
-> **Cross-ref**: `docs/conscious-town-roadmap.md` §7 (Conscious Town Core)
+> **Cross-ref**: `docs/ROADMAP.md` (open work), `docs/shipped-features.md` §26 (shipped state)
 
 ---
 
@@ -163,7 +165,7 @@ The user explicitly said: "Keep neural weights mostly fixed because training is 
 4. **Performance Aggregate** (`performance_aggregate.cpp`): extends existing tuner with historical memory.
 
 ### Phase 8 — Deep Integration (Depends on 7.9 + Trained Student Model + Consolidation Dataset)
-1. **Consolidation Dataset**: Build synthetic dataset for consolidation (using `NIM` or `tools/gen_dataset.py` expanded with town-state inputs) — this is the user's deferred work (noted in `conscious-town-roadmap.md` §Known Gap).
+1. **Consolidation Dataset**: Build synthetic dataset for consolidation (using `NIM` or `tools/gen_dataset.py` expanded with town-state inputs) — this is the user's deferred work (tracked in `docs/ROADMAP.md` Tier 1.5).
 2. **Integration Hooks**: `World::tick()` → `apply_adaptations(town_consciousness.snapshot_adaptations())` (already wired in 2026-08-16 session); extend to read aggregate adaptations for `procgen`, `npc`, `weather`, `economy`, `horror`, `performance`.
 3. **NPC Schedule Integration**: Wire `schedule_slot()` to read `schedule_bias` from `adaptations.json` and `social_graph` preferences.
 4. **Forest/Procgen Integration**: Connect `procgen` biases to aggregate `nature_memory`.
