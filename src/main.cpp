@@ -11,6 +11,7 @@
 #include "nature_mind.hpp"
 #include "village_mind.hpp"
 #include "economy_mind.hpp"
+#include "culture_mind.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -3569,6 +3570,9 @@ int main(int argc, char** argv) {
     // Phase 7.9: Economy Mind — aggregate commodity-cycle cognition.
     ashgrove::EconomyMind economy_mind(&world);
 
+    // Phase 7.9: Culture Mind — aggregate collective-culture cognition.
+    ashgrove::CultureMind culture_mind(&world, &cog_registry);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3792,6 +3796,32 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/town/economy] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- town/culture ----
+    svr.Get("/town/culture", [&](const httplib::Request&, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            auto snap = culture_mind.get_snapshot();
+            json resp;
+            resp["day"] = snap.day;
+            resp["cultural_cohesion"] = snap.cultural_cohesion;
+            resp["collective_fear"] = snap.collective_fear;
+            resp["collective_joy"] = snap.collective_joy;
+            resp["schedule_bias"] = snap.schedule_bias;
+            resp["dialogue_topic_weight"] = snap.dialogue_topic_weight;
+            resp["shared_beliefs"] = snap.shared_beliefs;
+            resp["shared_fears"] = snap.shared_fears;
+            resp["practice_frequency"] = snap.practice_frequency;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/town/culture] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });
@@ -4306,6 +4336,8 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     // Phase 7.9: Economy Mind consolidation (refresh prices, then track)
                     world.update_market_prices();
                     economy_mind.tick(world.day);
+                    // Phase 7.9: Culture Mind consolidation (aggregate shared beliefs)
+                    culture_mind.tick(world.day);
                 }
                 // Phase 7.3: push consolidated adaptations into the world's
                 // consumer scalars (weather, economy, horror, performance).

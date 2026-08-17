@@ -785,6 +785,7 @@ struct World {
     float economy_market_volatility = 0.0f; // 0 stable .. 1 chaotic price swings
     json   economy_demand_shift;            // {commodity_name: multiplier}
     json   economy_shop_price_mod;          // {shop_name: {item: price_delta}}
+    json   culture_adaptations;             // {schedule_bias, dialogue_topic_weight, ...}
     float horror_intensity = 0.0f;          // 0..1
     float horror_sanity_drain_multiplier = 1.0f; // 0.5..2.0
     float horror_night_event_weight = 1.0f; // 0..2 (event frequency)

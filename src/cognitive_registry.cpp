@@ -98,6 +98,20 @@ float CognitiveRegistry::average_edge_trust() const {
   return trust_sum / static_cast<float>(edge_count);
 }
 
+std::map<std::string, float> CognitiveRegistry::collect_semantic_facts() const {
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
+  std::map<std::string, float> consensus;
+  for (const auto& kv : cores_) {
+    for (const auto& fact_kv : kv.second->state().semantic_memory) {
+      const SemanticFact& f = fact_kv.second;
+      // Key on predicate:object so shared beliefs cluster.
+      std::string key = f.predicate + ":" + f.object;
+      consensus[key] += f.confidence;  // sum of confidences across agents
+    }
+  }
+  return consensus;
+}
+
 std::size_t CognitiveRegistry::size() const {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
   return cores_.size();

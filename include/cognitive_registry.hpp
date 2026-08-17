@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <map>
 
 namespace ashgrove {
 
@@ -52,6 +53,12 @@ class CognitiveRegistry {
   // Returns 0.0 when there are no edges. Used by VillageMind for social
   // cohesion. No writes; read-only traversal under the registry mutex.
   float average_edge_trust() const;
+
+  // Aggregate semantic facts across all agents, grouped by "predicate:object".
+  // Returns confidence-weighted consensus so CultureMind can find shared
+  // beliefs/fears/preferences (facts held by many agents with high
+  // confidence). Read-only traversal.
+  std::map<std::string, float> collect_semantic_facts() const;
 
   std::size_t size() const;
 
