@@ -1,7 +1,7 @@
 # Cognitive Architecture — Ashgrove Valley AI Design
 
 > **Status**: Phases 7.7–7.9 **implemented & wired** (CognitiveCore, SocialCognition, all four
-> aggregates). Remaining: cognitive LOD, memory budgeting, LLM dialogue wiring, causal traces
+> aggregates). **Remaining: LLM dialogue model training (deferred)** (see `docs/ROADMAP.md` Tier 1.7). Phase 8–10 integration pending.
 > (see `docs/ROADMAP.md` Tier 1.7). Phase 8–10 integration pending.
 > **Principle**: The local LLM (≤2B parameters) is a **language interface and reasoning engine**, not the brain of any agent or system. All persistent cognition lives in lightweight learned networks + structured adaptive state, with fixed weights and bounded online updates.
 > **Author**: 2026-08-16 (post-training pipeline + docs survey session)

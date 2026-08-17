@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Cognitive Depth (ROADMAP 1.7, 2026-08-18)
+- **Cognitive LOD** (`LodLevel` tiers): Full (7 important NPCs, every tick), Lightweight (5 talkable villagers, every ~10 ticks), Statistical (background wildlife, aggregate only). Surfaced via `/cog` endpoint.
+- **LRU Episodic Eviction**: Replaced FIFO with importance-based eviction (emotional salience × confidence × recency via new `EpisodicEvent::last_access_tick`). Evicts minimum-importance event when over 256 cap.
+- **Causal Traces**: Per-decision ring (cap 20) recording chosen action, drive urgency vector, top stimuli, dominant emotion, final action scores. Exposed via `/cog` endpoint.
+- **LLM Cognitive Dialogue**: Talk handler builds prompt from NPC's emotion/drive/trust/memory → calls `LlamaWrapper::infer` (40 tokens, temp 0.8) → strict validation (rejects narrative garbage) → template fallback. Distortion (1.4) still applies on top. Debug logging for raw LLM output.
+- **/cog Debug Endpoint**: Lists all agent cores with LOD, memory counts, and causal traces.
+- Verified end-to-end: LOD tiers correct, causal traces populated, dialogue falls back to template (intent LoRA unsuited for generation), distortion on top works; intent baseline 26/30 unchanged.
+
 ### Added — Sanity / Perception Filters & Procedural Basement (ROADMAP 1.4, 2026-08-18)
 - **Distorted dialogue** (`World::distort_dialogue`): word-swap + whispered underlayer
   (tier ≥1) + hallucinated dread-biased clause (tier ≥3).

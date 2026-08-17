@@ -708,6 +708,50 @@ Surfaced via `/valley` (`dread_bias_theme`, `dread_counters`).
 
 ---
 
+## 32. Cognitive Depth (ROADMAP 1.7)
+
+Shipped 2026-08-18. Verified end-to-end against the running server.
+
+### Cognitive LOD (`LodLevel` tiers)
+Three tiers control per-agent tick frequency and state depth:
+- **Full (0)**: 7 important off-screen NPCs (Mayor, Witch, Traveler, Doctor, Teacher, Carpenter, Farmer) — full `CognitiveCore`, tick every game-loop call.
+- **Lightweight (1)**: 5 talkable villagers (Leah, Abigail, Elliot, Robin, Evelyn) — `CognitiveCore` with full state but ticked every ~10 calls (`Lightweight` interval), sufficient for dialogue generation.
+- **Statistical (2)**: background wildlife (rabbits, deer) — no per-agent core; represented only in aggregate minds (`VillageMind`, `NatureMind`).
+Surfaced via `/cog` endpoint (`lod` field per agent).
+
+### LRU Episodic Eviction (ROADMAP 1.7b)
+Replaced naive FIFO `pop_front()` in `maintain_caps()` with importance-based eviction:
+- Importance score = emotional salience × confidence × recency (stored in new `EpisodicEvent::last_access_tick`).
+- On `subconscious_replay` (every 256 ticks) and new event insertion, `last_access_tick` is stamped, making recalled events "stickier".
+- Evicts the minimum-importance event when `episodic_memory` exceeds 256.
+
+### Causal Traces (ROADMAP 1.7c)
+Per-decision record of *why* an agent chose its action, stored in a bounded ring (`causal_traces`, cap 20) in `CognitiveState`:
+- Chosen action index + score.
+- Drive urgency vector (6 drives).
+- Top 3 salient working-memory stimuli.
+- Dominant emotion tag + magnitude.
+- Full normalized action-score vector.
+Surfaced via `/cog` endpoint (`causal_traces` array per agent).
+
+### LLM Cognitive Dialogue (ROADMAP 1.7d)
+Talk handler now produces a cognitive-aware one-line reply when the NPC has a `CognitiveCore`:
+- Prompt built from NPC's dominant emotion, most-needed drive, trust toward player, salient memory.
+- Calls `LlamaWrapper::infer` (max 40 tokens, temp 0.8) with a strict single-line dialogue prompt.
+- Strict validation rejects narrative garbage (detects "said", "I can", multi-sentence, non-quoted output).
+- Falls back to static `npc_line` template on any validation failure / missing LLM.
+- 1.4 distortion (whispered underlayer, word-swap, hallucinated clause) still applies on top.
+- Latency ~2–3s under BOINC load; guarded by g_mutex (blocks `/state` during inference).
+
+### Verified (2026-08-18)
+- ✅ LOD tiers in `/cog`: 7 Full (lod=0), 5 Lightweight (lod=1), 0 Statistical.
+- ✅ LRU eviction code path present (episodic importance scoring + `last_access_tick` stamping).
+- ✅ Causal traces in `/cog`: 20-entry ring with drive_urgency, top_stimuli, dominant_emotion, final scores.
+- ✅ Cognitive dialogue falls back to template when LLM (intent LoRA) produces garbage; distortion still applies on top; death line appended.
+- ✅ Intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline.
+
+---
+
 ## 30. QA & Bug-Fix History (2026-08-16)
 
 ### Movement / Pathfinding fixes

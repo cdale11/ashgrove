@@ -20,6 +20,15 @@ constexpr float kClamp11(float x) {
   return x < -1.0f ? -1.0f : (x > 1.0f ? 1.0f : x);
 }
 
+// ROADMAP 1.7b: LRU importance score for an episodic event. Older events
+// (low last_access) and emotionally-flat events (low tag sum) evict first.
+float episodic_importance(const EpisodicEvent& e) {
+  float emotional = e.tag.joy + e.tag.fear + e.tag.anger + e.tag.surprise +
+                    e.tag.trust + e.tag.anticipation + e.tag.disgust;
+  float recency = e.last_access_tick > 0 ? 1.0f : 0.1f;
+  return (0.5f + emotional) * (0.3f + e.confidence) * recency;
+}
+
 }  // namespace
 
 // JSON escaping helper (in ashgrove namespace for save/load access)
@@ -114,7 +123,8 @@ void CognitiveCore::apply_tick_decay() {
 
 void CognitiveCore::maintain_caps() {
   // Working memory: drop lowest-decay items if over cap.
-  while (state_.working_memory.size() > CognitiveState::kWorkingMemoryCap) {
+  while (state_.working_memory.size() >
+         static_cast<std::size_t>(CognitiveState::kWorkingMemoryCap)) {
     auto min_it = std::min_element(
         state_.working_memory.begin(), state_.working_memory.end(),
         [](const WorkingMemoryItem& a, const WorkingMemoryItem& b) {
@@ -135,13 +145,24 @@ void CognitiveCore::maintain_caps() {
                      }),
       state_.working_memory.end());
 
-  // Episodic memory cap.
-  while (state_.episodic_memory.size() > CognitiveState::kEpisodicMemoryCap) {
-    state_.episodic_memory.pop_front();
+  // Episodic memory cap (ROADMAP 1.7b: LRU by recency + importance, not FIFO).
+  while (state_.episodic_memory.size() >
+         static_cast<std::size_t>(CognitiveState::kEpisodicMemoryCap)) {
+    // Importance = emotional salience * confidence, with recency decaying
+    // confidence (older events are weaker). Evict the least important.
+    auto worst = state_.episodic_memory.begin();
+    float worst_score = episodic_importance(*worst);
+    for (auto it = std::next(state_.episodic_memory.begin());
+         it != state_.episodic_memory.end(); ++it) {
+      float s = episodic_importance(*it);
+      if (s < worst_score) { worst_score = s; worst = it; }
+    }
+    state_.episodic_memory.erase(worst);
   }
 
   // Semantic memory cap (drop lowest confidence).
-  if (state_.semantic_memory.size() > CognitiveState::kSemanticMemoryCap) {
+  if (state_.semantic_memory.size() >
+      static_cast<std::size_t>(CognitiveState::kSemanticMemoryCap)) {
     auto min_it = std::min_element(
         state_.semantic_memory.begin(), state_.semantic_memory.end(),
         [](const auto& a, const auto& b) {
@@ -153,7 +174,8 @@ void CognitiveCore::maintain_caps() {
   }
 
   // Social graph cap (drop lowest familiarity).
-  if (state_.social_graph.size() > CognitiveState::kSocialGraphCap) {
+  if (state_.social_graph.size() >
+      static_cast<std::size_t>(CognitiveState::kSocialGraphCap)) {
     auto min_it = std::min_element(
         state_.social_graph.begin(), state_.social_graph.end(),
         [](const auto& a, const auto& b) {
@@ -165,7 +187,8 @@ void CognitiveCore::maintain_caps() {
   }
 
   // Goal stack cap.
-  while (state_.goal_stack.size() > CognitiveState::kGoalStackCap) {
+  while (state_.goal_stack.size() >
+         static_cast<std::size_t>(CognitiveState::kGoalStackCap)) {
     state_.goal_stack.pop_back();
   }
 }
@@ -252,10 +275,12 @@ void CognitiveCore::tick(uint32_t current_tick,
   float rest_score = 0.0f;
 
   float drive_urgency = 0.0f;
+  std::array<float, 6> drive_urgency_vec{{0, 0, 0, 0, 0, 0}};  // ROADMAP 1.7c
   for (std::size_t i = 0; i < state_.drives.drive_satisfaction.size(); ++i) {
     float urgency = (1.0f - state_.drives.drive_satisfaction[i]) *
                     state_.drives.drive_weights[i];
     drive_urgency += urgency;
+    if (i < drive_urgency_vec.size()) drive_urgency_vec[i] = urgency;
     switch (i) {
       case DriveState::kHunger:
         harvest_score += urgency * 0.7f;
@@ -318,6 +343,9 @@ void CognitiveCore::tick(uint32_t current_tick,
   state_.mean_valence = state_.mean_valence * 0.99f + v * 0.01f;
   state_.mean_arousal = state_.mean_arousal * 0.99f + a * 0.01f;
 
+  // ROADMAP 1.7c: record why this action was chosen.
+  record_causal_trace(current_tick, drive_urgency_vec);
+
   // 7. Cap maintenance + clamping.
   maintain_caps();
   clamp_all();
@@ -352,6 +380,7 @@ void CognitiveCore::record_event(const std::string& event_type,
   ev.payload_json = payload_json;
   ev.tag = tag_for_event(event_type);
   ev.confidence = 1.0f;
+  ev.last_access_tick = current_tick;  // ROADMAP 1.7b: fresh events are recent
   state_.episodic_memory.push_back(ev);
 
   // Update current emotion from tag (additive).
@@ -397,6 +426,7 @@ void CognitiveCore::subconscious_replay([[maybe_unused]] uint32_t current_tick) 
   for (std::size_t i = 0; i < n; ++i) {
     EpisodicEvent* ev = ranked[i];
     ev->confidence = std::min(1.0f, ev->confidence + 0.05f);
+    ev->last_access_tick = state_.last_tick;  // ROADMAP 1.7b: recency stamp
     // Slight self-model boost if event was positive.
     if (ev->tag.joy > ev->tag.fear && ev->tag.joy > 0.3f) {
       state_.self_model.self_esteem_estimate =
@@ -416,6 +446,50 @@ std::size_t CognitiveCore::select_action() const {
     }
   }
   return best;
+}
+
+void CognitiveCore::record_causal_trace(
+    uint32_t current_tick, const std::array<float, 6>& drive_urgency) {
+  // Chosen action = argmax of the normalized scores (matches select_action).
+  std::size_t chosen = 0;
+  float chosen_score = state_.last_action_scores[0];
+  for (std::size_t i = 1; i < state_.last_action_scores.size(); ++i) {
+    if (state_.last_action_scores[i] > chosen_score) {
+      chosen_score = state_.last_action_scores[i];
+      chosen = i;
+    }
+  }
+  CausalTrace tr;
+  tr.tick = current_tick;
+  tr.chosen_action = chosen;
+  tr.chosen_score = chosen_score;
+  tr.drive_urgency = drive_urgency;
+  tr.final_scores = state_.last_action_scores;
+
+  // Top ~3 salient stimuli from working memory.
+  std::vector<const WorkingMemoryItem*> sorted;
+  for (const auto& it : state_.working_memory) sorted.push_back(&it);
+  std::sort(sorted.begin(), sorted.end(),
+            [](const WorkingMemoryItem* a, const WorkingMemoryItem* b) {
+              return a->relevance > b->relevance;
+            });
+  std::size_t n = std::min<std::size_t>(3, sorted.size());
+  for (std::size_t i = 0; i < n; ++i) tr.top_stimuli.push_back(sorted[i]->stimulus_ref);
+
+  // Dominant emotion tag.
+  struct TagEntry { const char* name; float v; };
+  const EmotionalTag& e = state_.current_emotion;
+  TagEntry tags[] = {{"joy", e.joy}, {"fear", e.fear}, {"trust", e.trust},
+                     {"anger", e.anger}, {"surprise", e.surprise},
+                     {"anticipation", e.anticipation}, {"disgust", e.disgust}};
+  for (auto& t : tags)
+    if (t.v > tr.dominant_emotion) { tr.dominant_emotion = t.v; tr.dominant_emotion_name = t.name; }
+
+  state_.causal_traces.push_back(std::move(tr));
+  while (state_.causal_traces.size() >
+         static_cast<std::size_t>(CognitiveState::kCausalTraceCap)) {
+    state_.causal_traces.pop_front();
+  }
 }
 
 std::string CognitiveCore::to_json_locked() const {

@@ -61,6 +61,25 @@ class CognitiveCore {
   // Maps to: go, interact, talk, repair, harvest, rest.
   std::size_t select_action() const;
 
+  // ROADMAP 1.7a: cognitive LOD tier controls tick frequency.
+  void set_lod(LodLevel level) { state_.lod = level; }
+  LodLevel lod() const { return state_.lod; }
+
+  // ROADMAP 1.7a: ticks between full cognitive updates (1 = every call).
+  uint32_t tick_interval() const {
+    switch (state_.lod) {
+      case LodLevel::Full: return 1;
+      case LodLevel::Lightweight: return 10;
+      case LodLevel::Statistical: return 100;
+    }
+    return 1;
+  }
+  void set_tick_counter(uint32_t c) { tick_counter_ = c; }
+  uint32_t tick_counter() const { return tick_counter_; }
+
+  // ROADMAP 1.7c: return the bounded causal-trace ring (why the agent acted).
+  const std::deque<CausalTrace>& causal_traces() const { return state_.causal_traces; }
+
   // Serialize state to JSON for persistence (must hold mtx_).
   std::string to_json_locked() const;
   bool from_json_locked(const std::string& json_str);
@@ -93,6 +112,9 @@ class CognitiveCore {
   void maintain_caps();
   EmotionalTag tag_for_event(const std::string& event_type) const;
   float compute_attention_score(const std::string& stimulus) const;
+  void record_causal_trace(uint32_t current_tick,
+                           const std::array<float, 6>& drive_urgency);
+  uint32_t tick_counter_ = 0;  // ROADMAP 1.7a: LOD tick gating
 };
 
 }  // namespace ashgrove

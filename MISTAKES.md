@@ -72,3 +72,7 @@ worker; gdb only showed the main `accept()` thread).
 `tools/eval_intent_accuracy.py` which posts `{"cmd": text, ...}`). Test the correct field before
 debugging. Also: never fire the LLM `load`/`newgame` path concurrently in a loop — it replaces
 the whole `World` under the mutex while worker threads may hold references; treat it as fragile.
+
+### M7 — LLM one-line dialogue: the runtime model (intent LoRA) is unsuited for dialogue generation
+**What happened:** While implementing ROADMAP 1.7d (LLM one-line cognitive dialogue), the `LlamaWrapper` loads the intent-parsing LoRA (Qwen2.5-0.5B fine-tuned for intent JSON). Given a free-form dialogue prompt, it produces narrative continuation ("Leah said. Sure, I can drink...") instead of a single quoted dialogue line. Strict validation rejects this garbage, falling back to the static template.
+**Lesson:** The architecture doc assumes a dialogue-capable LLM at runtime, but the deployed model is an intent LoRA. For production dialogue, a separate dialogue-tuned model (or a unified model with dialogue head) is needed. The current fallback-to-template is correct defensive behavior. Document this gap in the cognitive-architecture doc and ROADMAP (future training task).

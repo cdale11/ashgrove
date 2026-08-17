@@ -71,6 +71,7 @@ struct EpisodicEvent {
   std::string payload_json;     // event-specific data
   EmotionalTag tag;
   float confidence = 1.0f;      // decays at 0.998 per tick; reinforced by replay
+  uint32_t last_access_tick = 0;  // ROADMAP 1.7: recency stamp for LRU eviction
 };
 
 struct SemanticFact {
@@ -103,11 +104,38 @@ struct GoalStackEntry {
   uint32_t deadline_tick = 0;
 };
 
+// Cognitive LOD tier (ROADMAP 1.7a). Controls how often a core is ticked and
+// how much state it carries. Full = important NPCs (every tick); Lightweight =
+// talkable villagers (ticked occasionally, enough for dialogue); Statistical =
+// background wildlife (aggregate only, not ticked per-agent).
+enum class LodLevel : uint8_t {
+  Full = 0,
+  Lightweight = 1,
+  Statistical = 2,
+};
+
+// Causal trace (ROADMAP 1.7c): a bounded record of *why* an agent picked its
+// last action -- the drive contributions, salient stimuli, emotion, and final
+// scores that fed the decision. Used for debugging via an inspect endpoint.
+struct CausalTrace {
+  uint32_t tick = 0;
+  std::size_t chosen_action = 0;          // index into last_action_scores
+  float chosen_score = 0.0f;
+  std::array<float, 6> drive_urgency{{0, 0, 0, 0, 0, 0}};
+  std::vector<std::string> top_stimuli;   // top ~3 working-memory refs
+  float dominant_emotion = 0.0f;          // peak EmotionalTag magnitude
+  std::string dominant_emotion_name;
+  std::array<float, 6> final_scores{{0, 0, 0, 0, 0, 0}};
+};
+
 struct CognitiveState {
   // Identification
   std::string agent_id;                    // e.g. "npc:demo", "player"
   uint32_t created_tick = 0;
   uint32_t last_tick = 0;
+
+  // ROADMAP 1.7a: cognitive LOD tier (not persisted; derived per session).
+  LodLevel lod = LodLevel::Full;
 
   // Emotional / Drive
   EmotionalTag current_emotion;
@@ -144,6 +172,9 @@ struct CognitiveState {
   // Action evaluator prediction cache (scaled by action_evaluator output)
   std::array<float, 6> last_action_scores{{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}};
 
+  // ROADMAP 1.7c: bounded causal-trace ring (last N decisions + why).
+  std::deque<CausalTrace> causal_traces;
+
   // Constants for bounded adaptation (see docs/cognitive-architecture.md §6)
   static constexpr float kDriveUpdateRate = 0.01f;
   static constexpr float kDriveDecayRate = 0.0002f;  // per tick
@@ -162,6 +193,7 @@ struct CognitiveState {
   static constexpr float kWorldModelBiasUpdateRate = 0.01f;
   static constexpr float kAttentionWeightUpdateRate = 0.001f;
   static constexpr float kGoalStackCap = 5;
+  static constexpr float kCausalTraceCap = 20;   // ROADMAP 1.7c: ring size
 };
 
 }  // namespace ashgrove

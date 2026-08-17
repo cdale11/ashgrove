@@ -32,6 +32,12 @@ using namespace std::chrono;
 
 std::mutex g_mutex;
 
+// ROADMAP 1.7d: cognitive dialogue generator. Set in main() to the LLM
+// callback; the talk handler uses it to produce a cognitive-aware one-line
+// reply, falling back to the static template on failure/slow path. Returns an
+// empty string when unavailable, in which case the caller keeps the template.
+static std::function<std::string(const std::string&, int, float)> g_dialogue_llm;
+
 static uint64_t now_ms() {
     return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
@@ -978,6 +984,84 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
         result.push_back(scores[i].second);
     }
     return result;
+}
+
+// ROADMAP 1.7d: produce a cognitive-aware one-line NPC reply. When the NPC has
+// a cognitive core, build a prompt from its state (dominant emotion, most-
+// needed drive, trust toward the player, most salient memory) and ask the LLM.
+// Falls back to the static template on any failure / when no LLM is wired.
+static std::string cognitive_dialogue_line(const std::string& npc_name,
+                                           const ashgrove::CognitiveCore* core,
+                                           int season) {
+    if (!core || !g_dialogue_llm) return npc_line(npc_name.c_str(), season);
+    const ashgrove::CognitiveState& s = core->state();
+
+    // Dominant emotion tag.
+    std::string emotion = "calm";
+    float peak = 0.0f;
+    {
+        const ashgrove::EmotionalTag& e = s.current_emotion;
+        struct E { const char* n; float v; };
+        E es[] = {{"joy", e.joy}, {"fear", e.fear}, {"trust", e.trust},
+                  {"anger", e.anger}, {"surprise", e.surprise},
+                  {"anticipation", e.anticipation}, {"disgust", e.disgust}};
+        for (auto& x : es) if (x.v > peak) { peak = x.v; emotion = x.n; }
+        if (peak < 0.25f) emotion = "calm";
+    }
+
+    // Most-needed drive (lowest satisfaction).
+    const char* drive_names[] = {"hungry", "thirsty", "lonely", "uneasy",
+                                 "curious", "tired"};
+    std::string need = "fine";
+    float low = 1.0f;
+    for (std::size_t i = 0; i < s.drives.drive_satisfaction.size(); ++i) {
+        if (s.drives.drive_satisfaction[i] < low) {
+            low = s.drives.drive_satisfaction[i];
+            need = drive_names[i];
+        }
+    }
+
+    // Trust toward the player (from the social graph).
+    float trust = 0.5f;
+    {
+        auto it = s.social_graph.find("player");
+        if (it != s.social_graph.end()) trust = it->second.trust;
+    }
+
+    // Most salient memory (highest-relevance working-memory ref).
+    std::string memory = "the valley's quiet routines";
+    float best = 0.0f;
+    for (const auto& it : s.working_memory)
+        if (it.relevance > best) { best = it.relevance; memory = it.stimulus_ref; }
+
+    std::string prompt =
+        "You are " + npc_name + ", a villager in Ashgrove Valley. "
+        "You are feeling " + emotion + ", mostly " + need + ". "
+        "You trust the farmer " + std::to_string(static_cast<int>(trust * 100)) +
+        " percent. You are thinking about " + memory + ".\n"
+        "Reply with exactly ONE short line of in-character dialogue, in quotes, "
+        "about your current mood or the season. Do not add stage directions.";
+
+    std::string raw = g_dialogue_llm(prompt, 40, 0.8f);
+    std::cerr << "[cognitive_dialogue] " << npc_name << " raw='" << raw << "'" << std::endl;
+    // Trim whitespace and normalize; strip trailing punctuation-only noise.
+    raw.erase(0, raw.find_first_not_of(" \t\r\n"));
+    while (!raw.empty() && (raw.back() == '\n' || raw.back() == '\r' ||
+                            raw.back() == ' ')) raw.pop_back();
+    // ROADMAP 1.7d: strict validation - reject obvious narrative garbage.
+    // Accept only a single short line that looks like direct speech.
+    bool ok = raw.size() >= 6 && raw.size() <= 120 &&
+              raw.find('"') != std::string::npos &&
+              raw.find("said") == std::string::npos &&
+              raw.find("I can") == std::string::npos &&
+              raw.find("You ") != 0 &&  // don't start with "You "
+              std::count(raw.begin(), raw.end(), '.') <= 1 &&
+              std::count(raw.begin(), raw.end(), ',') <= 2;
+    if (!ok) return npc_line(npc_name.c_str(), season);
+    // Keep it a single line.
+    auto nl = raw.find('\n');
+    if (nl != std::string::npos) raw = raw.substr(0, nl);
+    return raw;
 }
 
 static std::vector<std::string> handle_cmd(World& w, Player& p, const std::string& raw) {
@@ -2739,7 +2823,12 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         // ROADMAP 1.4: at low sanity, NPC dialogue distorts (whispered
         // underlayer, word-swap, hallucinated extra clause).
         {
-            std::string base = npc_line(found->name.c_str(), season);
+            // ROADMAP 1.7d: cognitive-aware LLM line when the NPC has a core.
+            ashgrove::CognitiveCore* core = nullptr;
+            try {
+                core = &ashgrove::CognitiveRegistry::instance().get_or_create("npc:" + found->name);
+            } catch (...) { core = nullptr; }
+            std::string base = cognitive_dialogue_line(found->name, core, season);
             std::string distorted = w.distort_dialogue(p, found->name, base);
             say(found->name + ": " + distorted);
         }
@@ -3694,6 +3783,8 @@ int main(int argc, char** argv) {
     std::function<std::string(const std::string&, int, float)> llm_callback = [&llama](const std::string& prompt, int max_tokens, float temp) -> std::string {
         return llama.infer(prompt, max_tokens, temp);
     };
+    // ROADMAP 1.7d: expose the same LLM to the cognitive dialogue path.
+    g_dialogue_llm = llm_callback;
     TownConsciousness town_consciousness(world, llm_callback);
 
 // Phase 7.7: Cognitive Core — initialize registry and create cores for important NPCs.
@@ -3705,9 +3796,25 @@ int main(int argc, char** argv) {
         ashgrove::CognitiveCore& core = cog_registry.get_or_create("npc:" + name);
         core.mutable_state().agent_id = "npc:" + name;
         core.mutable_state().created_tick = static_cast<uint32_t>(now_ms());
+        core.set_lod(ashgrove::LodLevel::Full);
         // Load persisted state if exists.
         core.load("data/npc_cognitive_state");
     }
+    // ROADMAP 1.7a: Cognitive LOD -- talkable villagers get Lightweight cores
+    // (enough state for cognitive dialogue; ticked every ~10 ticks). They must
+    // exist so the talk handler can source cognitive state for the LLM line.
+    const std::vector<std::string> villager_npcs = {
+        "Leah", "Abigail", "Elliot", "Robin", "Evelyn"
+    };
+    for (const auto& name : villager_npcs) {
+        ashgrove::CognitiveCore& core = cog_registry.get_or_create("npc:" + name);
+        core.mutable_state().agent_id = "npc:" + name;
+        core.mutable_state().created_tick = static_cast<uint32_t>(now_ms());
+        core.set_lod(ashgrove::LodLevel::Lightweight);
+        core.load("data/npc_cognitive_state");
+    }
+    // ROADMAP 1.7a: background wildlife (rabbits) are Statistical -- no per-agent
+    // cognitive state; the registry simply won't create cores for them.
 
     // Phase 7.9: Nature Mind — aggregate forest ecology cognition.
     ashgrove::NatureMind nature_mind(&world);
@@ -3963,6 +4070,66 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/valley] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- /cog: ROADMAP 1.7a/c cognitive LOD + causal-trace diagnostics ----
+    svr.Get("/cog", [&](const httplib::Request& req, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            // Optional ?agent=npc:Leah filter; default lists all cores.
+            std::string want = req.has_param("agent") ? req.get_param_value("agent") : "";
+            auto& reg = ashgrove::CognitiveRegistry::instance();
+            json resp = json::object();
+            json agents = json::array();
+            // Rebuild from the singleton's cores via get_or_create + state().
+            // (Registry has no public iteration; enumerate the known NPC set.)
+            const std::vector<std::string> names = {
+                "Mayor", "Witch", "Traveler", "Doctor", "Teacher", "Carpenter", "Farmer",
+                "Leah", "Abigail", "Elliot", "Robin", "Evelyn"
+            };
+            for (const auto& nm : names) {
+                std::string id = "npc:" + nm;
+                if (!want.empty() && want != id && want != nm) continue;
+                auto& core = reg.get_or_create(id);
+                const ashgrove::CognitiveState& s = core.state();
+                json a;
+                a["agent_id"] = id;
+                a["lod"] = static_cast<int>(core.lod());
+                a["mean_valence"] = s.mean_valence;
+                a["mean_arousal"] = s.mean_arousal;
+                a["episodic_count"] = s.episodic_memory.size();
+                a["working_count"] = s.working_memory.size();
+                a["semantic_count"] = s.semantic_memory.size();
+                a["social_count"] = s.social_graph.size();
+                // ROADMAP 1.7c: last causal trace(s).
+                json traces = json::array();
+                for (const auto& t : core.causal_traces()) {
+                    json tr;
+                    tr["tick"] = t.tick;
+                    tr["action"] = static_cast<int>(t.chosen_action);
+                    tr["action_score"] = t.chosen_score;
+                    tr["dominant_emotion"] = t.dominant_emotion_name;
+                    json urg = json::array();
+                    for (float u : t.drive_urgency) urg.push_back(u);
+                    tr["drive_urgency"] = urg;
+                    json stim = json::array();
+                    for (const auto& st : t.top_stimuli) stim.push_back(st);
+                    tr["top_stimuli"] = stim;
+                    traces.push_back(tr);
+                }
+                a["causal_traces"] = traces;
+                agents.push_back(a);
+            }
+            resp["agents"] = agents;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/cog] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });

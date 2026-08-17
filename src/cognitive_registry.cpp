@@ -59,6 +59,10 @@ void CognitiveRegistry::tick_all(uint32_t current_tick,
                                  const std::vector<std::string>& observed_stimuli) {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
   for (auto& kv : cores_) {
+    // ROADMAP 1.7a: cognitive LOD -- skip ticks for lower-fidelity cores.
+    kv.second->set_tick_counter(kv.second->tick_counter() + 1);
+    uint32_t interval = kv.second->tick_interval();
+    if (kv.second->tick_counter() % interval != 0) continue;
     kv.second->tick(current_tick, observed_stimuli);
   }
 }
