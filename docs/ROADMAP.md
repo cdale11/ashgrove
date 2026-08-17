@@ -64,6 +64,15 @@ Consolidated 2026-08-17 from `vision-and-roadmap.md`, `conscious-town-roadmap.md
 **Background NPCs**: cheaper cognition (statistical/behavioral only — no episodic memory, no
 social graph, no self-model; simple drive-based action selection).
 
+**2.1a P0 — DECIDED 2026-08-17 (user input)**:
+- **River geography**: **Braid / multiple channels** — the river splits into channels creating
+  islands. Riverside district lines the channels; flood zones cluster near braids. More
+  bridges + flood complexity than a single channel.
+- **Farm layout**: **Player farm sits on a river island** in the Farmstead district, fully
+  surrounded by water, accessed by bridge/boat — reinforces isolation and the valley-entity
+  theme; a threshold crossing into the town's mysteries.
+- **Horror anchor placement**: **kept exactly as designed** (§2.1 table above) — no repositioning.
+
 ### 2.2 P1 — Horror narrative: core concept (mechanics still need authoring)
 
 - **The Valley itself (genius loci)**: the land is alive/cursed; collective guilt (witch trials,
@@ -78,6 +87,16 @@ social graph, no self-model; simple drive-based action selection).
   meta-narrative breaks (DDLC), internal voices (Disco Elysium).
 - **Basement**: accessible only after midnight (24:00–04:00); procedural horror content per
   cycle; persistent consequences affecting the surface; the Valley's "heart".
+
+**2.2a P1 — DECIDED 2026-08-17 (user input)**:
+- **Cycles to author**: **4 concrete cycles** (Higurashi-style) — 3 escalating "fragment"
+  loops + 1 truth/cataclysm loop, then the true-end path unlocks.
+- **Player agency within a loop**: **free-form per loop** — player roams freely; consequences
+  emerge from how the 4–5 cycles play out, relying on the emergent systems (Tier 2/4) rather
+  than rigid per-cycle missions. Truth fragments persist across loops.
+- **Sanity/perception filters (first pass)**: **core filters only** — hallucinated text/dialogue,
+  occasional false UI, one meta-narrative break. PIXI visual distortion deferred until the
+  WebSocket + browser client ships (Tier 5.2).
 
 ### 2.3 P2 — Recurring runs (DESIGN DONE, implementation open)
 
@@ -104,10 +123,12 @@ Legend: **[USER]** = needs user collaboration/sign-off · **[DEFERRED]** = defer
 
 ### Tier 0 — User design prerequisites (block all content phases)
 
+> **DONE 2026-08-17** — user provided all decisions. See §2.1a (geography) and §2.2a (narrative).
+
 | # | Item | Blocked by | Blocks |
 |---|------|-----------|--------|
-| 0.1 | **P0: Authored Town Design session** — districts zoning, building purposes/rooms, NPC home interiors, river/island geography + bridges + flood zones, railway + station + tunnels, horror location placement, farm layouts. Districts/anchors/NPCs pre-decided (§2.1); session fills geography + interiors + placement. **[USER]** | — | 1.1, 1.4, 4.1 |
-| 0.2 | **P1: Horror narrative authoring** — detailed chapter/loop design per cycle, each horror NPC's specific secrets/arc, mystery escalation beats, sanity filter specifics. Core concept decided (§2.2). **[USER]** | 0.1 | 1.2, 1.4, 4.1 |
+| 0.1 | **P0: Authored Town Design session** — geography = river **braid/islands**; farm = **river island**; horror anchors = as designed. **DONE** | — | 1.1, 1.4, 4.1 |
+| 0.2 | **P1: Horror narrative authoring** — **4 cycles**; **free-form per loop**; **core sanity filters** first. **DONE** | 0.1 | 1.2, 1.4, 4.1 |
 
 ### Tier 1 — Immediate engineering (unblocks narrative & content)
 

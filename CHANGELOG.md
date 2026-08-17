@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tier 0 — Design Decisions Locked (2026-08-17)
+- **P0 geography**: river as **braid/multiple channels** creating islands; player farm on a
+  **river island** (Farmstead district, bridge/boat access); horror anchor placement **kept
+  as designed** (Basement/`Witch's hut`/Sanitarium/Ritual circle/Fog zones).
+- **P1 narrative**: author **4 cycles** (3 fragments + 1 truth) before true-end path; **free-form
+  player agency per loop** (emergence-driven); **core sanity filters** first (hallucinated text,
+  occasional false UI, one meta-break) — PIXI visuals deferred to Tier 5.2.
+- `docs/ROADMAP.md`: §2.1a/§2.2a added; Tier 0 items 0.1 & 0.2 marked **DONE** — unblocks 1.1,
+  1.2, 1.4, 4.1.
+
 ### Docs — Roadmap Consolidation (2026-08-17)
 - **New canonical `docs/ROADMAP.md`**: all open work consolidated into one file, ordered by
   priority and blocking (Tier 0 user design sessions → Tier 1 engineering → Tier 2 deep
