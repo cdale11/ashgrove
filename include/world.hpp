@@ -498,6 +498,10 @@ struct Cell {
     uint8_t track_age = 0;        // 0=none, 1=fresh, 255=old (hours since created)
     uint8_t track_type = 0;       // 0=none, 1=player, 2=npc, 3=deer, 4=rabbit, 5=predator
     int8_t track_dir = -1;        // direction of travel: 0=S, 1=W, 2=E, 3=N
+    // ROADMAP 1.2 — Valley Entity corruption (spatial CA, fog/dead-zone tiles).
+    // 0=clean, 255=fully corrupted. Emanates from the 4 horror anchors and
+    // spreads as a cellular automaton driven by the Valley's awakening.
+    uint8_t corruption = 0;
 };
 
 // L6: Wildlife system
@@ -796,6 +800,13 @@ struct World {
     float horror_sanity_drain_multiplier = 1.0f; // 0.5..2.0
     float horror_night_event_weight = 1.0f; // 0..2 (event frequency)
     float horror_phantom_sighting_chance = 0.0f; // 0..0.5
+    // ROADMAP 1.2 — Valley Entity (genius loci) state.
+    // collective_guilt accumulates from deaths, secrets found, basement visits,
+    // and horror events; decays slowly each day. Persists and escalates across
+    // horror_cycles. Drives the corruption CA and the horror feedback loop
+    // (via ValleyMind pushing back into the horror_* scalars above).
+    float collective_guilt = 0.0f;        // 0..1
+    float valley_awakening = 0.0f;        // 0..1 (derived from guilt + corruption)
     int   perf_npc_decision_interval_ticks = 5;  // NPC think cadence
     int   perf_weather_update_interval_ticks = 20; // weather recheck cadence
 
@@ -833,6 +844,14 @@ struct World {
     std::string horror_flavor(const Player& p) const; // ambient horror line at low sanity
     std::string internal_voice(const Player& p) const; // Disco-Elysium-style inner monologue
     void find_secret(Player& p, const std::string& secret); // Higurashi secret discovery
+
+    // ROADMAP 1.2 — Valley Entity mechanics. add_guilt() feeds collective_guilt
+    // (clamped 0..1); tick_valley() is the daily Valley heartbeat: decay guilt,
+    // reseed + spread the corruption CA from the horror anchors, and recompute
+    // valley_awakening. corruption_density() samples the spatial field (0..1).
+    void add_guilt(float amt);
+    void tick_valley();
+    float corruption_density() const;
 
     // Core map walkable (chunk 0,0)
     bool walkable(int x, int y) const {

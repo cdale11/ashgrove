@@ -2121,6 +2121,10 @@ std::string serialize_world(const World& w) {
     j["horror_cycle"] = w.horror_cycle;
     j["active_horror"] = w.active_horror;
     j["last_night_event"] = w.last_night_event;
+    // ROADMAP 1.2 — Valley Entity state (corruption field regrows from anchors,
+    // so only the scalar guilt/awakening are persisted).
+    j["collective_guilt"] = w.collective_guilt;
+    j["valley_awakening"] = w.valley_awakening;
     return j.dump();
 }
 
@@ -2235,6 +2239,9 @@ bool deserialize_world(World& w, const std::string& json_str) {
         w.horror_cycle = j.value("horror_cycle", 0u);
         w.active_horror = j.value("active_horror", std::string());
         w.last_night_event = j.value("last_night_event", std::string());
+        // ROADMAP 1.2 — Valley Entity state.
+        w.collective_guilt = j.value("collective_guilt", 0.0f);
+        w.valley_awakening = j.value("valley_awakening", 0.0f);
         return true;
     } catch (const std::exception& e) {
         std::cerr << "save load failed: " << e.what() << "\n";
@@ -2763,6 +2770,12 @@ std::string World::handle_death(Player& p) {
     if (p.night_event_log.size() > 12) p.night_event_log.erase(p.night_event_log.begin());
     p.night_event_log.push_back(ev + "\n(death " + std::to_string(p.death_count) + ")");
 
+    // ROADMAP 1.2: a death feeds the Valley's collective guilt and escalates it
+    // per cycle — the Valley remembers each loop and stirs a little darker.
+    add_guilt(0.15f);
+    collective_guilt = std::clamp(
+        collective_guilt + 0.03f * static_cast<float>(horror_cycle), 0.0f, 1.0f);
+
     std::string out = broke_mind
         ? "Your mind folds inward and the world goes white. Somewhere the Valley sighs—\n"
           "it has seen this before. It will see it again."
@@ -2792,6 +2805,8 @@ std::string World::roll_night_event() {
     out += "\nSomewhere in the house, a door you never opened stands ajar.";
     active_horror = ev;
     last_night_event = out;
+    // ROADMAP 1.2: a horror night event feeds the Valley a little guilt.
+    add_guilt(0.03f);
     return out;
 }
 
@@ -2814,6 +2829,11 @@ void World::trigger_basement(Player& p) {
     }
     // Higurashi-style: each visit into the hidden space turns the cycle.
     ++horror_cycle;
+    // ROADMAP 1.2: descending into the Valley's heart feeds its guilt and stirs
+    // it toward awakening; each new cycle draws a darker baseline.
+    add_guilt(0.05f);
+    collective_guilt = std::clamp(
+        collective_guilt + 0.04f * static_cast<float>(horror_cycle), 0.0f, 1.0f);
 }
 
 void World::leave_basement(Player& p) {
@@ -2858,4 +2878,98 @@ void World::find_secret(Player& p, const std::string& secret) {
         return;
     p.secrets_found.push_back(secret);
     restore_sanity(p, 8.0f);   // understanding restores a little clarity
+    // ROADMAP 1.2: uncovering a hidden truth feeds the Valley's collective guilt.
+    add_guilt(0.05f);
+}
+
+// ----------------------------------------------------------------------
+// ROADMAP 1.2 — Valley Entity mechanics (collective guilt -> corruption ->
+// horror intensity). The Valley itself is a genius loci whose state emerges
+// from accumulated guilt (deaths, secrets, horror events) and a spatial
+// corruption field (cellular automaton seeded at the 4 horror anchors).
+// tick_valley() is the daily heartbeat; ValleyMind pushes awakening back
+// into the horror_* adaptation scalars each consolidation.
+// ----------------------------------------------------------------------
+
+void World::add_guilt(float amt) {
+    collective_guilt = std::clamp(collective_guilt + amt, 0.0f, 1.0f);
+}
+
+float World::corruption_density() const {
+    // Downsampled average over the core authored map (stride 4). 0=clean, 1=full.
+    long sum = 0;
+    int cnt = 0;
+    for (int y = 0; y < MAP_H; y += 4) {
+        for (int x = 0; x < MAP_W; x += 4) {
+            sum += at(x, y).corruption;
+            ++cnt;
+        }
+    }
+    return cnt > 0 ? static_cast<float>(sum) / static_cast<float>(cnt * 255) : 0.0f;
+}
+
+void World::tick_valley() {
+    // 1) Slow daily decay of collective guilt — the Valley forgets a little,
+    //    so sustained atrocity is required to keep it awake.
+    collective_guilt = std::max(0.0f, collective_guilt - 0.02f);
+
+    // 2) Awakening rises from guilt and the spread of corruption together.
+    float density = corruption_density();
+    valley_awakening = std::clamp(0.55f * collective_guilt + 0.45f * density, 0.0f, 1.0f);
+
+    // 3) Reseed corruption at the horror anchors. Each anchor's corruption is
+    //    pushed up to the awakening-driven floor (valley feeds the anchors).
+    struct Anchor { int x; int y; float w; };
+    static constexpr Anchor anchors[] = {
+        {22, 25, 1.0f},   // Town Center / basement cellar (Civic anchor)
+        {12, 52, 0.85f},  // Witch's Hut (Woodland)
+        {100, 42, 1.0f},  // Abandoned Sanitarium (Horror)
+        {20, 60, 0.9f},   // Ritual Circle (Forest border)
+    };
+    const int anchor_floor = static_cast<int>(valley_awakening * 255.0f);
+    for (const Anchor& a : anchors) {
+        if (!in_bounds(a.x, a.y)) continue;
+        int floor_v = std::min(255, static_cast<int>(static_cast<float>(anchor_floor) * a.w));
+        Cell& c = at(a.x, a.y);
+        if (c.corruption < floor_v) c.corruption = static_cast<uint8_t>(floor_v);
+    }
+
+    // 4) Corruption cellular automaton: diffuse toward neighbor mean, gentle decay,
+    //    anchors reseeded each pass. Double-buffered over the core map.
+    static std::array<uint8_t, MAP_W * MAP_H> next_buf;
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            int sum = 0;
+            int cnt = 0;
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+                    sum += at(nx, ny).corruption;
+                    ++cnt;
+                }
+            }
+            int avg = cnt > 0 ? sum / cnt : 0;
+            int self = at(x, y).corruption;
+            // Diffuse 1/4 of the gap toward the neighbor mean, then decay by 1.
+            int nv = self + (avg - self) / 4 - 1;
+            if (nv < 0) nv = 0;
+            if (nv > 255) nv = 255;
+            next_buf[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] =
+                static_cast<uint8_t>(nv);
+        }
+    }
+    // Commit, then re-apply anchor floors so seeds survive the decay.
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            at(x, y).corruption =
+                next_buf[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)];
+        }
+    }
+    for (const Anchor& a : anchors) {
+        if (!in_bounds(a.x, a.y)) continue;
+        int floor_v = std::min(255, static_cast<int>(static_cast<float>(anchor_floor) * a.w));
+        Cell& c = at(a.x, a.y);
+        if (c.corruption < floor_v) c.corruption = static_cast<uint8_t>(floor_v);
+    }
 }

@@ -617,7 +617,46 @@ behavior. Fog zones remain atmospheric (weather-driven) per the original design.
 
 ---
 
-## 29. QA & Bug-Fix History (2026-08-16)
+## 29. Valley Entity Mechanics (ROADMAP 1.2)
+
+- **ValleyMind** (`include/valley_mind.hpp`, `src/valley_mind.cpp`) — new aggregate
+  cognition representing the Valley itself (genius loci) as a system state. Runs once
+  per in-game day at the 04:00 consolidation (after VillageMind/EconomyMind/CultureMind,
+  after `apply_adaptations`). Per-day guard prevents multi-tick during the async LLM
+  consolidation window.
+- **Collective guilt** (`World::collective_guilt`, 0..1) — accumulated by:
+  - `handle_death` (+0.15, plus +0.03×`horror_cycle` baseline; carries + escalates per cycle)
+  - `find_secret` (+0.05)
+  - `trigger_basement` (+0.05, plus +0.04×`horror_cycle`)
+  - `roll_night_event` (+0.03)
+  - Daily decay -0.02 (`tick_valley`); persisted to save (`collective_guilt` key).
+- **Spatial corruption CA** (`Cell::corruption`, 0..255) — cellular automaton seeded at
+  4 horror anchors (Town Center/cellar, Witch's Hut, Sanitarium, Ritual Circle),
+  weighted by the Valley's awakening floor. Double-buffered: diffuse 1/4 toward neighbor
+  mean, gentle decay, anchors reseeded each pass. Not persisted (regrows from anchors).
+- **Valley awakening** (`World::valley_awakening`, 0..1) — derived per tick:
+  `0.55×guilt + 0.45×corruption_density`. Pushes back into horror consumers:
+  - `horror_intensity` ← 0.6×old + 0.4×awakening
+  - `horror_sanity_drain_multiplier` ← 0.5×old + 0.5×(1 + 0.5×awakening)
+  - `weather_fog_intensity` ← max(old, awakening×0.6 + corruption×0.4)
+  - `horror_phantom_sighting_chance` ← max(old, awakening×0.3)
+- **`/valley` diagnostic endpoint** (hidden from player UI, for verification) —
+  exposes guilt, awakening, corruption_density, horror_intensity, fog, drain, phantom,
+  horror_cycle, recent events.
+- **Ambient corruption flavor** — corruption tiles leak the Valley's presence:
+  ≥200: "The air here coils around you...", ≥128: "Something clings to this ground...",
+  ≥64: "The light falls differently here..." (main.cpp, after `horror_flavor`).
+- **Consolidation block fix** — moved `apply_adaptations` inside the once-per-day
+  consolidation guard (was running every loop iteration, clobbering the minds'
+  pushes). Added `last_sync_consolidation_day` local to gate the entire sync block.
+- **Verified**: seeded guilt 0.5 → after 1 consolidation: guilt 0.48 (decayed),
+  awakening 0.264, corruption_density 0.0006 (anchors seeded), horror_intensity 0.1056,
+  drain 1.066, fog 0.159, phantom 0.079 — full feedback loop end-to-end. Intent
+  baseline unchanged (26/30).
+
+---
+
+## 30. QA & Bug-Fix History (2026-08-16)
 
 ### Movement / Pathfinding fixes
 - `403bf3e` — coordinate `go` from farmhouse door (farm gate clearing in `clear_paths()`),

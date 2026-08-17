@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Valley Entity Mechanics (ROADMAP 1.2, 2026-08-17)
+- **ValleyMind** aggregate: the Valley itself (genius loci) as a living system state
+  (collective guilt → spatial corruption CA → awakening → horror feedback loop).
+- `World::add_guilt` / `tick_valley` / `corruption_density`; guilt from deaths, secrets,
+  basement descents, night events; slow decay (-0.02/day); carries + escalates across
+  horror_cycles.
+- Spatial corruption CA (`Cell::corruption`, 0..255) seeded at 4 horror anchors;
+  double-buffered diffusion + decay + anchor reseed.
+- Valley awakening pushes `horror_intensity` / `horror_sanity_drain_multiplier` /
+  `weather_fog_intensity` / `horror_phantom_sighting_chance` each consolidation.
+- `/valley` diagnostic endpoint; ambient corruption flavor on `explore`.
+- Fix: `apply_adaptations` moved inside the once-per-day consolidation guard (was
+  clobbering the minds' pushes every loop iter).
+- Verified: full feedback loop end-to-end (seeded guilt 0.5 → all consumers shift);
+  intent baseline 26/30.
+
 ### Added — Horror Location Structures (ROADMAP 1.1, 2026-08-17)
 - New real map structures with interiors + horror behavior: **Witch's Hut** (Whisper Wood,
   scrolls/mirror/kettle), **Abandoned Sanitarium** (East Moor, beds/records/instruments),

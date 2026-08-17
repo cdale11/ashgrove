@@ -1,0 +1,100 @@
+#include "valley_mind.hpp"
+
+#include <algorithm>
+
+namespace ashgrove {
+
+namespace {
+
+inline float clamp01(float x) {
+  return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+}
+
+}  // namespace
+
+ValleyMind::ValleyMind(World* world) : world_(world) {}
+
+void ValleyMind::tick(uint32_t current_day) {
+  if (!world_) return;
+
+  // Guard: run exactly once per in-game day. The call site fires every loop
+  // iteration during the hour==28 consolidation window (~30 iters/sec for
+  // ~33 s). The other minds are mostly idempotent recomputes, but
+  // World::tick_valley() is STATEFUL (decays guilt, steps the corruption CA),
+  // so without this guard it would collapse guilt ~0.02 * 1000 calls / day.
+  if (current_day == last_tick_day_) return;
+  last_tick_day_ = current_day;
+
+  // 1) Drive the Valley heartbeat: decay guilt, spread corruption CA, and
+  //    recompute awakening (deterministic; lives in World).
+  world_->tick_valley();
+
+  // 2) Merge awakening back into the World horror consumers. Only escalate /
+  //    dampen — do not hard-override LLM consolidation. Damped merge keeps the
+  //    feedback loop stable: awakening is a slow-biasing input, not a spike.
+  const float awakening = world_->valley_awakening;
+  const float corruption = world_->corruption_density();
+
+  // Horror intensity receives a 40% weight from awakening so the entity's
+  // stirring visibly escalates dread over days.
+  horror_intensity_pushed_ = clamp01(
+      0.6f * world_->horror_intensity + 0.4f * awakening);
+  world_->horror_intensity = horror_intensity_pushed_;
+
+  // The deeper the Valley wakes, the faster sanity drains in its presence.
+  sanity_drain_pushed_ = std::max(0.5f, std::min(2.0f, 1.0f + 0.5f * awakening));
+  world_->horror_sanity_drain_multiplier =
+      std::max(0.5f, std::min(2.0f,
+          0.5f * world_->horror_sanity_drain_multiplier + 0.5f * sanity_drain_pushed_));
+
+  // Corruption manifests as fog — the genius loci's breath over the land.
+  fog_pushed_ = clamp01(std::max(world_->weather_fog_intensity,
+                                awakening * 0.6f + corruption * 0.4f));
+  world_->weather_fog_intensity = fog_pushed_;
+
+  // Phantoms appear more often where the Valley is awake.
+  phantom_pushed_ = clamp01(awakening * 0.3f);
+  world_->horror_phantom_sighting_chance =
+      std::max(world_->horror_phantom_sighting_chance, phantom_pushed_);
+
+  // 3) Bound the event log.
+  if (memory_.size() > 64) memory_.erase(memory_.begin(), memory_.end() - 64);
+
+  (void)current_day;
+}
+
+void ValleyMind::record_event(const std::string& event_type,
+                              const std::string& detail,
+                              float weight) {
+  ValleyMemoryRecord rec;
+  rec.day = world_ ? world_->day : 0;
+  rec.event_type = event_type;
+  rec.detail = detail;
+  rec.weight = weight;
+  memory_.push_back(rec);
+  if (memory_.size() > 64) memory_.erase(memory_.begin(), memory_.end() - 64);
+}
+
+ValleyMind::Snapshot ValleyMind::get_snapshot() const {
+  Snapshot snap{};
+  snap.day = world_ ? world_->day : 0;
+  snap.collective_guilt = world_ ? world_->collective_guilt : 0.0f;
+  snap.valley_awakening = world_ ? world_->valley_awakening : 0.0f;
+  snap.corruption_density = world_ ? world_->corruption_density() : 0.0f;
+  snap.horror_intensity = world_ ? world_->horror_intensity : 0.0f;
+  snap.horror_sanity_drain_multiplier = world_ ? world_->horror_sanity_drain_multiplier : 1.0f;
+  snap.weather_fog_intensity = world_ ? world_->weather_fog_intensity : 0.0f;
+  snap.horror_phantom_sighting_chance = world_ ? world_->horror_phantom_sighting_chance : 0.0f;
+  snap.horror_cycle = world_ ? world_->horror_cycle : 0;
+
+  snap.recent_events.clear();
+  std::size_t start = memory_.size() > 10 ? memory_.size() - 10 : 0;
+  for (std::size_t i = start; i < memory_.size(); ++i) {
+    snap.recent_events.push_back(
+        "d" + std::to_string(memory_[i].day) + " " + memory_[i].event_type +
+        ": " + memory_[i].detail);
+  }
+  return snap;
+}
+
+}  // namespace ashgrove

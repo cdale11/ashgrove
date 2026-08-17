@@ -104,6 +104,7 @@ add_executable(ashgrove_server
   src/village_mind.cpp
   src/economy_mind.cpp
   src/culture_mind.cpp
+  src/valley_mind.cpp
 )
 
 # Include plugin sources

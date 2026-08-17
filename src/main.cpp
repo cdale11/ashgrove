@@ -12,6 +12,7 @@
 #include "village_mind.hpp"
 #include "economy_mind.hpp"
 #include "culture_mind.hpp"
+#include "valley_mind.hpp"
 #include <httplib.h>
 #include <mutex>
 #include <thread>
@@ -1601,6 +1602,14 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         // Phase 6: perception filters at low sanity
         int ptier = w.perception_tier(p);
         if (ptier >= 1) { std::string f = w.horror_flavor(p); if (!f.empty()) say(f); }
+        // ROADMAP 1.2: the corrupted ground itself leaks the Valley's presence
+        // into the air — felt even by a sane mind, strongest near the anchors.
+        {
+            uint8_t cor = w.at(p.pos).corruption;
+            if (cor >= 200) say("The air here coils around you, thick and wrong, breath held too long.");
+            else if (cor >= 128) say("Something clings to this ground. You taste it on your tongue.");
+            else if (cor >= 64) say("The light falls differently here, heavy and slow.");
+        }
         if (ptier >= 2 || w.horror_phantom_sighting_chance > 0.0f) {
             // Distorted vision: a "false" neighbor the player thinks they see.
             // Phase 7.3: horror.phantom_sighting_chance raises sighting odds even at lower tiers.
@@ -3654,6 +3663,10 @@ int main(int argc, char** argv) {
     // Phase 7.9: Culture Mind — aggregate collective-culture cognition.
     ashgrove::CultureMind culture_mind(&world, &cog_registry);
 
+    // ROADMAP 1.2: Valley Mind — aggregate Valley Entity (genius loci)
+    // cognition; drives the collective-guilt -> corruption -> horror loop.
+    ashgrove::ValleyMind valley_mind(&world);
+
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).
     IntentEngine intent_engine;
@@ -3856,6 +3869,37 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             send_json(resp);
         } catch (const std::exception& e) {
             std::cerr << "[/town/village] error: " << e.what() << std::endl;
+            send_json({{"error", "internal server error"}});
+        }
+    });
+
+    // ---- /valley (ROADMAP 1.2) — Valley Entity diagnostic endpoint ----
+    // Hidden from the normal player loop (not surfaced in /status), but
+    // exposed so the mechanic can be verified to actually run end-to-end.
+    svr.Get("/valley", [&](const httplib::Request&, httplib::Response& res) {
+        auto send_json = [&](const json& j) {
+            std::string body = j.dump();
+            if (body.empty()) body = "{}";
+            res.set_content(body, "application/json");
+        };
+        try {
+            auto snap = valley_mind.get_snapshot();
+            json resp;
+            resp["day"] = snap.day;
+            resp["collective_guilt"] = snap.collective_guilt;
+            resp["valley_awakening"] = snap.valley_awakening;
+            resp["corruption_density"] = snap.corruption_density;
+            resp["horror_intensity"] = snap.horror_intensity;
+            resp["horror_sanity_drain_multiplier"] = snap.horror_sanity_drain_multiplier;
+            resp["weather_fog_intensity"] = snap.weather_fog_intensity;
+            resp["horror_phantom_sighting_chance"] = snap.horror_phantom_sighting_chance;
+            resp["horror_cycle"] = snap.horror_cycle;
+            json ev = json::array();
+            for (const auto& s : snap.recent_events) ev.push_back(s);
+            resp["recent_events"] = ev;
+            send_json(resp);
+        } catch (const std::exception& e) {
+            std::cerr << "[/valley] error: " << e.what() << std::endl;
             send_json({{"error", "internal server error"}});
         }
     });
@@ -4418,7 +4462,15 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     advance_day(world);
                 }
                 // Phase 7: Town Consciousness consolidation at 04:00 (hour 28)
-                if (hour_of_day(world) == 28 && town_consciousness.is_consolidation_due()) {
+                // The async worker (consolidate) may take seconds; is_consolidation_due()
+                // stays true for many loop iterations while it runs. Gate the
+                // SYNCHRONOUS part (minds + apply_adaptations + valley) behind a
+                // local per-day flag so each mind ticks exactly once per day and
+                // apply_adaptations can't clobber the Valley's push on re-entry.
+                static uint32_t last_sync_consolidation_day = 0;
+                if (hour_of_day(world) == 28 && town_consciousness.is_consolidation_due() &&
+                    last_sync_consolidation_day != world.day) {
+                    last_sync_consolidation_day = world.day;
                     town_consciousness.consolidate();
                     // Phase 7.9: Nature Mind consolidation (runs after Town Consciousness)
                     nature_mind.tick(world.day);
@@ -4429,10 +4481,16 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     economy_mind.tick(world.day);
                     // Phase 7.9: Culture Mind consolidation (aggregate shared beliefs)
                     culture_mind.tick(world.day);
+                    // Phase 7.3: push consolidated adaptations into the world's
+                    // consumer scalars (weather, economy, horror, performance).
+                    // Runs once per day here (not every loop iter) so the
+                    // aggregate minds' pushes below are not clobbered.
+                    world.apply_adaptations(town_consciousness.snapshot_adaptations());
+                    // ROADMAP 1.2: Valley Mind runs last, AFTER
+                    // apply_adaptations, so the Valley's awakening push into
+                    // horror_intensity / fog / drain survives the day.
+                    valley_mind.tick(world.day);
                 }
-                // Phase 7.3: push consolidated adaptations into the world's
-                // consumer scalars (weather, economy, horror, performance).
-                world.apply_adaptations(town_consciousness.snapshot_adaptations());
                 // Phase 7: lightweight system heartbeat into the event buffer so
                 // consolidation sees the environmental state even with no input.
                 if (now_ms() - last_town_observe_ms >= 60000) {
@@ -4473,6 +4531,10 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     // next /state or status query via pending_death.
                     if (world.is_dead(p) && p.pending_death.empty()) {
                         p.pending_death = world.handle_death(p);
+                        // ROADMAP 1.2: log the death in the Valley's memory.
+                        valley_mind.record_event("death",
+                            "player " + p.name + " died (loop "
+                            + std::to_string(p.death_count) + ")", 0.15f);
                     }
                 }
                 for (auto& n : world.npcs) {

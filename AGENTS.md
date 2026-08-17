@@ -112,7 +112,7 @@ screen -dmS ashgrove bash -c 'cd /home/umang/ashgrove && exec ./build/ashgrove_s
 ### HTTP API (server routes)
 `/` health · `/join` · `/state` · `/move` · `/warp` · `/action` · `/cmd` · `/sleep` · `/explore` ·
 `/travel` · `/region` · `/dsl` · `/quest` · `/job` · `/market` · `/horror` · `/basement` ·
-`/town/nature` · `/town/village` · `/town/economy` · `/town/culture`.
+`/valley` · `/town/nature` · `/town/village` · `/town/economy` · `/town/culture`.
 
 ### `/cmd` flow (intent parsing)
 1. `/cmd` receives raw text + player_id.
