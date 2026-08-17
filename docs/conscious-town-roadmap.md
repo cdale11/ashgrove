@@ -457,9 +457,9 @@ The following elements from the user's comprehensive vision are **not yet in thi
 | **P1** | Horror Narrative Design | Horror bible (cycles, NPCs, chapters, sanity filters) — **USER COLLABORATION REQUIRED** |
 | **P2** | Recurring Runs Design | Run system spec (persistence, reset, death) — **USER COLLABORATION REQUIRED** |
 | **7** | Conscious Town Core | Town Consciousness (LoRA), event log, memory, adaptations, consumers |
-| **7.7** | Cognitive Core Foundation | TinyMLP, CognitiveState, CognitiveCore, CognitiveRegistry — **IMPLEMENTED, NOT WIRED** |
-| **7.8** | Social Cognition | Imitation, cultural transmission, belief propagation |
-| **7.9** | Collective Cognition | VillageMind, EconomyMind, NatureMind, CultureMind, feedback loops |
+| **7.7** | Cognitive Core Foundation | TinyMLP, CognitiveState, CognitiveCore, CognitiveRegistry — **IMPLEMENTED + WIRED + MLPs TRAINED** |
+| **7.8** | Social Cognition | SocialCognition (imitation, cultural transmission, belief propagation) — **IMPLEMENTED + WIRED** |
+| **7.9** | Collective Cognition | NatureMind, VillageMind, EconomyMind, CultureMind (aggregates wired); PerformanceMind exists — **DONE** |
 | **8.1** | Deep Simulation Layers | Soil, water, plant genetics, pests, forest ecology (tree individuals, evolution) |
 | **8.2** | Atmospheric Physics | Pressure/temp/humidity fields, spectral advection, cloud/precip CA |
 | **8.3** | Structural Physics | Building decay CA, tool wear, fire spread CA, stress fields |

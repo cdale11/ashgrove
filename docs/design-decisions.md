@@ -121,11 +121,12 @@
 
 ## Next Implementation Steps
 
-1. **Wire CognitiveCore into NPC tick** — game loop integration
-2. **Generate MLP training data via NIM** — attention, action_evaluator, world_model
+1. ✅ **Wire CognitiveCore into NPC tick** — game loop integration (Phase 7.7)
+2. ✅ **Generate MLP training data via NIM** — attention, action_evaluator, world_model (thinking disabled)
 3. **Build Horror Location structures** — basement, witch hut, sanitarium, ritual circle, fog zones
-4. **Implement NatureMind** — forest ecology aggregate
+4. ✅ **Implement NatureMind** — forest ecology aggregate (Phase 7.9)
 5. **Implement Valley Entity mechanics** — collective guilt → corruption → horror intensity
+6. ✅ **Implement VillageMind / EconomyMind / CultureMind** — remaining Phase 7.9 aggregates
 
 ---
 

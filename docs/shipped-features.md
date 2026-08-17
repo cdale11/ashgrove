@@ -514,7 +514,7 @@ All machines are craftable (`craft <machine>`), placeable (`place <machine>`), l
 
 ---
 
-## 26. Phase 7 (Town Consciousness) — In Progress
+## 26. Phase 7 (Town Consciousness + Cognitive Core)
 
 ### Legacy Completion (L1-L12) ✅ SHIPPED
 Commit `764ccbe` completed the remaining legacy items from the map-redesign roadmap:
@@ -540,7 +540,30 @@ Commit `764ccbe` completed the remaining legacy items from the map-redesign road
 - Additive LoRA training (`tools/train_lora.py`) teaching the intent 0.5B student the consolidation task (resume from intent adapter, consolidation rows appended — no intent forgetting). ~26 h runtime.
 - Post-training pipeline `tools/merge_and_quantize.py` (adapter → merged HF → F16 GGUF → Q4_K_M, overwrites runtime gguf).
 - Intent regression harness `tools/eval_intent_accuracy.py` + baseline `data/intent_accuracy_baseline.txt` (26/30 = 86.7%, action match 30/30).
-- **Not yet wired**: adaptation consumers (nothing reads `get_adaptations()` — weather/economy/horror/NPC still hardcoded), `/town/*` API endpoints, performance tuner, 10.2 debug tools.
+
+### Phase 7.3 — Adaptation Consumers ✅ SHIPPED
+- `World::apply_adaptations` reads the 6-section `adaptations.json` into typed scalars (weather pressure/humidity/storm/fog/temp, economy price_elasticity/market_volatility/demand_shift/shop_price_mod, horror intensity/sanity_drain/night_event_weight/phantom_sighting, performance intervals).
+- Consumers: `weather_of_day_adapted`, `update_market_prices` (volatility/elasticity/demand_shift), `tick_sanity` (drain multiplier), night event gating, phantom sighting chance.
+- Wired into the game loop (apply every tick, consolidate at hour 28).
+
+### Phase 7.7 — Cognitive Core ✅ SHIPPED
+- `TinyMLP` header-only feed-forward network (ReLU hidden + sigmoid out), hand-coded, no external deps.
+- `CognitiveState` (drives, emotional tags, working/episodic/semantic memory, social graph, self-model, world-model bias, goal stack) + `CognitiveCore` (per-tick update, drive decay, event recording, subconscious replay, action selection, save/load).
+- `CognitiveRegistry` (per-agent cores, `aggregate_stats`, `average_edge_trust`, `collect_semantic_facts`, save/load).
+- 7 important NPCs get individualized cores (`data/npc_cognitive_state/`). MLPs (attention 4→8→1, action_evaluator 10→16→6, world_model 8→8→3) trained on NIM teacher data (thinking disabled), weights in `data/mlp_weights.json`.
+- Recursive mutex resolves subconscious-replay deadlock. Intent accuracy holds at 26/30.
+
+### Phase 7.8 — Social Cognition ✅ SHIPPED
+- `SocialCognition` (trust/familiarity/imitation graph), `update_social`, `propagate_beliefs`, `receive_belief`, `observe_action`.
+- Wired into `CognitiveCore::update_social` after NPC interactions.
+
+### Phase 7.9 — Collective Cognition ✅ SHIPPED (all aggregates)
+- **NatureMind** (`/town/nature`): forest ecology aggregate — per-chunk succession/carbon/legacy/soil/species/alleles, disturbance events, succession advance, allele evolution, carbon cycle, Shannon biodiversity, climate velocity; biases procgen/storm/disaster/foraging.
+- **VillageMind** (`/town/village`): NPC collective mood (mean valence/arousal via registry, average edge trust), village memory, biases schedule_bias/market_volatility/horror_night_event_weight/horror_intensity.
+- **EconomyMind** (`/town/economy`): rolling per-commodity price history, volatility/cycle detection, inflation, trade-route health, elasticity, player-impact demand shifts.
+- **CultureMind** (`/town/culture`): shared beliefs/fears/preferences from semantic memory consensus, cultural cohesion, practice frequency, biases schedule_bias/dialogue_topic_weight.
+- **PerformanceMind**: already existed (`PerformanceMonitor`); the four new aggregates + PerformanceMind complete the 5-system collective-cognition loop.
+- All tick at 04:00 after TownConsciousness consolidation; expose `/town/{nature,village,economy,culture}` JSON snapshots.
 
 ---
 
