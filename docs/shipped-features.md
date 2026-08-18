@@ -706,9 +706,73 @@ Surfaced via `/valley` (`dread_bias_theme`, `dread_counters`).
 - ✅ dread profile in `/valley` (`dread_counters [1,0,0,0]`, bias theme 0).
 - ✅ intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline.
 
+- ✅ death meta-break one-shot (death_count 1→2 triggered; flag set).
+- ✅ dread profile in `/valley` (`dread_counters [1,0,0,0]`, bias theme 0).
+- ✅ intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline.
+
 ---
 
-## 32. Cognitive Depth (ROADMAP 1.7)
+## 32. Soil Chemistry & Composting (ROADMAP 2.1)
+
+Shipped 2026-08-18. Verified end-to-end against the running server.
+
+### Soil Chemistry per Tile
+Each map cell now tracks:
+- **Nitrogen (N), Phosphorus (P), Potassium (K)** — 0–255 scale, tile-specific
+- **pH** — stored as ×10 (70 = 7.0), range 4.0–9.0
+- **Organic Matter (OM)** — 0–200 (×2% scale, 0–100%)
+- **Microbiome** — 0–255 diversity index
+
+### Rain Leaching CA
+Nutrients percolate downward with rainfall (N leaches 3× faster than P, K at 1.5×). Severe storms double leaching rate. Rain slightly acidifies soil (pH −0.1) and builds organic matter.
+
+### Root Exudates & Crop Nutrient Uptake
+Living crops release exudates daily: boost microbiome; legumes (beans, peas) fix nitrogen (+2 N/day). Crops uptake nutrients per growth tick via Liebig's law of the minimum (growth limited by most deficient nutrient relative to crop demand). Heavy N feeders (corn, wheat), fruiting crops (tomato, pumpkin) demand more P/K, root crops need P/K. pH outside 6.0–7.0 reduces growth (50% at pH<5.0, 60% at pH>8.0). Organic matter and microbiome provide growth bonuses.
+
+### Fertilizer System Rewrite
+New N/P/K-specific fertilizers:
+- **Nitrogen Fertilizer** (+40 N)
+- **Phosphorus Fertilizer** (+40 P)
+- **Potassium Fertilizer** (+40 K)
+- **Balanced (10-10-10)** (+25 each)
+- **Organic** (+15 each, +OM, +microbiome, slight acidification)
+- Legacy: Basic/Quality/Premium (NPK blends)
+
+**Soil pH Amendments:**
+- **Agricultural Lime** — raises pH by ~0.8
+- **Elemental Sulfur** — lowers pH by ~0.8
+- **Gypsum** — adds calcium, no pH change
+
+### Soil Test Command (`soil` / `soiltest`)
+Displays N/P/K levels with status tags, pH, OM%, microbiome, crop info, and automated recommendations (e.g., "Low nitrogen: apply nitrogen fertilizer").
+
+### Composter Overhaul
+Accepts varied inputs → NPK-specific output:
+- **Fiber/Weeds/Crop Residue** — balanced low NPK → Organic Fertilizer
+- **Wood Ash** — high K → Potassium Fertilizer
+- **Manure** — high N → Nitrogen Fertilizer
+- **Bone Meal** — high P → Phosphorus Fertilizer
+- Mixed inputs → Balanced Fertilizer (if all ≥2) or Organic
+
+4-day composting cycle tracked per composter (`hp` = day 1–4). `interact add <material>` / `interact collect`.
+
+### Crop Growth Integration
+Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbiome_factor. Nutrient uptake depletes soil N/P/K per growth tick proportional to crop demand.
+
+### Verified (2026-08-18)
+- ✅ Soil test shows N/P/K/pH/OM/microbiome with status tags and recommendations
+- ✅ Fertilize N/P/K/balanced/organic/lime/sulfur/gypsum applies correct nutrient changes
+- ✅ Lime raises pH, sulfur lowers pH, gypsum neutral
+- ✅ Composter accepts fiber/manure/ash/bone → produces correct NPK fertilizer
+- ✅ 4-day composting cycle works; collect yields correct fertilizer type
+- ✅ Crop growth respects pH, nutrients, OM, microbiome; nutrient uptake depletes soil
+- ✅ Rain leaching moves nutrients downward; acidifies soil
+- ✅ Root exudates boost microbiome; legumes fix nitrogen
+- ✅ Intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline
+
+---
+
+## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.
 

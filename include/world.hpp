@@ -48,6 +48,16 @@ enum class Item : uint16_t {
     Wood = 60, Stone = 61, Fiber = 62,
     Milk = 62, GoatMilk = 63, Egg = 64, Fish = 65, Forage = 66, Bread = 67,
     FertilizerBasic = 66, FertilizerQuality = 67, FertilizerPremium = 68,
+    // ROADMAP 2.1 (8.1a) — N/P/K specific fertilizers
+    FertilizerNitrogen = 69,   // Nitrogen fertilizer (ammonium nitrate, urea)
+    FertilizerPhosphorus = 70, // Phosphorus fertilizer (superphosphate, rock phosphate)
+    FertilizerPotassium = 71,  // Potassium fertilizer (potash, potassium chloride)
+    FertilizerBalanced = 72,   // Balanced NPK fertilizer (10-10-10)
+    FertilizerOrganic = 73,    // Organic fertilizer (compost, manure, bone meal)
+    // ROADMAP 2.1 (8.1a) — Soil pH amendments
+    SoilLime = 74,             // Agricultural lime (calcium carbonate) - raises pH
+    SoilSulfur = 75,           // Elemental sulfur - lowers pH
+    SoilGypsum = 76,           // Gypsum (calcium sulfate) - adds Ca without pH change
     Scarecrow = 69,
     Composter = 70,
     AppleSapling = 71, CherrySapling = 72, PeachSapling = 73, PomegranateSapling = 74,
@@ -141,6 +151,16 @@ inline ItemDef const& item_def(Item it) {
         {Item::Fish, {"Fish",3,-1,0,0}}, {Item::Forage, {"Forage",3,-1,0,0}},
         {Item::Bread, {"Bread",2,5,0,0}},
         {Item::FertilizerBasic, {"Fertilizer Basic",3,100,0,0}}, {Item::FertilizerQuality, {"Fertilizer Quality",3,200,0,0}}, {Item::FertilizerPremium, {"Fertilizer Premium",3,400,0,0}},
+    // ROADMAP 2.1 (8.1a) — N/P/K specific fertilizers
+    {Item::FertilizerNitrogen,   {"Nitrogen Fertilizer",   3,150,0,0}}, // High N, for leafy growth
+    {Item::FertilizerPhosphorus, {"Phosphorus Fertilizer", 3,150,0,0}}, // High P, for roots/flowers
+    {Item::FertilizerPotassium,  {"Potassium Fertilizer",  3,150,0,0}}, // High K, for fruit quality
+    {Item::FertilizerBalanced,   {"Balanced Fertilizer",   3,300,0,0}}, // 10-10-10 NPK
+    {Item::FertilizerOrganic,    {"Organic Fertilizer",    3,100,0,0}}, // Compost/manure, slow release
+    // ROADMAP 2.1 (8.1a) — Soil pH amendments
+    {Item::SoilLime,             {"Agricultural Lime",     3,80,0,0}},   // Raises pH (calcium carbonate)
+    {Item::SoilSulfur,           {"Elemental Sulfur",      3,120,0,0}},  // Lowers pH
+    {Item::SoilGypsum,           {"Gypsum",                3,100,0,0}},  // Calcium sulfate, neutral pH
         {Item::Scarecrow, {"Scarecrow",3,500,0,0}},
         {Item::Composter, {"Composter",3,1000,0,0}},
         {Item::AppleSapling, {"Apple Sapling",3,4000,0,0}}, {Item::CherrySapling, {"Cherry Sapling",3,3400,0,0}}, {Item::PeachSapling, {"Peach Sapling",3,6000,0,0}}, {Item::PomegranateSapling, {"Pomegranate Sapling",3,6000,0,0}},
@@ -472,7 +492,7 @@ struct Plot {
     uint32_t owner_id = 0;    // 0 = unowned; player.id when bought
 };
 
-struct FarmObj { ObjType type = ObjType::None; uint8_t hp = 0; uint8_t ore = 0; };
+struct FarmObj { ObjType type = ObjType::None; uint8_t hp = 0; uint8_t ore = 0; uint8_t hp2 = 0; uint8_t hp3 = 0; };
 
 struct Crop {
     Item crop = Item::None;   // Parsnip / Potato / Cauliflower
@@ -502,6 +522,14 @@ struct Cell {
     // 0=clean, 255=fully corrupted. Emanates from the 4 horror anchors and
     // spreads as a cellular automaton driven by the Valley's awakening.
     uint8_t corruption = 0;
+    // ROADMAP 2.1 (8.1a) — Soil Chemistry.
+    // NPK nutrients in kg/ha equivalent (scaled 0-255 for storage efficiency).
+    uint8_t nitrogen = 128;       // N: leaf growth, chlorophyll
+    uint8_t phosphorus = 128;     // P: root development, flowering, fruiting
+    uint8_t potassium = 128;      // K: water regulation, disease resistance, quality
+    uint8_t ph = 70;              // pH ×10 (7.0 = neutral); 40=4.0 acidic, 90=9.0 alkaline
+    uint8_t organic_matter = 50;  // OM % ×2 (0-200 maps to 0-100% OM)
+    uint8_t microbiome = 100;     // Microbiome diversity index 0-255
 };
 
 // L6: Wildlife system

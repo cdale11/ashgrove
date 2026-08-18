@@ -94,20 +94,71 @@ static void advance_day(World& w) {
         if (cell.crop.is_crop()) {
             if (cell.crop.watered && cell.crop.days_left > 0) {
                 int growth = 1;
-                // Fertilizer bonus: basic=+1, quality=+2, premium=+3 extra growth per day
-                // Fertilizer is consumed (one-time boost) - applied on first growth
+
+                // ROADMAP 2.1 (8.1a) — Soil chemistry effects on crop growth
+                // pH effect: optimal range 6.0-7.0 (ph 60-70). Outside this range reduces growth.
+                float ph_factor = 1.0f;
+                if (cell.ph < 50) ph_factor = 0.5f;        // too acidic (<5.0)
+                else if (cell.ph < 60) ph_factor = 0.75f;  // acidic (5.0-6.0)
+                else if (cell.ph > 80) ph_factor = 0.6f;   // too alkaline (>8.0)
+                else if (cell.ph > 70) ph_factor = 0.85f;  // alkaline (7.0-8.0)
+                // else ph 60-70 = optimal (1.0)
+
+                // Nutrient availability based on soil levels (0-255)
+                float n_avail = cell.nitrogen / 255.0f;
+                float p_avail = cell.phosphorus / 255.0f;
+                float k_avail = cell.potassium / 255.0f;
+
+                // Crop-specific nutrient demands (simplified)
+                float n_demand = 0.5f, p_demand = 0.3f, k_demand = 0.3f;
+                if (cell.crop.crop == Item::Corn || cell.crop.crop == Item::Wheat) {
+                    n_demand = 0.8f; p_demand = 0.4f; k_demand = 0.5f; // heavy N feeders
+                } else if (cell.crop.crop == Item::Tomato || cell.crop.crop == Item::Pumpkin || cell.crop.crop == Item::Melon) {
+                    n_demand = 0.6f; p_demand = 0.6f; k_demand = 0.8f; // heavy P/K for fruiting
+                } else if (cell.crop.crop == Item::Potato) {
+                    n_demand = 0.4f; p_demand = 0.5f; k_demand = 0.7f; // root crops need P/K
+                } else if (cell.crop.crop == Item::GreenBean || cell.crop.crop == Item::Hops) {
+                    n_demand = 0.2f; p_demand = 0.4f; k_demand = 0.4f; // legumes fix own N
+                }
+
+                // Nutrient limitation factor (Liebig's law of the minimum)
+                float n_limit = n_avail / std::max(0.1f, n_demand);
+                float p_limit = p_avail / std::max(0.1f, p_demand);
+                float k_limit = k_avail / std::max(0.1f, k_demand);
+                float nutrient_factor = std::min({n_limit, p_limit, k_limit, 2.0f}); // cap at 2x
+
+                // Organic matter and microbiome boost
+                float om_factor = 0.8f + (cell.organic_matter / 255.0f) * 0.4f; // 0.8 to 1.2
+                float micro_factor = 0.9f + (cell.microbiome / 255.0f) * 0.2f; // 0.9 to 1.1
+
+                // Combined growth factor
+                float total_factor = ph_factor * nutrient_factor * om_factor * micro_factor;
+                growth = static_cast<int>(std::round(growth * total_factor));
+                growth = std::max(1, std::min(growth, 5)); // clamp 1-5
+
+                // Legacy fertilizer bonus (from obj.ore field)
                 if (cell.obj.type == ObjType::None && cell.obj.ore >= 2) {
                     int bonus = (cell.obj.ore - 1);
                     growth += bonus;
-                    // Consume fertilizer after applying boost
                     cell.obj.ore = 0;
                 }
                 // Moon phase bonus: crops planted on new moon (hp=1) grow 10% faster
                 if (cell.obj.type == ObjType::None && cell.obj.hp == 1) {
-                    // 10% chance of extra growth per day
                     if ((static_cast<int>(w.day) + cell.crop.days_left) % 10 == 0) growth++;
                 }
                 cell.crop.days_left = static_cast<int8_t>(std::max(0, static_cast<int>(cell.crop.days_left) - growth));
+
+                // ROADMAP 2.1 (8.1a) — Crop nutrient uptake: crops deplete soil nutrients as they grow
+                if (growth > 0) {
+                    // Uptake proportional to growth and demand
+                    int n_uptake = static_cast<int>(growth * n_demand * 2);
+                    int p_uptake = static_cast<int>(growth * p_demand * 2);
+                    int k_uptake = static_cast<int>(growth * k_demand * 2);
+                    cell.nitrogen = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.nitrogen) - n_uptake));
+                    cell.phosphorus = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.phosphorus) - p_uptake));
+                    cell.potassium = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.potassium) - k_uptake));
+                }
+
                 // Recompute stage based on elapsed time vs total days.
                 // Stage 0 = just planted, stage 3 = ready to harvest.
                 const CropDef* cd = crop_def(cell.crop.crop);
@@ -496,6 +547,70 @@ if (season == 3) { // Winter
                     c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
                 }
 }
+        }
+    }
+
+    // ROADMAP 2.1 (8.1a) — Root exudates: crops release compounds that affect soil microbiome and nutrient cycling.
+    // Each crop type has characteristic exudate profile affecting microbiome diversity and nutrient availability.
+    for (auto& cell : w.cells) {
+        if (cell.crop.is_crop() && cell.crop.days_left > 0) {
+            // Root exudates boost microbiome and slowly release nutrients
+            if (cell.microbiome < 255) cell.microbiome = static_cast<uint8_t>(std::min<int>(cell.microbiome + 1, 255));
+            // Legumes (peas, beans) fix nitrogen via rhizobia
+            if (cell.crop.crop == Item::GreenBean || cell.crop.crop == Item::Hops) {
+                if (cell.nitrogen < 255) cell.nitrogen = static_cast<uint8_t>(std::min<int>(cell.nitrogen + 2, 255));
+            }
+            // Heavy feeders (corn, tomato, pumpkin, melon) deplete N/P/K
+            if (cell.crop.crop == Item::Corn || cell.crop.crop == Item::Tomato || 
+                cell.crop.crop == Item::Pumpkin || cell.crop.crop == Item::Melon) {
+                if (cell.nitrogen > 5) cell.nitrogen -= 1;
+                if (cell.phosphorus > 5) cell.phosphorus -= 1;
+                if (cell.potassium > 5) cell.potassium -= 1;
+            }
+        }
+    }
+
+    // L6: Update wildlife
+    w.tick_wildlife();
+
+    // ROADMAP 2.1 (8.1a) — Rain leaching CA: nutrients move downward with water percolation.
+    // Nitrogen (mobile) leaches most; Phosphorus (immobile) leaches least; Potassium intermediate.
+    // Rain intensity scales leaching; severe storms cause 2x leaching.
+    if (rain || severe_storm) {
+        float leach_factor = severe_storm ? 0.04f : 0.02f; // 2-4% per rain event
+        for (int y = 1; y < MAP_H - 1; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                // Skip water, rock, built surfaces
+                if (c.tile == Tile::Water || c.tile == Tile::WaterNorth || c.tile == Tile::WaterSouth ||
+                    c.tile == Tile::WaterEast || c.tile == Tile::WaterWest ||
+                    c.tile == Tile::Cobble || c.tile == Tile::Bridge) continue;
+                // Leach nutrients downward (to y+1)
+                if (y + 1 < MAP_H) {
+                    Cell& below = w.at(x, y + 1);
+                    if (below.tile != Tile::Water && below.tile != Tile::WaterNorth && below.tile != Tile::WaterSouth &&
+                        below.tile != Tile::WaterEast && below.tile != Tile::WaterWest) {
+                        // Nitrogen leaches 3x faster than P, K leaches 1.5x faster than P
+                        int n_loss = static_cast<int>(c.nitrogen * leach_factor * 3.0f);
+                        int p_loss = static_cast<int>(c.phosphorus * leach_factor);
+                        int k_loss = static_cast<int>(c.potassium * leach_factor * 1.5f);
+                        n_loss = std::min(n_loss, static_cast<int>(c.nitrogen));
+                        p_loss = std::min(p_loss, static_cast<int>(c.phosphorus));
+                        k_loss = std::min(k_loss, static_cast<int>(c.potassium));
+                        c.nitrogen = static_cast<uint8_t>(c.nitrogen - n_loss);
+                        c.phosphorus = static_cast<uint8_t>(c.phosphorus - p_loss);
+                        c.potassium = static_cast<uint8_t>(c.potassium - k_loss);
+                        below.nitrogen = static_cast<uint8_t>(std::min<int>(below.nitrogen + n_loss, 255));
+                        below.phosphorus = static_cast<uint8_t>(std::min<int>(below.phosphorus + p_loss, 255));
+                        below.potassium = static_cast<uint8_t>(std::min<int>(below.potassium + k_loss, 255));
+                    }
+                }
+                // Rain slightly lowers pH (acid rain effect) and builds OM slightly
+                if (c.ph > 45) c.ph = static_cast<uint8_t>(std::max<int>(c.ph - 1, 45));
+                if (c.organic_matter < 200) c.organic_matter = static_cast<uint8_t>(std::min<int>(c.organic_matter + 1, 200));
+                // Rain boosts microbiome slightly (moisture favors microbes)
+                if (c.microbiome < 255) c.microbiome = static_cast<uint8_t>(std::min<int>(c.microbiome + 2, 255));
+            }
         }
     }
 
@@ -1174,6 +1289,44 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 " foundation " + std::to_string(it->second.foundation) +
                 " condition " + std::to_string(it->second.condition));
         }
+        return out;
+    }
+    if (cmd == "soil" || cmd == "soiltest" || cmd == "testsoil") {
+        // ROADMAP 2.1 (8.1a) — Soil test command
+        Vec2 f = facing_cell(p);
+        if (!w.in_bounds(f)) { say("Nothing to test there."); return out; }
+        Cell& c = w.at(f);
+        if (c.tile != Tile::Tilled && c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Dirt) {
+            say("You can only test soil on tilled or natural ground.");
+            return out;
+        }
+        say("=== Soil Test Results ===");
+        say("Tile: " + std::string(terrain_name(c.tile)));
+        say("Nitrogen (N): " + std::to_string(c.nitrogen) + "/255 " + 
+            (c.nitrogen > 180 ? "[HIGH]" : c.nitrogen > 120 ? "[GOOD]" : c.nitrogen > 60 ? "[LOW]" : "[VERY LOW]"));
+        say("Phosphorus (P): " + std::to_string(c.phosphorus) + "/255 " + 
+            (c.phosphorus > 180 ? "[HIGH]" : c.phosphorus > 120 ? "[GOOD]" : c.phosphorus > 60 ? "[LOW]" : "[VERY LOW]"));
+        say("Potassium (K): " + std::to_string(c.potassium) + "/255 " + 
+            (c.potassium > 180 ? "[HIGH]" : c.potassium > 120 ? "[GOOD]" : c.potassium > 60 ? "[LOW]" : "[VERY LOW]"));
+        float ph_val = c.ph / 10.0f;
+        say("pH: " + std::to_string(ph_val) + " " + 
+            (c.ph >= 60 && c.ph <= 70 ? "[OPTIMAL]" : c.ph >= 55 && c.ph <= 75 ? "[OK]" : "[NEEDS ADJUSTMENT]"));
+        say("Organic Matter: " + std::to_string(c.organic_matter / 2) + "% " + 
+            (c.organic_matter > 100 ? "[GOOD]" : c.organic_matter > 50 ? "[OK]" : "[LOW]"));
+        say("Microbiome: " + std::to_string(c.microbiome) + "/255 " + 
+            (c.microbiome > 180 ? "[RICH]" : c.microbiome > 100 ? "[MODERATE]" : "[POOR]"));
+        if (c.crop.is_crop()) {
+            say("Current crop: " + std::string(item_def(c.crop.crop).name) + " (stage " + std::to_string(c.crop.stage) + ")");
+        }
+        say("");
+        say("Recommendations:");
+        if (c.nitrogen < 80) say("  - Apply nitrogen fertilizer (nitrogen, balanced, or organic)");
+        if (c.phosphorus < 80) say("  - Apply phosphorus fertilizer (phosphorus, balanced, or organic)");
+        if (c.potassium < 80) say("  - Apply potassium fertilizer (potassium, balanced, or wood ash)");
+        if (c.ph < 55) say("  - Soil too acidic: apply lime to raise pH");
+        else if (c.ph > 75) say("  - Soil too alkaline: apply sulfur to lower pH");
+        if (c.organic_matter < 60) say("  - Low organic matter: add compost or organic fertilizer");
+        if (c.microbiome < 100) say("  - Poor microbiome: add organic matter, reduce chemical inputs");
         return out;
     }
     if (cmd == "inventory" || cmd == "inv") {
@@ -1959,11 +2112,20 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "fertilize" || cmd == "fertilizer") {
         std::string fert_name = lower_trim(arg);
         Item fert = Item::None;
+        // ROADMAP 2.1 (8.1a) — N/P/K specific fertilizers
         if (fert_name == "basic") fert = Item::FertilizerBasic;
         else if (fert_name == "quality") fert = Item::FertilizerQuality;
         else if (fert_name == "premium") fert = Item::FertilizerPremium;
+        else if (fert_name == "nitrogen" || fert_name == "n") fert = Item::FertilizerNitrogen;
+        else if (fert_name == "phosphorus" || fert_name == "p") fert = Item::FertilizerPhosphorus;
+        else if (fert_name == "potassium" || fert_name == "k") fert = Item::FertilizerPotassium;
+        else if (fert_name == "balanced" || fert_name == "10-10-10") fert = Item::FertilizerBalanced;
+        else if (fert_name == "organic" || fert_name == "compost") fert = Item::FertilizerOrganic;
+        else if (fert_name == "lime") fert = Item::SoilLime;
+        else if (fert_name == "sulfur" || fert_name == "sulphur") fert = Item::SoilSulfur;
+        else if (fert_name == "gypsum") fert = Item::SoilGypsum;
         else {
-            say("Apply which fertilizer? 'fertilize basic', 'fertilize quality', 'fertilize premium'.");
+            say("Apply which fertilizer? 'fertilize nitrogen', 'fertilize phosphorus', 'fertilize potassium', 'fertilize balanced', 'fertilize organic', 'fertilize lime', 'fertilize sulfur', 'fertilize gypsum', or legacy 'fertilize basic/quality/premium'.");
             return out;
         }
         int slot = find_slot(p, fert);
@@ -1976,11 +2138,69 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (p.energy < 1) { say("Too tired. Rest or sleep."); return out; }
         p.energy -= 1;
         consume_item(p, fert, 1);
-        // Fertilizer improves crop yield/speed: apply quality modifier
-        // Basic: +1 stage speed, Quality: +2, Premium: +3
-        int bonus = (fert == Item::FertilizerBasic) ? 1 : (fert == Item::FertilizerQuality) ? 2 : 3;
-        c.obj = {ObjType::None, 0, static_cast<uint8_t>(bonus + 1)}; // Store bonus in ore field
-        say("Applied " + std::string(item_def(fert).name) + ". Crops here will grow faster.");
+        // ROADMAP 2.1 (8.1a) — Apply specific nutrients to soil
+        switch (fert) {
+            case Item::FertilizerNitrogen:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 40, 255));
+                say("Applied Nitrogen Fertilizer. Soil nitrogen increased.");
+                break;
+            case Item::FertilizerPhosphorus:
+                c.phosphorus = static_cast<uint8_t>(std::min<int>(c.phosphorus + 40, 255));
+                say("Applied Phosphorus Fertilizer. Soil phosphorus increased.");
+                break;
+            case Item::FertilizerPotassium:
+                c.potassium = static_cast<uint8_t>(std::min<int>(c.potassium + 40, 255));
+                say("Applied Potassium Fertilizer. Soil potassium increased.");
+                break;
+            case Item::FertilizerBalanced:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 25, 255));
+                c.phosphorus = static_cast<uint8_t>(std::min<int>(c.phosphorus + 25, 255));
+                c.potassium = static_cast<uint8_t>(std::min<int>(c.potassium + 25, 255));
+                say("Applied Balanced Fertilizer (10-10-10). Soil NPK increased.");
+                break;
+            case Item::FertilizerOrganic:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 15, 255));
+                c.phosphorus = static_cast<uint8_t>(std::min<int>(c.phosphorus + 15, 255));
+                c.potassium = static_cast<uint8_t>(std::min<int>(c.potassium + 15, 255));
+                if (c.organic_matter < 200) c.organic_matter = static_cast<uint8_t>(std::min<int>(c.organic_matter + 20, 200));
+                if (c.microbiome < 255) c.microbiome = static_cast<uint8_t>(std::min<int>(c.microbiome + 30, 255));
+                if (c.ph > 50) c.ph = static_cast<uint8_t>(std::max<int>(c.ph - 2, 50)); // Slightly acidic
+                say("Applied Organic Fertilizer. Soil nutrients, organic matter, and microbiome improved.");
+                break;
+            // ROADMAP 2.1 (8.1a) — Soil pH amendments
+            case Item::SoilLime:
+                if (c.ph < 85) c.ph = static_cast<uint8_t>(std::min<int>(c.ph + 8, 85)); // Raise pH by ~0.8
+                if (c.ph < 70) c.ph = static_cast<uint8_t>(std::min<int>(c.ph + 5, 70)); // Extra boost if very acidic
+                say("Applied Agricultural Lime. Soil pH raised.");
+                break;
+            case Item::SoilSulfur:
+                if (c.ph > 50) c.ph = static_cast<uint8_t>(std::max<int>(c.ph - 8, 50)); // Lower pH by ~0.8
+                if (c.ph > 65) c.ph = static_cast<uint8_t>(std::max<int>(c.ph - 5, 50)); // Extra boost if very alkaline
+                say("Applied Elemental Sulfur. Soil pH lowered.");
+                break;
+            case Item::SoilGypsum:
+                // Gypsum adds calcium without changing pH, helps with soil structure
+                say("Applied Gypsum. Soil structure improved (calcium added, pH unchanged).");
+                break;
+            case Item::FertilizerBasic:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 20, 255));
+                say("Applied Basic Fertilizer (legacy). Nitrogen increased.");
+                break;
+            case Item::FertilizerQuality:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 15, 255));
+                c.phosphorus = static_cast<uint8_t>(std::min<int>(c.phosphorus + 15, 255));
+                say("Applied Quality Fertilizer (legacy). Nitrogen and phosphorus increased.");
+                break;
+            case Item::FertilizerPremium:
+                c.nitrogen = static_cast<uint8_t>(std::min<int>(c.nitrogen + 15, 255));
+                c.phosphorus = static_cast<uint8_t>(std::min<int>(c.phosphorus + 15, 255));
+                c.potassium = static_cast<uint8_t>(std::min<int>(c.potassium + 15, 255));
+                say("Applied Premium Fertilizer (legacy). NPK increased.");
+                break;
+        }
+        p.energy -= 1;
+        consume_item(p, fert, 1);
+        say("Fertilizer applied to the soil.");
         return out;
     }
 
@@ -3023,8 +3243,75 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                         say("Composter: day " + std::to_string(c.obj.hp) + "/4. Use 'interact add' to add weeds/fiber, 'interact collect' when ready.");
                         return out;
                     }
-                } // Close Composter if block
-                // Well interaction
+} // Close Composter if block
+            // ROADMAP 2.1 (8.1a) — Composter: produce N/P/K specific fertilizers based on input materials
+            // Track NPK contributions based on materials added
+            // hp = days of composting (0-4), ore = N level, hp2 = P level, hp3 = K level
+            if (c.obj.type == ObjType::Composter) {
+                std::string arg_trimmed = lower_trim(arg);
+                std::string sub = arg_trimmed.substr(0, arg_trimmed.find(' '));
+                if (sub == "add" || sub == "put" || sub == "fill") {
+                    // Add various organic materials, each contributing different NPK
+                    Item material = Item::None;
+                    if (arg.find("fiber") != std::string::npos || arg.find("weed") != std::string::npos) material = Item::Fiber;
+                    else if (arg.find("crop") != std::string::npos || arg.find("harvest") != std::string::npos) material = Item::Fiber;
+                    else if (arg.find("manure") != std::string::npos) material = Item::Milk; // placeholder for manure
+                    else if (arg.find("ash") != std::string::npos) material = Item::Wood; // wood ash = potassium
+                    else {
+                        say("Add what? Try: 'interact add fiber', 'interact add weeds', 'interact add ash'.");
+                        return out;
+                    }
+
+                    if (!has_item(p, material, 1)) { say("You don't have that material."); return out; }
+                    if (c.obj.hp > 0) { say("Composter is already working (day " + std::to_string(c.obj.hp) + "/4)."); return out; }
+
+                    consume_item(p, material, 1);
+                    c.obj.hp = 1; // day 1 of 4
+
+                    // Track NPK contributions based on material
+                    // hp = days, ore = N level, hp2 = P level, hp3 = K level
+                    if (material == Item::Fiber) {
+                        c.obj.ore = 1; // N: moderate
+                        c.obj.hp2 = 1; // P: low
+                        c.obj.hp3 = 1; // K: low
+                    } else if (material == Item::Wood) { // wood ash = high potassium
+                        c.obj.ore = 0; // N
+                        c.obj.hp2 = 1; // P
+                        c.obj.hp3 = 3; // K: high
+                    } else if (material == Item::Milk) { // manure = high nitrogen
+                        c.obj.ore = 3; // N: high
+                        c.obj.hp2 = 1; // P
+                        c.obj.hp3 = 1; // K
+                    }
+
+                    say("Added " + std::string(item_def(material).name) + " to composter. Composting started (4 days).");
+                    return out;
+                } else if (sub == "collect" || sub == "take" || sub == "harvest") {
+                    if (c.obj.hp == 0) { say("Composter is empty."); return out; }
+                    if (c.obj.hp < 4) { say("Not ready yet. " + std::to_string(4 - c.obj.hp) + " more days."); return out; }
+
+                    // Produce fertilizer based on accumulated NPK
+                    Item fert = Item::FertilizerOrganic; // default
+                    uint8_t n_level = c.obj.ore;  // N level
+                    uint8_t p_level = c.obj.hp2;  // P level
+                    uint8_t k_level = c.obj.hp3;  // K level
+
+                    if (n_level >= 3 && p_level <= 2 && k_level <= 2) fert = Item::FertilizerNitrogen;
+                    else if (p_level >= 3 && n_level <= 2 && k_level <= 2) fert = Item::FertilizerPhosphorus;
+                    else if (k_level >= 3 && n_level <= 2 && p_level <= 2) fert = Item::FertilizerPotassium;
+                    else if (n_level >= 2 && p_level >= 2 && k_level >= 2) fert = Item::FertilizerBalanced;
+                    else fert = Item::FertilizerOrganic;
+
+                    add_item(p, fert, 1);
+                    c.obj = {ObjType::Composter, 0, 0, 0}; // reset
+                    say("Collected " + std::string(item_def(fert).name) + " from composter.");
+                    return out;
+                } else {
+                    say("Composter: day " + std::to_string(c.obj.hp) + "/4. Use 'interact add <material>' to add materials, 'interact collect' when ready.");
+                    return out;
+                }
+            } // Close Composter if block
+            // Well interaction
                 else if (c.obj.type == ObjType::Well) {
                     std::string sub = lower_trim(arg);
                     uint8_t& water = c.obj.hp; // 0-100 water level

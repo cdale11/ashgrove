@@ -83,8 +83,9 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"help", "?"})) { set("help"); intent.parameters["topic"] = arg; return intent; }
     if (one_of(c, {"eat", "consume", "drink"})) { set("eat"); intent.parameters["item"] = arg; return intent; }
 
-    // Farming
     if (one_of(c, {"hoe", "till", "plow"})) { set("hoe"); return intent; }
+    if (one_of(c, {"soil", "soiltest", "testsoil"})) { set("soil"); return intent; }
+    if (one_of(c, {"fertilize", "fertilizer"})) { set("fertilize"); intent.parameters["fertilizer"] = arg; return intent; }
     if (one_of(c, {"plant", "planttree", "sow"})) {
         set(c == "planttree" ? "planttree" : "plant");
         intent.parameters["crop"] = arg;

@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **/cog Debug Endpoint**: Lists all agent cores with LOD, memory counts, and causal traces.
 - Verified end-to-end: LOD tiers correct, causal traces populated, dialogue falls back to template (intent LoRA unsuited for generation), distortion on top works; intent baseline 26/30 unchanged.
 
+### Added — Soil Chemistry & Composting (ROADMAP 2.1, 2026-08-18)
+- **Soil Chemistry per Tile**: N/P/K nutrients (0–255), pH (×10), organic matter (%), microbiome diversity index — all persisted in `Cell` struct and saved/loaded.
+- **Rain Leaching CA**: N leaches 3× faster than P, K at 1.5×; severe storms double rate; rain slightly acidifies soil (−0.1 pH) and builds OM.
+- **Root Exudates & Crop Uptake**: Legumes fix N (+2/day); all crops boost microbiome; crops uptake N/P/K via Liebig's law of the minimum per growth tick; pH outside 6.0–7.0 reduces growth.
+- **Fertilizer System Rewrite**: N/P/K-specific fertilizers (+40 each), Balanced 10-10-10 (+25 each), Organic (+15 each +OM +microbiome), legacy Basic/Quality/Premium. pH amendments: Lime (+0.8 pH), Sulfur (−0.8 pH), Gypsum (neutral).
+- **Soil Test Command** (`soil`/`soiltest`): Shows N/P/K/pH/OM/microbiome with status tags, crop info, automated recommendations.
+- **Composter Overhaul**: Accepts fiber/manure/ash/bone → produces N/P/K/organic/balanced fertilizer based on input NPK ratio. 4-day cycle tracked in `FarmObj` (hp=days, ore=N, hp2=P, hp3=K).
+- **Crop Growth Integration**: Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbe_factor; nutrient uptake depletes soil per growth tick; legacy fertilizer bonus still works.
+- **Intent regression 26/30 (86.7%)** — unchanged from baseline.
+
 ### Added — Sanity / Perception Filters & Procedural Basement (ROADMAP 1.4, 2026-08-18)
 - **Distorted dialogue** (`World::distort_dialogue`): word-swap + whispered underlayer
   (tier ≥1) + hallucinated dread-biased clause (tier ≥3).

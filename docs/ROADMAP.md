@@ -148,7 +148,7 @@ Mechanistic, deterministic, emergent — see §5 toolkit and §6 layer specs.
 
 | # | Item | Blocked by | Blocks |
 |---|------|-----------|--------|
-| 2.1 | **8.1a Soil Chemistry** — NPK + pH + OM + microbiome per tile; rain leaching CA; compost; root exudates | — | 2.2–2.5 |
+| 2.1 | **8.1a Soil Chemistry** — NPK + pH + OM + microbiome per tile; rain leaching CA; compost; root exudates. **DONE 2026-08-18** (Cell gains N/P/K/pH/OM/microbiome; rain leaching CA moves nutrients downward; composter produces N/P/K/organic fertilizer from organic inputs; root exudates boost microbiome and fix N for legumes; crop growth uses Liebig's law of the minimum with pH/organic matter/microbiome factors; soil test command shows levels + recommendations; fertilize command accepts N/P/K/balanced/organic/lime/sulfur/gypsum; composter accepts fiber/manure/ash/bone for NPK-specific output) | — | 2.2–2.5 |
 | 2.2 | **8.1b Water Table** — 2D groundwater Darcy→CA; recharge/discharge; cone of depression; well drying | 2.1 | 2.3–2.5 |
 | 2.3 | **8.1c Plant Genetics** — allele sets per variety; EA recombination; L-System morphology; seed saving/breeding; giant crops from homozygosity | 2.2 | 2.4, 2.5 |
 | 2.4 | **8.1d Pest/Disease** — pest agents + spore CA + transmission graph; predators; companion planting | 2.3 | 2.5 |
@@ -157,6 +157,8 @@ Mechanistic, deterministic, emergent — see §5 toolkit and §6 layer specs.
 | 2.7 | **8.3 Structural physics** — rot/erosion CA, tool wear grammar, fire spread CA, stress fields, basement hatch escape | — | 2.8 |
 | 2.8 | **8.4 Creature biology** — metabolism Petri nets, disease on contact graph, aging L-systems, social graph rewriting | 2.5, 2.6, 2.7 | 2.9 |
 | 2.9 | **8.5 Terrain & ecological change** — flood CA, river migration, erosion CA, fire spread, succession, soil degradation | 2.8 | 3.2 |
+| 2.10 | **Hidden State Persistence** — serialize all cognitive hidden states (RNN/SSM latent vectors, memories, adapted weights) to `save.json` per agent/aggregate; restore on load; discard on `newgame`. Applies to 7 important NPCs, 5 villagers, 6 aggregate minds. | 1.7 (cognitive core wired) | 4.1 (narrative anchors need persistent minds) |
+| 2.11 | **Custom Ashgrove LLM** — purpose-trained multi-task model (intent, consolidation, dialogue, narrative) with cognitive-state conditioning; custom tokenizer; replaces Qwen LoRA. | 1.5 (consolidation dataset), 1.7d (dialogue data) | 4.1+ (full narrative integration) |
 
 ### Tier 3 — Procedural expansion
 

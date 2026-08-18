@@ -47,12 +47,14 @@ Every important agent (important NPCs, the village aggregate, the forest aggrega
 - **Capacity**: Bounded buffer (4–7 items, inspired by Miller's law but parameterized). Each item = `{stimulus_ref, emotional_tag, timestamp, decay_factor}`.
 - **Decay**: Exponential decay by tick (`decay_factor *= 0.995` per tick). Replay events (`episodic_memory.replay()`) refresh working memory.
 - **Implementation**: `src/working_memory.h` — fixed-size ring buffer per agent; no LLM involvement.
+- **Persistence**: Working memory is NOT persisted to disk (ephemeral by design). Only the hidden state vector and long-term memories persist.
 
 ### 3.3 Episodic Memory
 - **Storage**: Structured event records (same schema as `TownEvent` from Phase 7): `{system, event_type, payload, emotional_tag, tick}`. Stored per-agent, not global.
 - **Retrieval**: Associative lookup by `{context_tag}` (current season, location, emotional state) using a small associative memory matrix (`associative_memory` weights: 16×16, fixed + bounded updates).
 - **Replay**: Subconscious replay runs during sleep (`tick_sanity` / rest events) — reinforces emotional tags, strengthens predictions, updates world-model biases.
 - **Implementation**: `src/episodic_memory.cpp`. Uses `std::map<uint32_t tick, EventRecord>`. Replay selects events with high emotional_tag / high context-match.
+- **Persistence**: Episodic memory IS persisted to disk (serialized to `data/npc_cognitive_state/<agent_id>.json`). On load, the full episodic history is restored, allowing the agent to remember across sessions.
 
 ### 3.4 Semantic Memory
 - **Storage**: Long-term facts derived from repeated experience (e.g., "the smith always opens at 9", "rain reduces fishing yield", "gift of wine increases heart with merchant").
@@ -65,16 +67,19 @@ Every important agent (important NPCs, the village aggregate, the forest aggrega
 - **Reward function**: Not a single scalar; per-drive scalar (`hunger`, `thirst`, `social`, `safety`, `curiosity`, `reproduction`). Each drive has its own `satisfaction` curve. The **reward prediction error** (`RPE = actual_reward - predicted_reward`) updates drives and updates the world-model.
 - **Bounded adaptation**: Drive weights (`drive_weights` array of 6 floats) update by: `new = 0.9*old + 0.1*RPE_gradient`. Very slow convergence (intentionally) to preserve stability.
 - **Implementation**: `src/emotion_drive.cpp`. Fixed weight MLP predicts emotional response from event features; only the 6 drive floats adapt online.
+- **Persistence**: All emotional state, drive states, and drive weights are persisted to disk as part of the agent's cognitive state.
 
 ### 3.6 Prediction / World-Model
 - **World-model**: Per-agent predictive model — not a full physics simulator, but a compact predictive MLP (`world_model` weights: 8 inputs → 4 hidden → 3 outputs: `predicted_weather_shift`, `predicted_social_response`, `predicted_resource_availability`). Inputs = current season, recent events from episodic memory, semantic memory facts, emotional state.
 - **Fixed weights** (trained offline with synthetic data; see §6). Online adaptation: only a small `world_model_bias` vector (3 floats) updates per tick based on prediction errors (`new_bias += 0.01 * error`).
 - **Implementation**: `src/world_model.cpp`. Uses `tiny_mlp.h` (hand-written 8×4 MLP, no external library dependency).
+- **Persistence**: World model bias vector and any adapted weights are persisted to disk as part of the agent's cognitive state.
 
 ### 3.7 Learned Preferences
 - **Preference vector**: Per-agent float array (e.g., `crop_preference`, `gift_preference_shift`, `location_preference`, `social_target_preference`). Updated by positive emotional tags (`new += 0.02 * positive_tag`) and decayed (`new *= 0.999` per tick).
 - **Bounded**: Each preference clamped to `[0, 1]`. The model outputs preference-shift predictions; the agent's actual preferences adapt independently.
 - **Implementation**: `src/preferences.h` — simple float array with decay/update logic.
+- **Persistence**: All learned preferences are persisted to disk as part of the agent's cognitive state.
 
 ### 3.8 Social Cognition / Theory-of-Mind
 - **Social graph**: Per-agent `social_graph` — nodes = known agents; edges = `{trust, familiarity, emotional_history_sum, imitation_target}`. Persistent across saves.
@@ -82,17 +87,20 @@ Every important agent (important NPCs, the village aggregate, the forest aggrega
 - **Social learning**: Agents observe successful actions of others (`imitation_target` edges). When `edge.imitation_target > 0.5` and the observed action yields positive emotional tag, the observer copies the behavior preference. This creates **cultural transmission** (e.g., if one NPC learns to repair buildings quickly, others near them learn the repair behavior).
 - **Bounded adaptation**: Edge weights (`social_edge_weights`) adapt by `new = 0.95*old + 0.05*interaction_result`. Very slow.
 - **Implementation**: `src/social_cognition.cpp`. Graph stored as `std::map<std::string agent_id, SocialEdge>`. Updates in `NPC::tick_social()` called each tick.
+- **Persistence**: Full social graph (nodes, edges, weights) is persisted to disk as part of the agent's cognitive state.
 
 ### 3.9 Self-Model
 - **Self-representation**: Per-agent vector `{self_esteem_estimate, competence_estimate, autonomy_estimate}`. Updated by comparing actual outcomes to predictions (`world_model`). If predictions are consistently wrong (high error), `self_esteem_estimate` drops slowly; if predictions are accurate, it rises.
 - **Effect**: Low self-esteem → higher `safety` drive weight, lower `curiosity` weight, reduced social initiative. High self-esteem → more exploration, more social risk-taking. Creates personality divergence.
 - **Bounded adaptation**: Self-state updates by `new += 0.005 * normalized_prediction_accuracy` (extremely slow, ~days of experience).
 - **Implementation**: `src/self_model.cpp`. Small vector update in the agent tick loop.
+- **Persistence**: Self-model state is persisted to disk as part of the agent's cognitive state.
 
 ### 3.10 Subconscious Processing
 - **Subconscious replay buffer**: Runs during sleep/rest (`tick_sanity` or `sleep` event). Selects 3–5 episodic events with high emotional_tag and replays them: updates episodic confidence, reinforces predictions, updates social edges (if another agent involved), updates self-model.
 - **Dream / nightmare synthesis**: A simple generative mechanism: combine replayed events with noise → generate `last_night_event` (already exists as `World::roll_night_event`). The cognitive architecture enhances this: replay events influence which events are selected, and emotional tags bias event generation.
 - **Implementation**: `src/subconscious.cpp`. Runs in `World::tick_sanity()` or during `sleep` events. Uses replay logic + deterministic noise.
+- **Persistence**: Subconscious replay modifies episodic memory, emotional tags, and biases which are all persisted. The replay buffer itself is not persisted (ephemeral).
 
 ### 3.11 Planning & Action Selection
 - **Planning**: Not a full planner; a **goal-stack** + **action-evaluator**.
@@ -100,6 +108,53 @@ Every important agent (important NPCs, the village aggregate, the forest aggrega
   - `action_evaluator`: Small MLP (`action_evaluator` weights: 10 inputs → 3 hidden → action_score). Inputs: current working memory top items, emotional state, drive urgency, prediction outputs. Outputs: score for each available action (`go`, `interact`, `talk`, `repair`, `harvest`, etc.).
 - **Bounded adaptation**: Only the `action_evaluator` weights update, very slowly (`learning_rate = 0.002`), and only if action results in positive emotional tag. This creates **behavioral drift** without catastrophic forgetting.
 - **Implementation**: `src/planning.cpp`. Action scores computed per tick; top-scored action selected (or combined with NPC schedule constraints from the existing `schedule_slot` system).
+- **Persistence**: Goal stack and action evaluator weights are persisted to disk as part of the agent's cognitive state.
+
+---
+
+## 3.12 Hidden State Persistence (NEW — Core Requirement)
+
+**Every cognitive agent (NPCs, animals, aggregate systems) maintains a persistent hidden state vector that evolves continuously and is serialized to disk with the save game.**
+
+### 3.12.1 What Is Persisted
+For each agent/aggregate, the following hidden state is serialized to `save.json` (or per-agent files in `data/npc_cognitive_state/<agent_id>.json`):
+
+| Component | Serialized Fields | Size Estimate |
+|-----------|-------------------|---------------|
+| **Hidden State Vector** (RNN/SSM latent) | `float[hidden_dim]` — the core recurrent hidden state | 256–512 floats |
+| **RNN/SSM Parameters** (if adapting) | `W_in`, `W_rec`, `W_out` (if online adaptation enabled) | ~1–4 KB |
+| **Episodic Memory** | Full event records with emotional tags | ~10–50 KB |
+| **Semantic Memory** | Facts with confidence scores | ~5–20 KB |
+| **Working Memory** | NOT persisted (ephemeral by design) | — |
+| **Emotional State** | Valence, arousal, 7 discrete tags | ~64 bytes |
+| **Drive State** | 6 drive satisfactions + 6 weights | ~96 bytes |
+| **World Model** | Bias vector (3 floats) + adapted weights (if any) | ~100 bytes |
+| **Preferences** | Float array (crop, gift, location, social) | ~32 bytes |
+| **Social Graph** | Nodes + edges (trust, familiarity, imitation_target) | ~1–10 KB |
+| **Self Model** | 3 floats (esteem, competence, autonomy) | ~12 bytes |
+| **Goal Stack** | Up to 5 goals with urgency/target/deadline | ~200 bytes |
+| **Action Evaluator Weights** | 31 floats (if adapting) | ~124 bytes |
+| **Causal Traces** | Ring buffer of last 20 decisions | ~2 KB |
+| **RNN/SSM Hidden State** | Core latent vector for sequence modeling | 256–512 floats |
+
+### 3.12.2 Save/Load Behavior
+- **On World Save** (`World::save()`): All cognitive states are serialized to `save.json` (or companion files). This includes the hidden state vectors for every agent and aggregate system.
+- **On World Load** (`World::load()`): Cognitive states are deserialized, restoring the exact hidden state, memories, and parameters. Agents resume with the same "mind" they had when the game was saved.
+- **New Game**: When `newgame` command is issued, ALL cognitive states are discarded. Fresh agents are created with randomized initial hidden states (drawn from a distribution that ensures diversity). No carryover from previous saves.
+- **Versioning**: Cognitive state schema includes a `schema_version` field. On load, if version mismatches, a migration function upgrades the state (e.g., adds new fields with defaults).
+
+### 3.12.3 Aggregate System Persistence
+Aggregate minds (`VillageMind`, `EconomyMind`, `NatureMind`, `CultureMind`, `PerformanceMind`, `ValleyMind`) also persist their hidden states:
+- **Aggregate Hidden State**: `float[aggregate_dim]` latent vector representing collective "mood"/pressure
+- **Aggregate Memory**: Episodic + semantic memory at the system level
+- **Aggregate Biases**: Current `schedule_bias`, `market_volatility`, `procgen_biases`, etc.
+- These are saved in `save.json` under `village_memory`, `economic_memory`, `nature_memory`, `culture_memory`, `performance_memory`, `valley_memory`.
+
+### 3.12.4 Implementation Notes
+- **Serialization Format**: JSON for readability/debugging, with optional binary (MessagePack) for large hidden states
+- **Save Frequency**: Autosave every 60s + on `sleep` command + on `save` command
+- **Corruption Handling**: If cognitive state fails to load, agent reinitializes with fresh random state (logs warning)
+- **Memory Budget**: Target <50 KB per important NPC, <200 KB per aggregate → total <2 MB for cognitive state in save file
 
 ---
 
@@ -113,29 +168,41 @@ The architecture treats persistent game systems as **potential cognitive aggrega
 - **Behavior**: No direct action selection, but biases NPC schedules (`schedule_bias`), economic prices (`market_volatility`), and horror intensity (`horror_night_event_weight`) through the adaptation loop.
 - **Social transmission**: Cultural practices spread through `social_edge_weights` — a repair technique learned by one NPC propagates to others through observation (`imitation_target`).
 - **Implementation**: `src/village_aggregate.cpp`. Updates `World::village_memory` (new field) and pushes aggregate biases to `adaptations.json` sections (`npc`, `economy`, `horror`).
+- **Persistence**: `village_memory` (aggregate episodic + semantic), aggregate hidden state vector, and current biases are persisted to `save.json`. On load, the village mind resumes with its collective mood and memories intact.
 
 ### 4.2 Economy Aggregate (`EconomyMind`)
 - **State**: Not just `market_prices`; a persistent `economic_memory` tracking `commodity_cycles`, `trade_route_health`, `inflation_rate`, `player_impact_on_supply`.
 - **Memory**: Episodic records of economic events (`market_crash_day = 14`, `player_hoards_wood`). Semantic memory of `commodity_demand_patterns` (seasonal demand curves learned from `update_market_prices` history).
 - **Behavior**: Economic adaptations (`price_elasticity`, `market_volatility`, `demand_shift`) are not arbitrary LLM outputs — they are computed from aggregate economic memory: `volatility += |price_change_rate - historical_mean|`, `demand_shift` reflects observed player buying patterns.
 - **Implementation**: `src/economy_aggregate.cpp`. Updates `World::economic_memory` (new field) and feeds back to `update_market_prices()` and adaptation consumers.
+- **Persistence**: `economic_memory` (episodic + semantic demand patterns), aggregate hidden state, and current market biases persisted to `save.json`.
 
 ### 4.3 Culture Aggregate (`CultureMind`)
 - **State**: Aggregate of `semantic_memory` across NPCs — common beliefs, shared rituals, collective fears (horror), collective preferences (food, gifts, festivals).
 - **Memory**: `culture_memory` — `ritual_practices` (frequency of repair, gift-giving, festival attendance), `shared_fears` (frequency of horror events affecting NPC emotional tags), `collective_preferences` (aggregate gift preferences).
 - **Behavior**: Cultural transmission through `social_edge_weights`. If a practice (e.g., "repair buildings on rainy days") achieves positive emotional tags for multiple agents, it propagates through the social graph. `schedule_bias` in adaptations reflects aggregate behavior patterns.
 - **Implementation**: `src/culture_aggregate.cpp`. Updates `World::culture_memory`; feeds `schedule_bias` and `dialogue_topic_weight` adaptations.
+- **Persistence**: `culture_memory` (semantic aggregates), aggregate hidden state, and cultural biases persisted to `save.json`.
 
 ### 4.4 Nature / Forest Aggregate (`NatureMind`)
 - **State**: Aggregate of `ecological_state` from Phase 8.1 (forest ecology). `forest_memory` — `disturbance_legacy`, `succession_stage`, `climate_trend`.
 - **Memory**: Episodic: `fire_events`, `storm_damage`, `harvest_patterns`. Semantic: `soil_health_trend`, `biodiversity_index`, `carbon_storage`.
 - **Behavior**: The forest does not "act" in the NPC sense, but its aggregate state influences adaptations (`procgen_biases`, `storm_chance`, `disaster_chance`). Over long time scales (10+ in-game days), persistent feedback loops create emergent ecological behavior: droughts reduce biodiversity, which reduces pollination, which reduces crop yields, which increases player stress, which increases horror events. This is **not scripted** — it emerges from the interaction of deterministic systems (CA for fire, agent-based for pests, Petri nets for soil) biased by the adaptation loop.
 - **Implementation**: `src/nature_aggregate.cpp`. Updates `World::nature_memory`; feeds `procgen` and `weather` adaptations.
+- **Persistence**: `nature_memory` (episodic + semantic), aggregate hidden state, and ecological biases persisted to `save.json`.
 
 ### 4.5 Performance Aggregate (`PerformanceMind` — already exists)
 - **State**: `performance_profile` (CPU %, memory, tick latency) from Phase 7.4.
 - **Behavior**: `tick_budget_ms`, `npc_decision_interval_ticks`, `chunk_load_radius` adjustments are not just "tune for FPS" — they represent the aggregate's adaptive response to resource constraints. Slow tick budget = more deliberate, slower NPCs; faster budget = more reactive, more frequent observations.
 - **Implementation**: Already partially implemented (`PerformanceMonitor`). Extended: add `World::performance_memory` tracking historical performance, feeding `performance_adapt` in `adaptations.json`.
+- **Persistence**: `performance_memory` (historical profile), aggregate hidden state, and tuner state persisted to `save.json`.
+
+### 4.6 Valley Entity (`ValleyMind`)
+- **State**: `collective_guilt`, `valley_awakening`, spatial corruption CA.
+- **Memory**: `valley_memory` — spatial corruption CA state, horror cycle counter, collective guilt trajectory.
+- **Behavior**: Drives the valley-as-entity feedback loop: guilt → corruption → awakening → horror intensity → more guilt.
+- **Implementation**: `src/valley_mind.cpp`. Updates `World::valley_memory`; feeds horror adaptations.
+- **Persistence**: `valley_memory` (corruption CA state, guilt trajectory, cycle counter), aggregate hidden state persisted to `save.json`.
 
 ---
 
@@ -291,4 +358,220 @@ The result is a game where:
 
 ---
 
-*This document is the cognitive architecture specification. Implementation begins Phase 7.7 (after docs refresh + training pipeline commit `47f1898`). Update this doc as components are designed in detail.*
+## 11. Comprehensive AI/ML/LLM Systems Inventory
+
+This section provides a complete inventory of every AI, ML, neural network, and LLM system currently implemented or planned for Ashgrove Valley, categorized by function and implementation status.
+
+### 11.1 Large Language Models (LLMs) — Tier 2 (On-Demand, ≤2B Parameters)
+
+| System | Model | Role | Status | Training Method |
+|--------|-------|------|--------|-----------------|
+| **Intent Parser** | Qwen2.5-0.5B LoRA (GGUF Q4_K_M) | `/cmd` natural language → structured intent JSON `{action, parameters}` | **Implemented & Wired** (Tier 1 fallback when rule engine fails) | Student-teacher distillation from NVIDIA NIM (NIM teacher → student LoRA). Dataset: `tools/gen_dataset.py` + `data/eval_set.jsonl` (30 cases). |
+| **Town Consciousness Consolidation** | Same Qwen2.5-0.5B LoRA | Daily (04:00) consolidation of event buffer → `adaptations.json` (biases for procgen, NPC, economy, weather, horror, performance) | **Implemented & Wired** (async worker, once per in-game day) | Same LoRA. **Limitation**: Trained only on intent format; consolidation outputs malformed JSON → adaptations stay at defaults. **Deferred** (ROADMAP 1.5). |
+| **NPC Dialogue Generator** | Same Qwen2.5-0.5B LoRA (currently) | One-line in-character dialogue given emotional state + context (ROADMAP 1.7d) | **Wired with Template Fallback** (ROADMAP 1.7d) | **Current model unsuited** (intent LoRA produces narrative garbage). **Future**: separate dialogue-tuned LoRA or unified model with dialogue head. |
+| **Narrative Event Synthesis** | Same Qwen2.5-0.5B LoRA | Complex `roll_night_event` chapters, `/town/why` explanations | **Implemented** (partial) | Same LoRA; limited to structured outputs it was trained for. |
+| **Future: Unified Reasoning Engine** | Planned: Qwen2.5-1.5B or 3B LoRA (≤2B target) | Consolidation + dialogue + reasoning in one model; multi-head output (intent, consolidation, dialogue) | **Planned (Post-ROADMAP 1.5)** | Multi-task LoRA training on expanded dataset (intent + consolidation + dialogue). |
+
+**Model Policy**: Runtime LLM is local llama.cpp only (CPU inference, ~28 tok/s on i3-4160). NVIDIA NIM is used **only offline** for training data generation (`tools/gen_dataset.py`, `gen_cognitive_mlp_data.py`), never at runtime.
+
+### 11.10 Custom Ashgrove LLM — Purpose-Built Language Model (Future)
+
+**Goal**: Replace the general-purpose Qwen2.5-0.5B LoRA with a **purpose-trained Ashgrove Language Model** that deeply understands the game's mechanics, lore, cognitive architecture, and narrative style.
+
+#### 11.10.1 Why Build Our Own?
+| Issue with Current Approach | Custom Model Solution |
+|----------------------------|----------------------|
+| Intent LoRA produces narrative garbage for dialogue | Trained specifically for **cognitive-state-conditioned dialogue generation** |
+| Consolidation prompt fails (wrong output format) | Trained on **consolidation prompt → adaptations JSON** format |
+| No understanding of game mechanics/lore | Trained on **game state → narrative** pairs |
+| General-purpose = wasted capacity | **Specialized tokenizer + architecture** for game concepts |
+| Can't do cognitive-state-conditioned reasoning | **Cognitive state embedding** as conditional input |
+
+#### 11.10.2 Model Design
+| Aspect | Specification |
+|--------|---------------|
+| **Base Architecture** | State-space model (Mamba/SSM) or efficient Transformer (≤1B params) |
+| **Context Window** | 4K–8K tokens (sufficient for cognitive state + prompt) |
+| **Conditional Inputs** | Cognitive state embeddings (hidden state + memory summaries) prepended to prompt |
+| **Multi-Head Outputs** | 1) Intent JSON, 2) Consolidation JSON, 3) Dialogue line, 4) Narrative prose |
+| **Tokenizer** | Custom BPE trained on game text (mechanics terms, lore, NPC names, item names) |
+| **Training** | Multi-task: intent parsing + consolidation + dialogue + narrative synthesis |
+| **Quantization** | Q4_K_M GGUF for CPU inference (~28 tok/s on i3-4160) |
+
+#### 11.10.3 Training Pipeline
+1. **Data Generation**: Use NIM teacher to generate synthetic data for all tasks:
+   - `{(game_state, player_text) → intent_json}`
+   - `{(event_buffer, world_state) → adaptations_json}`
+   - `{(cognitive_state, player_context) → dialogue_line}`
+   - `{(world_state, narrative_beat) → narrative_prose}`
+2. **Multi-Task Training**: Single model with task-specific prefix tokens (`<intent>`, `<consolidate>`, `<dialogue>`, `<narrate>`)
+3. **Cognitive State Embedding**: Learn projection from cognitive state vector → token embeddings
+4. **Curriculum**: Start with intent (easy), add consolidation, then dialogue, then narrative
+5. **Distillation**: If needed, distill to smaller student (0.3B) for faster inference
+
+#### 11.10.4 Integration Points
+- **Intent Parsing**: `<intent>` prefix + player text → structured JSON
+- **Consolidation**: `<consolidate>` + event_buffer + world_state → adaptations JSON
+- **Dialogue**: `<dialogue>` + cognitive_state_embedding + player_context → one-line reply
+- **Narrative**: `<narrate>` + world_state + narrative_beat → prose chapter
+- **Reasoning** (`/town/why`): `<reason>` + adaptation_history → explanation
+
+#### 11.10.5 Roadmap Placement
+| Tier | Item | Dependency |
+|------|------|------------|
+| 1.5 | Consolidation-format dataset + retrain existing LoRA | User sign-off |
+| 1.7d+ | Dialogue LoRA (interim) | Consolidation dataset |
+| **Post-1.5** | **Custom Ashgrove LLM (unified multi-task)** | Consolidation dataset + dialogue data + compute budget |
+| 4.1+ | Full narrative integration | Custom LLM + all aggregates implemented |
+
+**This custom model is the endgame for Tier 2 — a single, purpose-built model that replaces all current LLM uses and enables true cognitive-state-conditioned language generation.**
+
+---
+
+### 11.2 Lightweight Neural Networks (MLPs) — Tier 1 (Every Tick, Sub-Millisecond)
+
+These are **fixed-weight** MLPs trained offline on synthetic data; only small bounded online adaptation permitted.
+
+| Network | Architecture | Inputs → Outputs | Online Adaptation | Training Data Source | Status |
+|---------|--------------|------------------|-------------------|---------------------|--------|
+| **Attention Gating MLP** | 4 → 32 → 1 (salience score) | [novelty, emotional_arousal, relevance, survival] → gate score | `attention_weights` (4 floats, lr=0.001) | Synthetic: `tools/gen_cognitive_mlp_data.py` (500 samples) | **Implemented** (Phase 7.7) |
+| **Action Evaluator MLP** | 10 → 3 → 6 (action scores) | [WM_top3, emotion, drives, predictions] → 6 action scores | `action_evaluator_weights` (31 floats, lr=0.002) | Synthetic (500 samples) | **Implemented** (Phase 7.7) |
+| **World Model MLP** | 8 → 4 → 3 (predictions) | [season, recent_events, semantic_facts, emotion] → [weather_shift, social_response, resource_avail] | `world_model_bias` (3 floats, lr=0.01) | Synthetic (500 samples) | **Implemented** (Phase 7.7) |
+| **Associative Memory Matrix** | 16×16 fixed weights | Context tag → episodic recall | Fixed + bounded updates | N/A (rule-based) | **Implemented** |
+| **Emotion Prediction MLP** | 8 → 16 → 7 (discrete tags) | Event features → 7 emotional tag intensities | Fixed (no online adaptation) | Synthetic | **Planned** (Phase 7.7) |
+
+**Key Properties**:
+- All weights frozen by default after offline training
+- Online adaptation only on tiny parameter subsets (biases, 4–31 floats max)
+- Learning rates extremely slow (0.001–0.1), clamped to [0,1] or [-1,1]
+- No external ML library at runtime — hand-coded `tiny_mlp.h` forward pass in C++
+- Total per-agent inference: <0.1 ms per tick
+
+### 11.3 Deterministic Cognitive Systems (Zero Training, Pure C++)
+
+These systems implement biologically-inspired cognitive functions without any neural network weights. They are the "thinking engine" that runs every tick.
+
+| System | Function | Key Data Structures | Status |
+|--------|----------|---------------------|--------|
+| **Perception / Attention** | Gating MLP + deterministic visibility/audibility checks → top-K stimuli | `WorkingMemoryItem` ring buffer (cap 7), `attention_weights` (4 floats) | **Implemented** |
+| **Working Memory** | Bounded buffer (4-7 items), exponential decay, replay refresh | `std::deque<WorkingMemoryItem>`, decay_factor ×0.995/tick | **Implemented** |
+| **Episodic Memory** | Structured event records, associative lookup by context tag, replay | `std::deque<EpisodicEvent>` (cap 256), `last_access_tick` for LRU (1.7b) | **Implemented** + LRU |
+| **Semantic Memory** | Long-term facts `{subject, predicate, object, confidence}`, social transmission | `std::map<std::string, SemanticFact>` (cap 64), confidence decay 0.998/tick | **Implemented** |
+| **Emotion / Drive System** | Continuous valence×arousal + 7 discrete tags; 6 drives with satisfaction curves | `EmotionalTag`, `DriveState` (6 drives), bounded weight adaptation | **Implemented** |
+| **World Model (Predictive)** | MLP predictions + online bias correction from prediction error | `world_model_bias[3]`, prediction error → bias update | **Implemented** |
+| **Learned Preferences** | Per-agent float array updated by emotional tags, decayed | `preference_vector[]`, `new *= 0.999`/tick | **Implemented** |
+| **Social Graph / Theory of Mind** | Nodes=agents, edges={trust, familiarity, imitation_target}; simple ToM inference | `std::map<agent_id, SocialEdge>`, bounded updates (lr=0.05) | **Implemented** |
+| **Self Model** | {self_esteem, competence, autonomy} updated by prediction accuracy | 3-float vector, update rate 0.005 | **Implemented** |
+| **Subconscious Replay** | Sleep/rest replay: reinforces emotional tags, updates social edges, self-model | Triggered by `tick_sanity`/`sleep`; selects high-emotion events | **Implemented** |
+| **Planning / Action Selection** | Goal stack + action_evaluator MLP scores → top action | `goal_stack` (cap 5), MLP scores, drive urgency | **Implemented** |
+| **Causal Traces (Debug)** | Per-decision record: drives, stimuli, emotion, scores | `CausalTrace` ring (cap 20) | **Implemented** (ROADMAP 1.7c) |
+
+### 11.4 Aggregate / Collective Cognitive Systems (System-Level Cognition)
+
+These are NOT individual agents but persistent system-level states that accumulate memory and emit biases.
+
+| Aggregate | State Components | Memory | Output (Adaptations) | Status |
+|-----------|------------------|--------|----------------------|--------|
+| **Valley Entity / ValleyMind** | `collective_guilt`, `valley_awakening`, spatial corruption CA | `corruption` per cell (0-255), `horror_cycle` counter | `horror_intensity`, `horror_sanity_drain_multiplier`, `weather_fog_intensity`, `horror_phantom_sighting_chance` | **Implemented** (ROADMAP 1.2) |
+| **VillageMind** | `mean_valence`, `mean_arousal`, `market_volatility`, `demand_shift`, `avg_edge_trust` | Aggregate episodic records, `village_memory` | `schedule_bias`, `market_volatility`, `horror_night_event_weight` | **Implemented** (Phase 7.9) |
+| **EconomyMind** | `commodity_cycles`, `trade_route_health`, `inflation_rate`, `player_impact` | `economic_memory` (episodic + semantic demand patterns) | `price_elasticity`, `market_volatility`, `demand_shift` | **Implemented** (Phase 7.9) |
+| **NatureMind** | `disturbance_legacy`, `succession_stage`, `climate_trend`, `biodiversity` | `nature_memory` (fire, storm, harvest episodes) | `procgen_biases`, `storm_chance`, `disaster_chance` | **Implemented** (Phase 7.9) |
+| **CultureMind** | `ritual_practices`, `shared_fears`, `collective_preferences` | `culture_memory` (semantic aggregates) | `schedule_bias`, `dialogue_topic_weight` | **Implemented** (Phase 7.9) |
+| **PerformanceMind** | `cpu_pct`, `memory`, `tick_latency` history | `performance_memory` (historical profile) | `tick_budget_ms`, `npc_decision_interval`, `chunk_load_radius` | **Implemented** (Phase 7.4 + extensions) |
+| **Town Consciousness** | LLM-based consolidation of event buffer | `town_memory.json`, `adaptations.json`, `town_log.jsonl` | `adaptations.json` (6 sections) | **Implemented** (Phase 7) |
+
+### 11.5 Training & Data Generation Pipeline (Offline Only)
+
+| Component | Purpose | Technology | Status |
+|-----------|---------|------------|--------|
+| **NVIDIA NIM Teacher** | Generate high-quality training data (intent, consolidation, dialogue) | NIM API (cloud GPU) | **Used offline** |
+| **Student LoRA Training** | Qwen2.5-0.5B → intent LoRA (`qwen2.5-0.5b-ashgrove-q4_k_m.gguf`) | `tools/train_lora.py` (PyTorch/PEFT) | **Done** |
+| **Future: Consolidation LoRA** | Consolidation-format training data → retrain LoRA | `tools/train_lora.py` + expanded dataset | **Deferred** (ROADMAP 1.5) |
+| **Future: Dialogue LoRA** | Dialogue-tuned adapter for NPC one-liners | Multi-head or separate adapter | **Planned** |
+| **Cognitive MLP Synthetic Data** | Generate 500 samples for attention/action/world_model | `tools/gen_cognitive_mlp_data.py` | **Implemented** |
+| **Synthetic Data Format** | `{(inputs, targets)}` JSONL for MLP training | `data/cognitive_mlp_train.jsonl` | **Implemented** |
+| **MLP Weight Export** | JSON `mlp_weights.json` loaded at C++ startup | `data/mlp_weights.json` | **Implemented** |
+
+### 11.6 Runtime Inference Pipeline (How It All Connects)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     WORLD TICK LOOP (every ~16ms)                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  Per NPC (Cognitive Core - Tier 1):                                 │
+│  1. Perception → Attention MLP (novelty×emotion×relevance)          │
+│  2. Working Memory update (decay, insert salient)                   │
+│  3. Episodic Memory record (emotional tag, tick, payload)           │
+│  4. Semantic Memory update (confidence decay, social transmission)  │
+│  5. Social Graph update (trust, familiarity, imitation_target)      │
+│  6. Subconscious Replay (if rest/sleep tick)                        │
+│  7. Emotion/Drives update (RPE from action outcomes)                │
+│  8. World Model prediction → bias update from prediction error      │
+│  9. Goal Stack update (drive urgency → goal urgency)                │
+│  10. Action Evaluator MLP → action scores → select action           │
+│  11. Self Model update (prediction accuracy → self_esteem)          │
+│  12. Causal Trace record (for debugging)                            │
+│  [ALL ABOVE: Zero LLM calls, pure C++ + tiny MLP forward passes]    │
+├─────────────────────────────────────────────────────────────────────┤
+│  Aggregate Systems (per tick):                                      │
+│  - ValleyMind tick (spatial corruption CA, guilt decay)             │
+│  - VillageMind tick (emotional aggregate, social density)           │
+│  - EconomyMind tick (price cycles, demand tracking)                 │
+│  - NatureMind tick (ecology, biodiversity, disturbance)             │
+|  - CultureMind tick (ritual frequency, shared fears)                |
+|  - PerformanceMind tick (CPU/memory/tick latency history)           |
+├─────────────────────────────────────────────────────────────────────┤
+│  ON-DEMAND LLM CALLS (Tier 2):                                      │
+│  - /cmd intent parsing (when rule engine fails)                     │
+│  - NPC dialogue (cognitive prompt → LLM → validation → fallback)    │
+│  - Daily consolidation (04:00, async worker)                        │
+│  - /town/why (player curiosity)                                     │
+│  - Complex narrative event synthesis                                │
+├─────────────────────────────────────────────────────────────────────┤
+│  DAILY CONSOLIDATION (04:00 in-game):                               │
+│  1. TownConsciousness collects event buffer                         │
+│  2. aggregate_memory() → structured summary                         │
+│  3. LLM inference (1024 tokens, 0.1 temp) → adaptations JSON        │
+│  4. parse_llm_response → apply_adaptations() with 0.3/0.7 damping   │
+│  5. Adaptations applied to: procgen, NPC, economy, weather, horror  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 11.7 Future AI/ML Systems (Roadmap)
+
+| System | Roadmap Tier | Description | Dependency |
+|--------|--------------|-------------|------------|
+| **Consolidation-Format LoRA** | 1.5 (Deferred) | Retrain LoRA on consolidation prompt→adaptations format | `tools/gen_dataset.py` expansion + user sign-off |
+| **Dialogue LoRA / Multi-Head Model** | 1.7d+ | Separate dialogue adapter or multi-head LoRA for NPC one-liners | Consolidation dataset + compute budget |
+| **Procedural Wilderness ML** | 3.1 | Biome transitions, landmark generation via learned spatial priors | 2.x ecology chain (2.5→2.8→2.9→3.1) |
+| **Procedural Story Generator** | 3.2 | Quest generation from world state/history/relationships | 2.9 (terrain/ecological change) |
+| **Offline Simulation (Compressed Tick)** | 3.3 | Batch processing of crops/NPC schedules/weather/economy on restart | 2.9 |
+| **Structural Physics ML** | 2.7 | Rot/erosion CA, tool wear grammar, fire spread CA | 2.5-2.8 |
+| **Creature Biology ML** | 2.8 | Metabolism Petri nets, disease contact graphs, aging L-systems | 2.5, 2.6, 2.7 |
+| **Distributed Consciousness Integration** | 4.1+ | Aggregate interaction loops (Nature→Economy→Village→Culture→Nature) | All aggregates implemented + 30-day soak |
+
+### 11.8 Hardware & Performance Constraints
+
+| Constraint | Value | Impact on AI Design |
+|------------|-------|---------------------|
+| **CPU** | i3-4160 (4 cores, 4 threads) | No GPU; all MLPs hand-coded C++; LLM CPU-only llama.cpp |
+| **RAM** | 7.7 GiB + 11 GiB swap | Model ≤500 MB (Q4_K_M ~374 MB); MLPs <1 MB |
+| **LLM Inference** | ~28 tok/s (Q4_K_M, CPU) | Consolidation ~1024 tok = ~40s; dialogue ~40 tok = ~1.5s |
+| **Build** | `cmake --build build -j4` ~3 min (BOINC CPU hog) | Prefer detached screen builds |
+| **LLM Concurrency** | Serialized by `llama.m_mutex` | Consolidation (1024 tok) blocks all other LLM calls |
+
+### 11.9 Design Principles Summary
+
+1. **LLM is vocabulary/syntax, not cognition** — Tier 2 only for language; Tier 1 (Cognitive Core) is the thinking system
+2. **Neural weights frozen by default** — Only tiny bounded online adaptation (biases, 4–31 floats)
+3. **Cognition is persistent state + deterministic rules + tiny MLPs** — Not large generative models
+4. **Aggregate systems as cognitive entities** — Village, Economy, Nature, Culture have their own persistent memory and feedback loops
+5. **Emergence over scripting** — Interactions between aggregates produce unscripted long-term behavior
+6. **Individualization** — Each NPC diverges through experience (cognitive state serialized per agent)
+7. **Efficiency first** — Sub-millisecond per-agent tick; LLM only on-demand
+8. **Training offline, inference online** — All training (NIM, synthetic data) done offline; runtime is pure inference
+9. **Model policy strict** — Local llama.cpp only at runtime; NIM/NVIDIA only for offline data generation
+
+---
+
+## 10. Long-Term Vision: The Distributed Mind

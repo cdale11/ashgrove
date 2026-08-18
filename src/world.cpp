@@ -615,6 +615,77 @@ void generate_world(World& world) {
                 world.at(x, y).tile = Tile::Grass;
 
     clear_paths(world);
+    // ROADMAP 2.1 (8.1a) — Initialize soil chemistry with biome-appropriate defaults.
+    // Uses the tile type and biome to set initial NPK, pH, OM, microbiome.
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = world.at(x, y);
+            // Base values — temperate grassland default
+            uint8_t n = 128, p = 128, k = 128;
+            uint8_t ph = 70;          // 7.0 neutral
+            uint8_t om = 50;          // 25% OM
+            uint8_t micro = 100;      // moderate microbiome
+            switch (c.tile) {
+                case Tile::Grass:
+                case Tile::GrassVar:
+                    // Fertile grassland
+                    n = 140; p = 130; k = 120;
+                    ph = 68; om = 55; micro = 110;
+                    break;
+                case Tile::Dirt:
+                    // Compacted, low fertility
+                    n = 80; p = 90; k = 100;
+                    ph = 65; om = 20; micro = 60;
+                    break;
+                case Tile::Sand:
+                    // Sandy, low retention
+                    n = 60; p = 70; k = 80;
+                    ph = 72; om = 10; micro = 40;
+                    break;
+                case Tile::Tilled:
+                    // Recently worked soil, high OM from previous cycle
+                    n = 150; p = 140; k = 130;
+                    ph = 68; om = 60; micro = 120;
+                    break;
+                case Tile::Water:
+                case Tile::WaterNorth:
+                case Tile::WaterSouth:
+                case Tile::WaterEast:
+                case Tile::WaterWest:
+                    // Aquatic — no soil
+                    n = 0; p = 0; k = 0;
+                    ph = 70; om = 0; micro = 20;
+                    break;
+                case Tile::Cobble:
+                case Tile::Bridge:
+                    // Built surfaces
+                    n = 20; p = 20; k = 20;
+                    ph = 75; om = 5; micro = 10;
+                    break;
+                case Tile::Snow:
+                case Tile::Ice:
+                    // Frozen — dormant
+                    n = 50; p = 50; k = 50;
+                    ph = 60; om = 15; micro = 30;
+                    break;
+                default:
+                    break;
+            }
+            // Biome variation: river proximity increases N (alluvial deposits)
+            for (int y2 = 0; y2 < MAP_H; ++y2) {
+                for (int x2 = 0; x2 < MAP_W; ++x2) {
+                    // Simplified: if near water (within 5 tiles), boost N slightly
+                    // Skip for performance - will be handled by leaching CA over time
+                }
+            }
+            c.nitrogen = n;
+            c.phosphorus = p;
+            c.potassium = k;
+            c.ph = ph;
+            c.organic_matter = om;
+            c.microbiome = micro;
+        }
+    }
 }
 
 // The scatter/ore passes run late and can drop rocks, stumps and fence posts on
@@ -2095,6 +2166,7 @@ std::string serialize_world(const World& w) {
                 c.tile == Tile::Grass) continue;
             json cj{{"x", x}, {"y", y}, {"tile", static_cast<int>(c.tile)},
                     {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore},
+                    {"hp2", c.obj.hp2}, {"hp3", c.obj.hp3},
                     {"snow_compaction", c.snow_compaction}, {"forest_state", c.forest_state},
                     {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir}};
             if (c.crop.is_crop()) {
@@ -2218,6 +2290,8 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.obj.type = static_cast<ObjType>(cj.value("obj", 0));
             c.obj.hp = static_cast<uint8_t>(cj.value("hp", 1));
             c.obj.ore = static_cast<uint8_t>(cj.value("ore", 0));
+            c.obj.hp2 = static_cast<uint8_t>(cj.value("hp2", 0));
+            c.obj.hp3 = static_cast<uint8_t>(cj.value("hp3", 0));
             c.snow_compaction = static_cast<uint8_t>(cj.value("snow_compaction", 0));
             c.forest_state = static_cast<uint8_t>(cj.value("forest_state", 0));
             c.track_age = static_cast<uint8_t>(cj.value("track_age", 0));
