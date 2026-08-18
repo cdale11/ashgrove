@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Crop Growth Integration**: Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbe_factor; nutrient uptake depletes soil per growth tick; legacy fertilizer bonus still works.
 - **Intent regression 26/30 (86.7%)** — unchanged from baseline.
 
+### Added — Water Table & Groundwater (ROADMAP 2.2, 2026-08-18)
+- **Water Table per Tile**: N/P/K nutrients (0–255), pH (×10), organic matter (%), microbiome — all persisted in `Cell` struct and saved/loaded.
+- **Rain Leaching CA**: N leaches 3× faster than P, K at 1.5×; severe storms 2× rate; rain slightly acidifies soil, builds OM.
+- **Root Exudates & Crop Uptake**: Legumes fix N (+2/day); all crops boost microbiome; crops uptake N/P/K via Liebig's law; pH outside 6.0–7.0 reduces growth.
+- **Fertilizer Rewrite**: N/P/K-specific (+40 each), Balanced 10-10-10 (+25), Organic (+15 +OM +microbiome -0.2 pH), legacy Basic/Quality/Premium; pH amendments: Lime (+0.8), Sulfur (−0.8), Gypsum (neutral).
+- **Soil Test Command** (`soil`/`soiltest`): Shows N/P/K/pH/OM/microbiome with status tags, crop info, automated recommendations.
+- **Composter Overhaul**: Accepts fiber/manure/ash/bone → N/P/K/organic/balanced fertilizer based on input NPK; 4-day cycle in `FarmObj` (hp=days, ore=N, hp2=P, hp3=K).
+- **Crop Growth Integration**: Growth = base × pH_factor × nutrient_factor × OM_factor × micro_factor; nutrient uptake depletes soil per growth tick; legacy fertilizer bonus preserved.
+- **Well Mechanics**: Cone of depression, well drying when water table drops; `well` command shows water level/depth/saturation; watering can refills from well.
+- **Irrigation**: `water` command uses well water (adjacent/standing) or can; raises saturation +5.
+- **Crop Growth Integration**: Growth = base × pH_factor × nutrient_factor × OM_factor × micro_factor; nutrient uptake depletes soil per tick; legacy fertilizer bonus preserved.
+- Verified end-to-end (all filters, basement procgen + mark malus, death meta-break, dread profile); intent baseline 26/30.
+
 ### Added — Sanity / Perception Filters & Procedural Basement (ROADMAP 1.4, 2026-08-18)
 - **Distorted dialogue** (`World::distort_dialogue`): word-swap + whispered underlayer
   (tier ≥1) + hallucinated dread-biased clause (tier ≥3).

@@ -92,6 +92,7 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
         return intent;
     }
     if (one_of(c, {"water"})) { set("water"); intent.parameters["tile"] = arg; return intent; }
+    if (one_of(c, {"well"})) { set("well"); return intent; }
     if (one_of(c, {"harvest", "pick", "reap"})) { set("harvest"); intent.parameters["crop"] = arg; return intent; }
     if (one_of(c, {"axe", "chop", "cut"})) { set("axe"); intent.parameters["tree"] = arg; return intent; }
     if (one_of(c, {"scythe", "clear", "cutgrass"})) { set("scythe"); return intent; }

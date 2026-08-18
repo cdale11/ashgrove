@@ -47,6 +47,8 @@ static bool is_water_any(Tile t) {
            t == Tile::WaterEast || t == Tile::WaterWest;
 }
 
+static Vec2 facing_cell(Player& p);  // forward declaration
+
 static bool save_world(const World& w, const std::string& path) {
     std::ofstream f(path);
     if (!f) return false;
@@ -222,6 +224,154 @@ static void advance_day(World& w) {
                 c.obj.hp++; // advance composting day
             }
         }
+
+    // ROADMAP 2.2 (8.1b) — Water Table / Groundwater Simulation (Darcy→CA)
+    // 1. Recharge: rain infiltrates, raising water table & saturation
+    // 2. Lateral flow (Darcy CA): water moves from high to low water table (shallow depth)
+    // 3. Discharge: wells extract water (cone of depression), baseflow to rivers
+    // 4. Capillary rise: shallow water table increases root zone saturation
+    // 5. Well drying: if water table drops below well screen, well goes dry
+    {
+        // Direction arrays for 4-neighbor connectivity
+        const int dx[4] = {1, -1, 0, 0};
+        const int dy[4] = {0, 0, 1, -1};
+
+        // Temporary array for new water table depths (simultaneous update)
+        std::vector<uint8_t> new_water_depth(w.cells.size());
+        std::vector<uint8_t> new_saturation(w.cells.size());
+
+        // Pass 1: Recharge from rain + lateral flow (Darcy CA)
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                // Skip water cells, bedrock, built surfaces
+                if (c.tile == Tile::Water || c.tile == Tile::WaterNorth || c.tile == Tile::WaterSouth ||
+                    c.tile == Tile::WaterEast || c.tile == Tile::WaterWest ||
+                    c.tile == Tile::Cobble || c.tile == Tile::Bridge) {
+                    new_water_depth[y * MAP_W + x] = c.water_table_depth;
+                    new_saturation[y * MAP_W + x] = c.saturation;
+                    continue;
+                }
+
+                // Recharge from rain
+                float recharge = 0.0f;
+                if (rain) {
+                    float recharge_rate = c.recharge_capacity / 255.0f * 0.05f; // up to 5% per rain day
+                    if (severe_storm) recharge_rate *= 2.0f;
+                    recharge = recharge_rate * (1.0f - c.saturation / 255.0f); // less recharge if already saturated
+                }
+
+                // Lateral flow (Darcy CA): water moves from shallow to deep water table
+                // Check 4 neighbors, flow from shallow (low depth) to deep (high depth)
+                float lateral_flow = 0.0f;
+                const int dx[4] = {1, -1, 0, 0};
+                const int dy[4] = {0, 0, 1, -1};
+                for (int dir = 0; dir < 4; ++dir) {
+                    int nx = x + dx[dir], ny = y + dy[dir];
+                    if (!w.in_bounds(nx, ny)) continue;
+                    Cell& n = w.at(nx, ny);
+                    if (n.tile == Tile::Water || n.tile == Tile::WaterNorth || n.tile == Tile::WaterSouth ||
+                        n.tile == Tile::WaterEast || n.tile == Tile::WaterWest) continue;
+                    // Darcy-like: flow proportional to head difference × transmissivity
+                    int head_diff = static_cast<int>(c.water_table_depth) - static_cast<int>(n.water_table_depth);
+                    if (head_diff > 0) { // neighbor is shallower (water flows TO neighbor)
+                        float transmissivity = c.aquifer_transmissivity / 255.0f * 0.02f; // max 2% per tick
+                        lateral_flow -= head_diff * transmissivity; // water leaves this cell
+                    } else if (head_diff < 0) { // neighbor is deeper (water flows FROM neighbor)
+                        float transmissivity = n.aquifer_transmissivity / 255.0f * 0.02f;
+                        lateral_flow += (-head_diff) * transmissivity; // water enters this cell
+                    }
+                }
+
+                // Discharge to rivers (cells adjacent to water)
+                float river_discharge = 0.0f;
+                for (int dir = 0; dir < 4; ++dir) {
+                    int nx = x + dx[dir], ny = y + dy[dir];
+                    if (!w.in_bounds(nx, ny)) continue;
+                    if (w.at(nx, ny).tile == Tile::Water || w.at(nx, ny).tile == Tile::WaterNorth ||
+                        w.at(nx, ny).tile == Tile::WaterSouth || w.at(nx, ny).tile == Tile::WaterEast ||
+                        w.at(nx, ny).tile == Tile::WaterWest) {
+                        // River boundary: water table tends toward river level (depth 0)
+                        float gradient = c.water_table_depth / 255.0f;
+                        river_discharge -= gradient * 0.01f; // 1% per tick toward river level
+                    }
+                }
+
+                // Well extraction (cone of depression) - handled per-well below
+
+                // Net water table change (in cm equivalent, scaled to 0-255 depth)
+                float net_change = (recharge + lateral_flow + river_discharge) * 255.0f;
+                int new_depth = static_cast<int>(c.water_table_depth) - static_cast<int>(net_change);
+                new_depth = std::clamp(new_depth, 0, 255);
+
+                new_water_depth[y * MAP_W + x] = static_cast<uint8_t>(new_depth);
+
+                // Saturation update: capillary rise from water table
+                // Shallow water table = higher saturation in root zone
+                float capillary_factor = 1.0f - (c.water_table_depth / 255.0f); // 1 at surface, 0 at 2.55m
+                float target_saturation = std::clamp(50.0f + capillary_factor * 200.0f, 0.0f, 255.0f);
+                // Rain directly increases surface saturation
+                if (rain) target_saturation = std::min(255.0f, target_saturation + (severe_storm ? 40.0f : 20.0f));
+                // Evapotranspiration (simplified): crops reduce saturation
+                // (handled in crop growth section via uptake)
+
+                new_saturation[y * MAP_W + x] = static_cast<uint8_t>(std::clamp<int>(target_saturation, 0, 255));
+            }
+        }
+
+        // Apply water table updates
+        for (size_t i = 0; i < w.cells.size(); ++i) {
+            w.cells[i].water_table_depth = new_water_depth[i];
+            w.cells[i].saturation = new_saturation[i];
+        }
+
+        // Pass 2: Well extraction (cone of depression) & well drying
+        for (int y = 0; y < MAP_H; ++y) {
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.obj.type == ObjType::Well) {
+                    // Well extracts water: creates cone of depression
+                    uint8_t& water_level = c.obj.hp; // 0-100% water level in well
+                    // Extraction rate depends on well depth vs water table
+                    int wt_depth = w.at(x, y).water_table_depth;
+                    if (wt_depth > 200) { // water table too deep
+                        water_level = 0; // well dry
+                    } else if (water_level > 0) {
+                        // Pumping lowers local water table (cone of depression)
+                        float drawdown = 10.0f * (255 - water_level) / 100.0f; // max 10 depth units
+                        // Apply to neighbors (cone of depression)
+                        for (int dir = 0; dir < 4; ++dir) {
+                            int nx = x + dx[dir], ny = y + dy[dir];
+                            if (!w.in_bounds(nx, ny)) continue;
+                            float dist_factor = 1.0f / (1.0f + std::abs(dx[dir]) + std::abs(dy[dir])); // simple distance decay
+                            int dep = static_cast<int>(drawdown * dist_factor);
+                            int idx = ny * MAP_W + nx;
+                            w.cells[idx].water_table_depth = static_cast<uint8_t>(
+                                std::min(255, w.cells[idx].water_table_depth + dep));
+                        }
+                        water_level = std::max<uint8_t>(0, water_level - 5); // well level drops with use
+                    } else if (water_level < 100) {
+                        // Well recovers slowly when not pumped (rain/recharge)
+                        if (rain) water_level = std::min<uint8_t>(100, water_level + 10);
+                    }
+                    // Well drying check
+                    if (water_level == 0) {
+                        // Well is dry - could notify player via event system
+                    }
+                }
+            }
+        }
+
+        // Capillary rise: update saturation based on water table depth
+        for (auto& cell : w.cells) {
+            if (cell.tile == Tile::Water || cell.tile == Tile::WaterNorth || cell.tile == Tile::WaterSouth ||
+                cell.tile == Tile::WaterEast || cell.tile == Tile::WaterWest) continue;
+            // Capillary fringe: saturation increases as water table rises
+            float wt_factor = 1.0f - (cell.water_table_depth / 255.0f); // 1 at surface, 0 at deep
+            float capillary_sat = std::clamp<float>(80.0f + wt_factor * 150.0f, 0.0f, 255.0f);
+            cell.saturation = static_cast<uint8_t>(std::max<int>(cell.saturation, capillary_sat));
+        }
+    }
 
     // Wind pollination: flowers adjacent to crops boost quality chance at harvest
     // This is applied at harvest time, but we track it here for flavor
@@ -707,11 +857,37 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             can.count = 40;
             return "Can refilled";
         }
+        // ROADMAP 2.2: refill from well if adjacent or standing on well
+        Cell* well_cell = nullptr;
+        // Check current cell first (player standing on well)
+        Cell& current_cell = w.at(p.pos);
+        if (current_cell.obj.type == ObjType::Well) {
+            well_cell = &current_cell;
+        } else if (c.obj.type == ObjType::Well) {  // facing cell
+            well_cell = &c;
+        } else {
+            Vec2 f = facing_cell(p);
+            if (w.in_bounds(f) && w.at(f).obj.type == ObjType::Well) {
+                well_cell = &w.at(f);
+            }
+        }
+        if (well_cell && can.count < 40) {
+            if (well_cell->obj.hp > 0) {
+                int fill = std::min(40 - can.count, static_cast<int>(well_cell->obj.hp));
+                can.count += fill;
+                well_cell->obj.hp -= static_cast<uint8_t>(fill);
+                return "Drew " + std::to_string(fill) + " units from well. Can: " + std::to_string(can.count) + "/40";
+            } else {
+                return "Well is dry";
+            }
+        }
         if (can.count == 0) return "Can is empty";
         if (c.tile == Tile::Tilled) {
             if (!spend(def.energy)) return "Exhausted";
             can.count--;
             c.crop.watered = true;
+            // ROADMAP 2.2: irrigation slightly raises local saturation
+            c.saturation = static_cast<uint8_t>(std::min<int>(c.saturation + 5, 255));
             return "";
         }
         return "Water the soil";
@@ -1965,6 +2141,30 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         else if (m == "Water the soil") say("There's nothing to water there.");
         else if (m == "Exhausted") say("Too tired. Rest or sleep.");
         else say("You water the soil.");
+        return out;
+    }
+    if (cmd == "well") {
+        Vec2 f = facing_cell(p);
+        Cell* c = nullptr;
+        if (w.in_bounds(p.pos) && w.at(p.pos).obj.type == ObjType::Well) {
+            c = &w.at(p.pos);
+        } else if (w.in_bounds(f) && w.at(f).obj.type == ObjType::Well) {
+            c = &w.at(f);
+        }
+        if (!c) { say("There's no well here. Stand on or face a well and try again."); return out; }
+        int water_level = c->obj.hp;
+        int wt_depth = c->water_table_depth;
+        std::string status = "Well water: " + std::to_string(water_level) + "/100. ";
+        if (water_level == 0) status += "DRY.";
+        else if (water_level < 20) status += "LOW.";
+        else if (water_level < 50) status += "Fair.";
+        else status += "Good.";
+        status += " Water table depth: " + std::to_string(wt_depth) + "cm (saturation: " + std::to_string(c->saturation) + ")";
+        if (wt_depth > 200) status += " — AQUIFER DEPLETED";
+        else if (wt_depth > 150) status += " — Deep";
+        else if (wt_depth > 100) status += " — Moderate";
+        else status += " — Shallow";
+        say(status);
         return out;
     }
     if (cmd == "axe" || cmd == "chop") {
@@ -4223,6 +4423,9 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
                                 {"tile", static_cast<int>(c.tile)},
                                 {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp},
                                 {"ore", c.obj.ore}};
+                        // ROADMAP 2.2: expose water table data
+                        cj["water_table_depth"] = c.water_table_depth;
+                        cj["saturation"] = c.saturation;
                         if (c.crop.is_crop()) {
                             cj["crop"] = static_cast<int>(c.crop.crop);
                             cj["stage"] = c.crop.stage;

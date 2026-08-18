@@ -684,6 +684,25 @@ void generate_world(World& world) {
             c.ph = ph;
             c.organic_matter = om;
             c.microbiome = micro;
+            // ROADMAP 2.2 (8.1b) — Water Table initialization based on tile/biome
+            // Water table depth: lower in wetlands/river areas, higher on hills
+            if (c.tile == Tile::Water || c.tile == Tile::WaterNorth || c.tile == Tile::WaterSouth ||
+                c.tile == Tile::WaterEast || c.tile == Tile::WaterWest) {
+                c.water_table_depth = 0;   // at surface
+                c.saturation = 255;
+            } else if (c.tile == Tile::Sand || c.tile == Tile::Dirt) {
+                c.water_table_depth = 50;  // shallow
+                c.saturation = 180;
+            } else if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) {
+                c.water_table_depth = 150; // ~1.5m default
+                c.saturation = 100;
+            } else {
+                c.water_table_depth = 200; // deep / dry
+                c.saturation = 50;
+            }
+            c.aquifer_transmissivity = 100;
+            c.specific_yield = 50;
+            c.recharge_capacity = 100;
         }
     }
 }
@@ -2169,6 +2188,18 @@ std::string serialize_world(const World& w) {
                     {"hp2", c.obj.hp2}, {"hp3", c.obj.hp3},
                     {"snow_compaction", c.snow_compaction}, {"forest_state", c.forest_state},
                     {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir}};
+            // ROADMAP 2.1/2.2 — Soil Chemistry + Water Table
+            cj["nitrogen"] = c.nitrogen;
+            cj["phosphorus"] = c.phosphorus;
+            cj["potassium"] = c.potassium;
+            cj["ph"] = c.ph;
+            cj["organic_matter"] = c.organic_matter;
+            cj["microbiome"] = c.microbiome;
+            cj["water_table_depth"] = c.water_table_depth;
+            cj["saturation"] = c.saturation;
+            cj["aquifer_transmissivity"] = c.aquifer_transmissivity;
+            cj["specific_yield"] = c.specific_yield;
+            cj["recharge_capacity"] = c.recharge_capacity;
             if (c.crop.is_crop()) {
                 cj["crop"] = static_cast<int>(c.crop.crop);
                 cj["stage"] = c.crop.stage;
@@ -2297,6 +2328,18 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.track_age = static_cast<uint8_t>(cj.value("track_age", 0));
             c.track_type = static_cast<uint8_t>(cj.value("track_type", 0));
             c.track_dir = static_cast<int8_t>(cj.value("track_dir", -1));
+            // ROADMAP 2.1/2.2 — Soil Chemistry + Water Table
+            c.nitrogen = static_cast<uint8_t>(cj.value("nitrogen", 128));
+            c.phosphorus = static_cast<uint8_t>(cj.value("phosphorus", 128));
+            c.potassium = static_cast<uint8_t>(cj.value("potassium", 128));
+            c.ph = static_cast<uint8_t>(cj.value("ph", 70));
+            c.organic_matter = static_cast<uint8_t>(cj.value("organic_matter", 50));
+            c.microbiome = static_cast<uint8_t>(cj.value("microbiome", 100));
+            c.water_table_depth = static_cast<uint8_t>(cj.value("water_table_depth", 150));
+            c.saturation = static_cast<uint8_t>(cj.value("saturation", 100));
+            c.aquifer_transmissivity = static_cast<uint8_t>(cj.value("aquifer_transmissivity", 100));
+            c.specific_yield = static_cast<uint8_t>(cj.value("specific_yield", 50));
+            c.recharge_capacity = static_cast<uint8_t>(cj.value("recharge_capacity", 100));
             if (cj.contains("crop")) {
                 c.crop.crop = static_cast<Item>(cj["crop"]);
                 c.crop.stage = static_cast<uint8_t>(cj.value("stage", 0));

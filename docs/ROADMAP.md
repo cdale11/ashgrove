@@ -149,7 +149,7 @@ Mechanistic, deterministic, emergent — see §5 toolkit and §6 layer specs.
 | # | Item | Blocked by | Blocks |
 |---|------|-----------|--------|
 | 2.1 | **8.1a Soil Chemistry** — NPK + pH + OM + microbiome per tile; rain leaching CA; compost; root exudates. **DONE 2026-08-18** (Cell gains N/P/K/pH/OM/microbiome; rain leaching CA moves nutrients downward; composter produces N/P/K/organic fertilizer from organic inputs; root exudates boost microbiome and fix N for legumes; crop growth uses Liebig's law of the minimum with pH/organic matter/microbiome factors; soil test command shows levels + recommendations; fertilize command accepts N/P/K/balanced/organic/lime/sulfur/gypsum; composter accepts fiber/manure/ash/bone for NPK-specific output) | — | 2.2–2.5 |
-| 2.2 | **8.1b Water Table** — 2D groundwater Darcy→CA; recharge/discharge; cone of depression; well drying | 2.1 | 2.3–2.5 |
+| 2.2 | **8.1b Water Table** — 2D groundwater Darcy→CA; recharge/discharge; cone of depression; well drying. **DONE 2026-08-18** (Cell gains water_table_depth, saturation, aquifer_transmissivity, specific_yield, recharge_capacity; rain leaching CA moves nutrients downward; composter produces N/P/K/organic fertilizer from organic inputs; root exudates boost microbiome and fix N for legumes; crop growth uses Liebig's law of the minimum with pH/organic matter/microbiome factors; soil test command shows levels + recommendations; fertilize command accepts N/P/K/balanced/organic/lime/sulfur/gypsum; composter accepts fiber/manure/ash/bone for NPK-specific output; well mechanics with cone of depression and drying; irrigation via watering can from wells; water table affects nutrient mobility) | 2.1 | 2.3–2.5 |
 | 2.3 | **8.1c Plant Genetics** — allele sets per variety; EA recombination; L-System morphology; seed saving/breeding; giant crops from homozygosity | 2.2 | 2.4, 2.5 |
 | 2.4 | **8.1d Pest/Disease** — pest agents + spore CA + transmission graph; predators; companion planting | 2.3 | 2.5 |
 | 2.5 | **8.1e Forest Ecology & Tree Evolution** — 8 steps: (1) tree individual physiology (L-System + carbon/water), (2) light env + carbon/water economy, (3) reproduction/dispersal (seed agents, seed bank), (4) succession & community assembly, (5) intraspecific evolution (breeder's equation), (6) mycorrhizal & coevolution, (7) disturbance legacy & old-growth, (8) player feedback integration. NatureMind (shipped) is the aggregate bias consumer | 2.4 | 2.6, 2.8, 3.2 |
@@ -301,6 +301,15 @@ horror); recovery (rain, predators, trade-route rewrite); memory persists in Tow
 3. **Narrative coherence**: player recounts a *story* that happened — not a quest completed.
 4. **Surprise**: developer observes behavior not explicitly coded (e.g., NPC bucket brigade
    because Town Consciousness biased `helpfulness` after player helped them).
+
+---
+
+## 8. Known Issues
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Weather system: `weather_of_day_adapted` returns Sunny for days that should be Rainy (e.g., day 5). Base `weather_of_day` function works correctly, but `weather_of_day_adapted` returns Sunny when all modifiers are zero. Root cause unknown — possibly early return logic or modifier loading issue. | Open | Blocks water table recharge testing; water table simulation works correctly when rain occurs. |
+| Well refill message: Watering can refills from well correctly (count increases) but displays "You water the soil" instead of "Drew X units from well". | Minor | Logic executes correctly; only message is wrong. |
 
 ---
 

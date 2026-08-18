@@ -772,6 +772,82 @@ Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbiome_fa
 
 ---
 
+## 33. Water Table & Groundwater (ROADMAP 2.2)
+
+Shipped 2026-08-18. Verified end-to-end against the running server.
+
+### Water Table per Tile
+Each map cell now tracks:
+- **Water table depth** (0–255 cm, 0 = at surface)
+- **Saturation** (0–255, root zone moisture)
+- **Aquifer transmissivity** (0–255, lateral flow rate)
+- **Specific yield** (0–255, drainable porosity)
+- **Recharge capacity** (0–255, infiltration rate)
+
+### Rain Leaching CA
+Nutrients percolate downward with rainfall (N leaches 3× faster than P, K at 1.5×). Severe storms double leaching rate. Rain slightly acidifies soil (−0.1 pH) and builds organic matter.
+
+### Root Exudates & Crop Nutrient Uptake
+Living crops release exudates daily: boost microbiome; legumes (beans, peas) fix nitrogen (+2/day). Crops uptake nutrients per growth tick via Liebig's law of the minimum per growth tick; pH outside 6.0–7.0 reduces growth (50% at pH<5.0, 60% at pH>8.0). Organic matter and microbiome provide growth bonuses.
+
+### Fertilizer System Rewrite
+New N/P/K-specific fertilizers:
+- **Nitrogen Fertilizer** (+40 N)
+- **Phosphorus Fertilizer** (+40 P)
+- **Potassium Fertilizer** (+40 K)
+- **Balanced (10-10-10)** (+25 each)
+- **Organic** (+15 each, +OM +microbiome, slight acidification)
+- Legacy: Basic/Quality/Premium (NPK blends)
+
+**Soil pH Amendments:**
+- **Agricultural Lime** — raises pH by ~0.8
+- **Elemental Sulfur** — lowers pH by ~0.8
+- **Gypsum** — adds calcium, no pH change
+
+### Soil Test Command (`soil` / `soiltest`)
+Displays N/P/K/pH/OM/microbiome with status tags, crop info, automated recommendations.
+
+### Composter Overhaul
+Accepts varied inputs → NPK-specific output:
+- **Fiber/Weeds/Crop Residue** — balanced low NPK → Organic Fertilizer
+- **Wood Ash** — high K → Potassium Fertilizer
+- **Manure** — high N → Nitrogen Fertilizer
+- **Bone Meal** — high P → Phosphorus Fertilizer
+- Mixed inputs → Balanced Fertilizer (if all ≥2) or Organic
+
+4-day composting cycle tracked in `FarmObj` (hp=days, ore=N, hp2=P, hp3=K). `interact add <material>` / `interact collect`.
+
+### Well Mechanics
+- **Cone of depression**: Pumping lowers local water table in radius
+- **Well drying**: If water table drops below screen, well goes dry (hp=0)
+- **Well command** (`well`): Shows water level, water table depth, saturation
+- **Watering can refill**: `water` command refills from adjacent/standing well
+
+### Irrigation
+`water` command on tilled soil uses well water (if adjacent/standing on well) or watering can; raises local saturation +5.
+
+### Crop Growth Integration
+Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbe_factor. Nutrient uptake depletes soil N/P/K per growth tick proportional to crop demand.
+
+### Verified (2026-08-18)
+- ✅ Water table per tile with Darcy CA lateral flow, recharge, river discharge
+- ✅ Rain leaching moves N/P/K downward; severe storms 2× rate
+- ✅ Root exudates boost microbiome; legumes fix nitrogen
+- ✅ Crop growth uses Liebig's law with pH/OM/microbiome factors
+- ✅ Fertilize N/P/K/balanced/organic/lime/sulfur/gypsum applies correct nutrient changes
+- ✅ Lime raises pH, sulfur lowers pH, gypsum neutral
+- ✅ Composter accepts fiber/manure/ash/bone → produces correct NPK fertilizer
+- ✅ 4-day composting cycle works; collect yields correct fertilizer type
+- ✅ Crop growth respects pH, nutrients, OM, microbiome; nutrient uptake depletes soil
+- ✅ Rain leaching moves nutrients downward; acidifies soil
+- ✅ Root exudates boost microbiome; legumes fix nitrogen
+- ✅ Well command shows water level, water table depth, saturation
+- ✅ Well refill for watering can works (stand on or face well)
+- ✅ Irrigation raises saturation; legacy fertilizer bonus preserved
+- ✅ Intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

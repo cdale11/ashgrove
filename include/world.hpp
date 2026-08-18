@@ -530,6 +530,17 @@ struct Cell {
     uint8_t ph = 70;              // pH ×10 (7.0 = neutral); 40=4.0 acidic, 90=9.0 alkaline
     uint8_t organic_matter = 50;  // OM % ×2 (0-200 maps to 0-100% OM)
     uint8_t microbiome = 100;     // Microbiome diversity index 0-255
+    // ROADMAP 2.2 (8.1b) — Water Table / Groundwater.
+    // Water table depth from surface in cm (0 = at surface, 255 = >2.55m deep / dry).
+    uint8_t water_table_depth = 150;  // ~1.5m default depth
+    // Soil saturation 0-255 (0 = bone dry, 255 = fully saturated).
+    uint8_t saturation = 100;
+    // Aquifer transmissivity proxy (0-255): higher = water moves faster laterally.
+    uint8_t aquifer_transmissivity = 100;
+    // Specific yield (drainable porosity) 0-255.
+    uint8_t specific_yield = 50;
+    // Recharge rate modifier (0-255): local recharge capacity.
+    uint8_t recharge_capacity = 100;
 };
 
 // L6: Wildlife system
