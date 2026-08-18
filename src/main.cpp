@@ -49,6 +49,13 @@ static bool is_water_any(Tile t) {
 
 static Vec2 facing_cell(Player& p);  // forward declaration
 
+// ROADMAP 2.3 (8.1c) Plant Genetics — forward declarations (defined below).
+static SeedGen default_seed_gen();
+static SeedGen get_seed_gen(Player& p, Item seed_item);
+static uint8_t compute_homozygosity(const std::array<int8_t, 16>& alleles);
+static int8_t drift_allele(int8_t v, std::mt19937& rng, int step);
+static void grow_morphology(Crop& c, std::mt19937& rng, int growth);
+
 static bool save_world(const World& w, const std::string& path) {
     std::ofstream f(path);
     if (!f) return false;
@@ -135,7 +142,7 @@ static void advance_day(World& w) {
 
                 // Combined growth factor
                 float total_factor = ph_factor * nutrient_factor * om_factor * micro_factor;
-                growth = static_cast<int>(std::round(growth * total_factor));
+                growth = static_cast<int>(std::round(static_cast<float>(growth) * total_factor));
                 growth = std::max(1, std::min(growth, 5)); // clamp 1-5
 
                 // Legacy fertilizer bonus (from obj.ore field)
@@ -153,9 +160,9 @@ static void advance_day(World& w) {
                 // ROADMAP 2.1 (8.1a) — Crop nutrient uptake: crops deplete soil nutrients as they grow
                 if (growth > 0) {
                     // Uptake proportional to growth and demand
-                    int n_uptake = static_cast<int>(growth * n_demand * 2);
-                    int p_uptake = static_cast<int>(growth * p_demand * 2);
-                    int k_uptake = static_cast<int>(growth * k_demand * 2);
+                    int n_uptake = static_cast<int>(static_cast<float>(growth) * n_demand * 2);
+                    int p_uptake = static_cast<int>(static_cast<float>(growth) * p_demand * 2);
+                    int k_uptake = static_cast<int>(static_cast<float>(growth) * k_demand * 2);
                     cell.nitrogen = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.nitrogen) - n_uptake));
                     cell.phosphorus = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.phosphorus) - p_uptake));
                     cell.potassium = static_cast<uint8_t>(std::max(0, static_cast<int>(cell.potassium) - k_uptake));
@@ -169,6 +176,23 @@ static void advance_day(World& w) {
                     int elapsed = total - cell.crop.days_left;
                     cell.crop.stage = std::min<uint8_t>(
                         static_cast<uint8_t>((elapsed * 4) / total), static_cast<uint8_t>(3));
+                }
+
+                // ROADMAP 2.3 — allele drift, L-System morphology, giant crops.
+                if (growth > 0) {
+                    size_t cell_idx = static_cast<size_t>(&cell - &w.cells[0]);
+                    std::mt19937 rng(static_cast<unsigned>(w.day) * 7919u +
+                                     static_cast<uint32_t>(cell_idx) * 131u);
+                    for (auto& a : cell.crop.alleles) a = drift_allele(a, rng, 1);
+                    cell.crop.homozygosity = compute_homozygosity(cell.crop.alleles);
+                    grow_morphology(cell.crop, rng, growth);
+                    // Giant crops: highly homozygous + large biomass unlock a daily roll.
+                    if (!cell.crop.is_giant && cell.crop.homozygosity >= 200 &&
+                        cell.crop.biomass >= 30.0f) {
+                        cell.crop.giant_crop_counter++;
+                        std::uniform_int_distribution<int> gc(0, 39);  // 2.5% per day
+                        if (gc(rng) == 0) cell.crop.is_giant = true;
+                    }
                 }
             }
             cell.crop.watered = rain;   // overnight rain waters every plot
@@ -248,8 +272,8 @@ static void advance_day(World& w) {
                 if (c.tile == Tile::Water || c.tile == Tile::WaterNorth || c.tile == Tile::WaterSouth ||
                     c.tile == Tile::WaterEast || c.tile == Tile::WaterWest ||
                     c.tile == Tile::Cobble || c.tile == Tile::Bridge) {
-                    new_water_depth[y * MAP_W + x] = c.water_table_depth;
-                    new_saturation[y * MAP_W + x] = c.saturation;
+                    new_water_depth[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = c.water_table_depth;
+                    new_saturation[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = c.saturation;
                     continue;
                 }
 
@@ -264,10 +288,10 @@ static void advance_day(World& w) {
                 // Lateral flow (Darcy CA): water moves from shallow to deep water table
                 // Check 4 neighbors, flow from shallow (low depth) to deep (high depth)
                 float lateral_flow = 0.0f;
-                const int dx[4] = {1, -1, 0, 0};
-                const int dy[4] = {0, 0, 1, -1};
+                const int ndx[4] = {1, -1, 0, 0};
+                const int ndy[4] = {0, 0, 1, -1};
                 for (int dir = 0; dir < 4; ++dir) {
-                    int nx = x + dx[dir], ny = y + dy[dir];
+                    int nx = x + ndx[dir], ny = y + ndy[dir];
                     if (!w.in_bounds(nx, ny)) continue;
                     Cell& n = w.at(nx, ny);
                     if (n.tile == Tile::Water || n.tile == Tile::WaterNorth || n.tile == Tile::WaterSouth ||
@@ -279,7 +303,7 @@ static void advance_day(World& w) {
                         lateral_flow -= head_diff * transmissivity; // water leaves this cell
                     } else if (head_diff < 0) { // neighbor is deeper (water flows FROM neighbor)
                         float transmissivity = n.aquifer_transmissivity / 255.0f * 0.02f;
-                        lateral_flow += (-head_diff) * transmissivity; // water enters this cell
+                        lateral_flow += static_cast<float>(-head_diff) * transmissivity; // water enters this cell
                     }
                 }
 
@@ -304,7 +328,7 @@ static void advance_day(World& w) {
                 int new_depth = static_cast<int>(c.water_table_depth) - static_cast<int>(net_change);
                 new_depth = std::clamp(new_depth, 0, 255);
 
-                new_water_depth[y * MAP_W + x] = static_cast<uint8_t>(new_depth);
+                new_water_depth[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = static_cast<uint8_t>(new_depth);
 
                 // Saturation update: capillary rise from water table
                 // Shallow water table = higher saturation in root zone
@@ -315,7 +339,7 @@ static void advance_day(World& w) {
                 // Evapotranspiration (simplified): crops reduce saturation
                 // (handled in crop growth section via uptake)
 
-                new_saturation[y * MAP_W + x] = static_cast<uint8_t>(std::clamp<int>(target_saturation, 0, 255));
+                new_saturation[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = static_cast<uint8_t>(std::clamp<int>(target_saturation, 0, 255));
             }
         }
 
@@ -1355,6 +1379,45 @@ static std::string cognitive_dialogue_line(const std::string& npc_name,
     return raw;
 }
 
+// ---- ROADMAP 2.3 (8.1c) Plant Genetics helpers ----
+// Variety reference = all-zero alleles (0 == reference). Saved/bred seeds carry
+// drifted alleles; growing crops converge back toward reference, raising
+// homozygosity, which unlocks giant crops.
+static SeedGen default_seed_gen() {
+    SeedGen g;
+    g.homozygosity = 255;  // reference is perfectly homozygous
+    return g;
+}
+static SeedGen get_seed_gen(Player& p, Item seed_item) {
+    if (auto it = p.seed_gen.find(seed_item); it != p.seed_gen.end()) return it->second;
+    return default_seed_gen();
+}
+static uint8_t compute_homozygosity(const std::array<int8_t, 16>& alleles) {
+    int homo = 0;
+    for (int8_t a : alleles) if (a == 0) ++homo;
+    return static_cast<uint8_t>((homo * 255) / 16);
+}
+// Random-walk an allele toward reference (0) with a little noise. A reference
+// allele (0) is stable; drifted alleles converge back to 0 over time, so a pure
+// (homozygous) line stays pure and a drifted line recovers purity across days.
+static int8_t drift_allele(int8_t v, std::mt19937& rng, int step) {
+    std::uniform_int_distribution<int> noise(-1, 1);
+    int nv = static_cast<int>(v) + noise(rng);
+    // pull toward 0
+    if (nv > 0) nv = std::max(nv - step, 0);
+    else if (nv < 0) nv = std::min(nv + step, 0);
+    return static_cast<int8_t>(std::clamp(nv, -40, 40));
+}
+// Update L-System morphology fields from alleles (called each growing day).
+static void grow_morphology(Crop& c, std::mt19937& rng, int growth) {
+    auto& a = c.alleles;
+    float g = static_cast<float>(growth);
+    c.height  = std::min(c.height  + g * (0.4f + a[0] / 128.0f), 20.0f);
+    c.biomass = std::min(c.biomass + g * (1.2f + (a[0] + a[8]) / 256.0f), 100.0f);
+    c.root_depth   = std::min(c.root_depth   + g * (0.3f + a[6] / 128.0f), 10.0f);
+    c.canopy_width = std::min(c.canopy_width + g * (0.3f + a[7] / 128.0f), 8.0f);
+}
+
 static std::vector<std::string> handle_cmd(World& w, Player& p, const std::string& raw) {
     std::vector<std::string> out;
     auto say = [&](const std::string& s) { out.push_back(s); };
@@ -1406,6 +1469,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("                     mahogany, rubber, walnut, hickory, chestnut, deodar");
         say("  tap <tree>     install/collect tapper for sap/syrup/resin/rubber");
         say("  shake <tree>   shake mature trees for saplings (costs 2 energy)");
+        say("  breed <s1> <s2>  cross two seeds to recombine genetics (2.3)");
         say("  repair <bldg>  fix a building at Carpenter Shop");
         say("  upgrade farmhouse  expand: cottage/house/manor");
         say("  interact       use furniture inside buildings (alias: use)");
@@ -2283,6 +2347,15 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         c.crop.is_trellis = false;
         c.crop.is_fruit_tree = false;
         c.crop.last_harvest_season = -1;
+        // ROADMAP 2.3 — inherit genetics from saved/bred seed (else reference).
+        {
+            SeedGen sg = get_seed_gen(p, crop->seed);
+            c.crop.alleles = sg.alleles;
+            c.crop.homozygosity = sg.homozygosity;
+            c.crop.giant_crop_counter = 0;
+            c.crop.is_giant = false;
+            c.crop.height = c.crop.biomass = c.crop.root_depth = c.crop.canopy_width = 0.0f;
+        }
         if (crop->produce == Item::GreenBean || crop->produce == Item::Hops) {
             c.crop.is_trellis = true;
         }
@@ -2493,11 +2566,39 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             quality_msg = " ★ Quality!";
         }
         // Regular crops: remove after harvest
+        const CropDef* cd = crop_def(produce);
+        bool was_giant = c.crop.is_giant;
+        // ROADMAP 2.3 — giant crops sell for 3x.
+        if (was_giant) sell_price *= 3;
+        // ROADMAP 2.3 — seed saving: the harvested crop's genetics (with a 1%
+        // mutation chance per locus) are carried into a saved seed item.
+        Item seed_item = Item::None;
+        if (cd && cd->seed != Item::None) {
+            seed_item = cd->seed;
+            SeedGen sg;
+            sg.alleles = c.crop.alleles;
+            std::mt19937 srng(static_cast<unsigned>(w.day) * 104729u +
+                              static_cast<uint32_t>(f.x) * 1009u +
+                              static_cast<uint32_t>(f.y) * 2027u);
+            std::uniform_int_distribution<int> mroll(0, 99);
+            std::uniform_int_distribution<int> mv(-2, 2);
+            for (auto& a : sg.alleles) {
+                if (mroll(srng) < 1) a = static_cast<int8_t>(std::clamp(static_cast<int>(a) + mv(srng), -40, 40));
+            }
+            sg.homozygosity = compute_homozygosity(sg.alleles);
+            p.seed_gen[seed_item] = sg;
+            add_item(p, seed_item, 1);
+        }
         c.crop = Crop{};
         add_item(p, produce, 1);
         p.money += sell_price;
         say("You harvest a " + std::string(item_def(produce).name) + "! +" +
             std::to_string(sell_price) + "g" + quality_msg);
+        if (was_giant) say("It's a GIANT crop! The valley whispers in awe.");
+        if (seed_item != Item::None) {
+            say("You saved a seed with the plant's genetics. ('breed " +
+                std::string(item_def(seed_item).name) + " ...' to combine).");
+        }
         if (flower_bonus > 0 && quality_msg.empty()) {
             say("Nearby flowers swayed in the wind... (" + std::to_string(flower_bonus) + " adjacent)");
         }
@@ -4016,6 +4117,66 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         if (!n) say("No save files found.");
         else say(std::to_string(n) + " save file(s). 'load <name>' restores one.");
+        return out;
+    }
+
+    // ROADMAP 2.3 (8.1c) -- Seed breeding: cross two seeds to create offspring with combined genetics
+    if (cmd == "breed") {
+        // Try to match known seed names (which may contain spaces)
+        static const std::vector<std::string> known_seeds = {
+            "parsnip seeds", "potato seeds", "cauliflower seeds", "corn seeds",
+            "tomato seeds", "wheat seeds", "blueberry seeds", "green bean seeds",
+            "hops seeds", "strawberry seeds", "melon seeds", "pumpkin seeds",
+            "red cabbage seeds", "rhubarb seeds"
+        };
+        std::string rest = lower_trim(arg);
+        Item seed1 = Item::None, seed2 = Item::None;
+        for (const auto& s : known_seeds) {
+            if (rest.rfind(s, 0) == 0) {
+                seed1 = item_from_name(s);
+                rest = lower_trim(rest.substr(s.length()));
+                break;
+            }
+        }
+        if (seed1 != Item::None) {
+            for (const auto& s : known_seeds) {
+                if (rest.rfind(s, 0) == 0) {
+                    seed2 = item_from_name(s);
+                    break;
+                }
+            }
+        }
+        if (seed1 == Item::None || seed2 == Item::None) { say("Usage: breed <seed1> <seed2> (e.g. 'breed parsnip seeds parsnip seeds')"); return out; }
+        int slot1 = find_slot(p, seed1);
+        int slot2 = find_slot(p, seed2);
+        if (slot1 < 0 || slot2 < 0) { say("You don't have both seeds in your inventory."); return out; }
+        if (slot1 == slot2 && p.inv[static_cast<size_t>(slot1)].count < 2) {
+            say("You need at least two seeds to breed."); return out;
+        }
+        // EA recombination: each child locus inherits from one parent (50/50)
+        // with a 1% per-locus mutation chance.
+        SeedGen g1 = get_seed_gen(p, seed1);
+        SeedGen g2 = get_seed_gen(p, seed2);
+        std::mt19937 rng(static_cast<unsigned>(w.day) * 224737u +
+                         static_cast<uint32_t>(p.pos.x) * 1009u +
+                         static_cast<uint32_t>(p.pos.y) * 2027u);
+        std::uniform_int_distribution<int> inherit(0, 1);
+        std::uniform_int_distribution<int> mroll(0, 99);
+        std::uniform_int_distribution<int> mv(-2, 2);
+        SeedGen child;
+        for (size_t i = 0; i < child.alleles.size(); ++i) {
+            child.alleles[i] = (inherit(rng) == 0) ? g1.alleles[i] : g2.alleles[i];
+            if (mroll(rng) < 1) child.alleles[i] = static_cast<int8_t>(
+                std::clamp(static_cast<int>(child.alleles[i]) + mv(rng), -40, 40));
+        }
+        child.homozygosity = compute_homozygosity(child.alleles);
+        consume_item(p, seed1, 1);
+        consume_item(p, seed2, 1);
+        p.seed_gen[seed1] = child;
+        add_item(p, seed1, 1);
+        say("You carefully cross-pollinate two " + std::string(item_def(seed1).name) +
+            " lots. A new seed forms with recombined genetics! (homozygosity " +
+            std::to_string(child.homozygosity) + "/255)");
         return out;
     }
 

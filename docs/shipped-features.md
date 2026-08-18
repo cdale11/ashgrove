@@ -848,6 +848,39 @@ Growth rate = base × pH_factor × nutrient_factor × OM_factor × microbe_facto
 
 ---
 
+## 34. Plant Genetics (ROADMAP 2.3)
+
+Shipped 2026-08-19. Verified end-to-end against the running server.
+
+### Allele set & L-System morphology
+- ✅ Crop gains a 16-allele set (`std::array<int8_t,16>`, 0 = variety reference),
+  `homozygosity` (fraction of reference loci × 255), `giant_crop_counter`, `is_giant`,
+  and L-System morphology (`height`, `biomass`, `root_depth`, `canopy_width`)
+- ✅ All genetic fields serialized to `save.json` per crop cell and restored on load
+- ✅ Daily growth: alleles random-walk toward the variety reference (reference loci stable,
+  drifted loci converge), homozygosity recomputed, morphology grows from allele weights
+  (growth_rate→height/biomass, yield→biomass, root_depth→root_depth, branching→canopy_width)
+
+### Seed saving & breeding
+- ✅ Harvest saves a seed carrying the crop's genetics (1% per-locus mutation chance);
+  stored in player `seed_gen` (per-seed-type map, persisted in `save.json`)
+- ✅ Planting inherits genetics from `seed_gen` (saved/bred lines) or starts from reference
+- ✅ `breed <seed1> <seed2>` consumes 1 of each seed and EA-recombines both lines
+  (50/50 per locus, 1% mutation) into a new child line stored under seed1's type
+
+### Giant crops
+- ✅ A crop with homozygosity ≥ 200 AND biomass ≥ 30 rolls 2.5%/day for `is_giant`
+- ✅ Harvesting a giant crop sells at 3× base price with a dedicated narration line
+
+### Verified
+- ✅ Plant → water → grow → harvest produces a saved seed with drifted alleles
+- ✅ `breed parsnip seeds parsnip seeds` consumes two lots, returns recombined seed
+- ✅ seed_gen persists across `/save` and server restarts
+- ✅ Giant harvest paid +105g (parsnip base 35 × 3)
+- ✅ Intent regression **26/30 (86.7%)**, action 30/30 — unchanged from baseline
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

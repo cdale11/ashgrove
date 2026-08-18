@@ -5,7 +5,47 @@ session.** Append any new mistake immediately so no future agent repeats it.
 
 ---
 
-## 2026-08-16
+## 2026-08-19
+
+### M8 — Seed-name parsing assumed single tokens; multi-word seeds broke `breed`
+
+**What happened:** `breed Parsnip Seeds Parsnip Seeds` hit "Usage: breed <seed1> <seed2>".
+First attempt split the argument on whitespace into 4 tokens. Second attempt matched two seed
+names by prefix but only continued scanning forward past the first match, so it never re-found
+`known_seeds[0]` for the second seed after trimming (the loop index had already advanced past it).
+
+**Lesson:** When matching a repeated vocabulary that may itself contain spaces, do two
+independent passes over the full vocabulary (match seed1 at start → trim → match seed2 at
+start), never one forward-only loop with a trimmed cursor.
+
+### M9 — Edit removed the whole body of a command block during refactor
+
+**What happened:** Replacing the `breed` block accidentally dropped its closing brace and the
+rest of its implementation, so the following `if (cmd == "build")` block became nested and the
+build failed with "a function-definition is not allowed here". Reverted via `git checkout` and
+re-applied cleanly.
+
+**Lesson:** For large block replacements, read the full existing block first, keep the closing
+brace, and prefer `git checkout <file>` + a clean re-edit over surgical in-place edits of
+half-understood code.
+
+### M10 — Launch script "Server process exited early!" is a false alarm
+
+**What happened:** After `./tools/launch_server.sh start`, the script printed "Server process
+exited early! See /tmp/server.log" but `pgrep -x ashgrove_server` showed the server healthy
+(LLM model load makes readiness flaky). Assumed a crash, wasted debug time.
+
+**Lesson:** Always confirm with `pgrep -x ashgrove_server` + `curl /state` before assuming the
+server is down; the readiness probe can race the ~2s model load.
+
+### M11 — ROADMAP progress summary overclaimed unimplemented work
+
+**What happened:** Session summary described "L-System growth in crop growth" and "harvest seed
+saving with EA recombination" as already done, but `git diff` showed only the Crop struct +
+serialization + a stub `breed` command existed. The real implementation had to be written.
+
+**Lesson:** Trust `git diff`/`git status`, not memory of what a previous session "planned".
+Verify claimed work against the actual working tree before building on it.
 
 ### M1 — `pkill -f ashgrove_server` killed the agent's own shell (hang/timeout)
 

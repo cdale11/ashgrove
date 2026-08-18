@@ -117,6 +117,7 @@ struct ItemDef {
 #include <nlohmann/json.hpp>
 struct World;
 struct Player;
+struct SeedGen;  // ROADMAP 2.3 — genetic payload of a seed item
 std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent);
 
 inline ItemDef const& item_def(Item it) {
@@ -505,6 +506,20 @@ struct Crop {
     bool is_fruit_tree = false;
     int8_t last_harvest_season = -1; // for fruit trees: season when last harvested
     bool is_crop() const { return crop != Item::None; }
+
+    // ROADMAP 2.3 (8.1c) — Plant Genetics
+    // 16 alleles per variety (growth_rate, wood_density, shade_tol, drought_tol,
+    // seed_mass, root_depth, branching, phenology, yield, quality,
+    // disease_res, pest_res, drought_tol, cold_tol, heat_tol, nutrient_use)
+    std::array<int8_t, 16> alleles{};  // -128..127 per allele (0 = reference)
+    uint8_t homozygosity = 0;  // fraction of homozygous loci × 255
+    uint16_t giant_crop_counter = 0;  // tracks giant crop growth
+    bool is_giant = false;
+    // L-System morphology parameters
+    float height = 0.0f;
+    float biomass = 0.0f;
+    float root_depth = 0.0f;
+    float canopy_width = 0.0f;
 };
 
 // ---- cell ----
@@ -671,6 +686,19 @@ struct Player {
     // bias horror filter content toward what unsettles THIS player most.
     // Indices: 0=shadows/phantoms, 1=cold/basement, 2=whispers/ritual, 3=rot/corruption.
     std::array<uint16_t, 4> dread_counters = {0, 0, 0, 0};
+
+    // ---- ROADMAP 2.3 (8.1c): Plant Genetics ----
+    // Genetics of seeds the player has saved/harvested/bred, keyed by the seed
+    // Item. Only seeds the player has worked with carry non-default genetics;
+    // all other seed types use the variety reference (alleles == 0) at plant time.
+    std::map<Item, SeedGen> seed_gen;
+};
+
+// Genetic payload carried by a seed item (ROADMAP 2.3). Mirrors the crop allele
+// set so saved/bred seeds can be planted again and recombine via `breed`.
+struct SeedGen {
+    std::array<int8_t, 16> alleles{};  // -128..127 per allele (0 = variety reference)
+    uint8_t homozygosity = 0;          // fraction of reference-homozygous loci × 255
 };
 
 // ---- world ----

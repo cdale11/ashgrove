@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Plant Genetics (ROADMAP 2.3, 2026-08-19)
+- **Allele Set per Crop**: 16-allele `std::array<int8_t,16>` (0 = variety reference),
+  `homozygosity` (fraction of reference loci × 255), `giant_crop_counter`, `is_giant`, and
+  L-System morphology (`height`, `biomass`, `root_depth`, `canopy_width`), all serialized.
+- **Allele Drift & Morphology Growth**: daily allele random-walk converges drifted loci toward
+  the variety reference (reference loci stay stable), homozygosity recomputed, morphology grows
+  from allele weights.
+- **Seed Saving**: harvesting a crop saves a seed carrying its genetics (1% per-locus mutation)
+  into the player's `seed_gen` (persisted in `save.json`).
+- **Planting Inheritance**: planting a saved/bred seed inherits its genetics; generic seeds
+  start from the variety reference.
+- **Breeding** (`breed <seed1> <seed2>`): consumes one of each seed and EA-recombines both
+  lines 50/50 per locus with 1% mutation, storing the child line under seed1's type.
+- **Giant Crops**: crops with homozygosity ≥ 200 and biomass ≥ 30 roll 2.5%/day to become
+  giant; giant crops sell at 3× price.
+- Verified end-to-end: plant→grow→harvest seed saving, breed recombination, seed_gen
+  persistence, giant harvest at 3× (+105g parsnip), intent baseline 26/30 unchanged.
+
 ### Added — Cognitive Depth (ROADMAP 1.7, 2026-08-18)
 - **Cognitive LOD** (`LodLevel` tiers): Full (7 important NPCs, every tick), Lightweight (5 talkable villagers, every ~10 ticks), Statistical (background wildlife, aggregate only). Surfaced via `/cog` endpoint.
 - **LRU Episodic Eviction**: Replaced FIFO with importance-based eviction (emotional salience × confidence × recency via new `EpisodicEvent::last_access_tick`). Evicts minimum-importance event when over 256 cap.

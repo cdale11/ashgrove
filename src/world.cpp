@@ -2175,6 +2175,15 @@ std::string serialize_world(const World& w) {
         json dc = json::array();
         for (uint8_t t = 0; t < 4; ++t) dc.push_back(p.dread_counters[t]);
         pl["dread_counters"] = dc;
+        // ROADMAP 2.3 — saved/bred seed genetics (item -> alleles + homozygosity).
+        json sg = json::array();
+        for (auto& [item, g] : p.seed_gen) {
+            json al = json::array();
+            for (int8_t a : g.alleles) al.push_back(a);
+            sg.push_back({{"item", static_cast<int>(item)}, {"alleles", al},
+                          {"homozygosity", g.homozygosity}});
+        }
+        pl["seed_gen"] = sg;
         j["players"].push_back(pl);
     }
     j["cells"] = json::array();
@@ -2208,6 +2217,17 @@ std::string serialize_world(const World& w) {
                 cj["is_trellis"] = c.crop.is_trellis;
                 cj["is_fruit_tree"] = c.crop.is_fruit_tree;
                 cj["last_harvest_season"] = c.crop.last_harvest_season;
+                // ROADMAP 2.3 (8.1c) — Plant Genetics
+                json alleles = json::array();
+                for (int8_t a : c.crop.alleles) alleles.push_back(a);
+                cj["alleles"] = alleles;
+                cj["homozygosity"] = c.crop.homozygosity;
+                cj["giant_crop_counter"] = c.crop.giant_crop_counter;
+                cj["is_giant"] = c.crop.is_giant;
+                cj["height"] = c.crop.height;
+                cj["biomass"] = c.crop.biomass;
+                cj["root_depth"] = c.crop.root_depth;
+                cj["canopy_width"] = c.crop.canopy_width;
             }
             j["cells"].push_back(cj);
         }
@@ -2311,6 +2331,17 @@ bool deserialize_world(World& w, const std::string& json_str) {
                         p.dread_counters[t] = static_cast<uint16_t>(dcs[t]);
                 }
             }
+            // ROADMAP 2.3 — seed genetics restore.
+            for (auto& sj : pl.value("seed_gen", json::array())) {
+                if (!sj.contains("item")) continue;
+                Item item = static_cast<Item>(sj.value("item", 0));
+                SeedGen g;
+                json al = sj.value("alleles", json::array());
+                for (size_t i = 0; i < g.alleles.size() && i < al.size(); ++i)
+                    g.alleles[i] = static_cast<int8_t>(al[i]);
+                g.homozygosity = static_cast<uint8_t>(sj.value("homozygosity", 0));
+                p.seed_gen[item] = g;
+            }
             w.players[p.id] = p;
         }
         for (auto& cj : j.value("cells", json::array())) {
@@ -2348,6 +2379,19 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 c.crop.is_trellis = cj.value("is_trellis", false);
                 c.crop.is_fruit_tree = cj.value("is_fruit_tree", false);
                 c.crop.last_harvest_season = static_cast<int8_t>(cj.value("last_harvest_season", -1));
+                // ROADMAP 2.3 (8.1c) — Plant Genetics
+                if (cj.contains("alleles")) {
+                    for (size_t i = 0; i < c.crop.alleles.size() && i < cj["alleles"].size(); ++i) {
+                        c.crop.alleles[i] = static_cast<int8_t>(cj["alleles"][i]);
+                    }
+                }
+                c.crop.homozygosity = static_cast<uint8_t>(cj.value("homozygosity", 0));
+                c.crop.giant_crop_counter = static_cast<uint16_t>(cj.value("giant_crop_counter", 0));
+                c.crop.is_giant = cj.value("is_giant", false);
+                c.crop.height = cj.value("height", 0.0f);
+                c.crop.biomass = cj.value("biomass", 0.0f);
+                c.crop.root_depth = cj.value("root_depth", 0.0f);
+                c.crop.canopy_width = cj.value("canopy_width", 0.0f);
             }
         }
         // Deserialize building states
