@@ -881,6 +881,60 @@ Shipped 2026-08-19. Verified end-to-end against the running server.
 
 ---
 
+## 35. Compiler Warning Cleanup (2026-08-19)
+
+Swept every project source file to zero warnings under the full warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor
+-Wold-style-cast -Wcast-align -Wunused -Woverloaded-virtual -Wdouble-promotion
+-Wformat=2 -Wnull-dereference`, plus `-Werror=return-type -Werror=non-virtual-dtor`).
+
+### Files & classes of fixes
+- **`src/main.cpp`** (formerly 84+ distinct warning sites):
+  - `-Wswitch`: `default: break;` added to the fertilizer switch (~100 enum warnings)
+  - `-Wshadow`: 7 inner `int season` → `season_local`; job-board loop var `j` → `jb`
+  - `-Wconversion`/`-Wsign-conversion`: travel energy/sanity, flower quality roll, sap
+    `add_item` amount, shake-tree roll, economy price multiply, farmhouse level,
+    eat/gift inventory indices, interior room rows/tips indices, egg-laying rng,
+    `tile_map` index, `/state` inventory index, `/cmd` latency & day cast
+  - HTTP handlers: `uint32_t pid = j.value("player_id", 0u)` (unsigned default),
+    `int16_t x/y` via explicit `static_cast<int16_t>`; `move_start_ms`/`now_ms()`
+    cast to `uint32_t`; `next_move_ms` widened properly; fast-travel coords cast;
+    market ratio float division; `std::ofstream::write` streamsize cast
+  - `-Wunused-but-set-variable`: unused `say` lambda removed from `process_intent`
+- **`include/world.hpp`**: `forest_set_*` bitfield ops use `static_cast<uint8_t>`;
+  `get_floor` uses `size_t` index
+- **`src/world.cpp`**: terrain-gen int→float casts (noise, river meander, lakes,
+  roads, orchard), `was_water`/`river_cx`/`tile_map` size_type indices,
+  `-Wparentheses` fixed in 3 do-while tile checks, `Vec2 d` shadow → inner loops use
+  `dd`, door-anchor `int16_t` narrowing, `BuildingState` animals initializer,
+  market `flux()`/demand float casts, quest/job `add_item` reward casts,
+  `weather_of_day_adapted` param renamed to avoid member shadow
+- **`src/llama_wrapper.cpp`**: migrated off deprecated llama.cpp API
+  (`llama_load_model_from_file` → `llama_model_load_from_file`,
+  `llama_free_model` → `llama_model_free`,
+  `llama_new_context_with_model` → `llama_init_from_model`); `tokens.resize`/
+  `generated.append` size_type casts
+- **`src/town_consciousness.cpp`**: `consolidation_count`/`last_consolidation_day`
+  JSON loads cast to `uint32_t`
+- **`src/social_cognition.cpp`**: unused-parameter cleanups (`current_tick`, `fact`);
+  removed dead `find_float` lambda
+- **`src/nature_mind.cpp`**: `chunks_[chunk_id]` size_type indices, `world_->day`
+  float casts, removed unused `storm_bias`/`disaster_bias`, snapshot mean divisions,
+  `update_biodiversity` no-op body clarified
+- **`src/village_mind.cpp`**: removed unused `fear_sum`/`joy_sum`
+
+### Third-party suppression
+- httplib.h `-Wformat-nonliteral` (×2) and `-Wunused-parameter` suppressed via scoped
+  `#pragma GCC diagnostic` around `#include <httplib.h>`
+- llama.cpp `-Wshadow` (ggml-backend.h struct) suppressed around `#include <llama.h>`
+
+### Result
+- Full `cmake --build build -j4` (target `ashgrove_server`) emits **zero warnings**.
+- Server smoke-tested after cleanup: join/warp/move/till/plant/sleep (day advance
+  through the heavily-edited water-CA `advance_day`) all functional.
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

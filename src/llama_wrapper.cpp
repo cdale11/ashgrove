@@ -1,5 +1,12 @@
 #include "llama_wrapper.hpp"
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshadow"
+#endif
 #include <llama.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -13,7 +20,7 @@ struct LlamaWrapper::Impl {
     Impl(const std::string& model_path) {
         if (!model_path.empty()) {
             llama_model_params mparams = llama_model_default_params();
-            model = llama_load_model_from_file(model_path.c_str(), mparams);
+            model = llama_model_load_from_file(model_path.c_str(), mparams);
             if (!model) {
                 throw std::runtime_error("Failed to load llama model from " + model_path);
             }
@@ -21,7 +28,7 @@ struct LlamaWrapper::Impl {
     }
 
     ~Impl() {
-        if (model) llama_free_model(model);
+        if (model) llama_model_free(model);
     }
 };
 
@@ -34,7 +41,7 @@ std::string LlamaWrapper::infer(const std::string& prompt, int max_tokens, float
     cparams.n_batch = 2048;  // Increase batch size for long prompts
     cparams.n_ctx = 4096;    // Explicit context window
     cparams.n_ubatch = 512;  // Micro-batch size
-    llama_context* ctx = llama_new_context_with_model(pimpl_->model, cparams);
+    llama_context* ctx = llama_init_from_model(pimpl_->model, cparams);
     if (!ctx) return "";
 
     auto cleanup = [&ctx]() { llama_free(ctx); };
@@ -46,7 +53,7 @@ std::string LlamaWrapper::infer(const std::string& prompt, int max_tokens, float
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
                                   tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
     if (n_tokens < 0) { cleanup(); return ""; }
-    tokens.resize(n_tokens);
+    tokens.resize(static_cast<size_t>(n_tokens));
 
     // Evaluate prompt
     llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
@@ -71,7 +78,7 @@ std::string LlamaWrapper::infer(const std::string& prompt, int max_tokens, float
         if (id == eos) break;
         char buf[32];
         int n = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, false);
-        if (n > 0) generated.append(buf, n);
+        if (n > 0) generated.append(buf, static_cast<size_t>(n));
         // feed token back
         llama_batch one = llama_batch_get_one(&id, 1);
         if (llama_decode(ctx, one) != 0) break;
@@ -118,7 +125,7 @@ std::optional<Intent> LlamaWrapper::parse_command(const std::string& raw_text) {
     // flash attention or quantizing the KV cache (q8_0) trips GGML asserts/segfaults
     // on this model, so we keep the defaults and only avoid GPU offload.
     cparams.offload_kqv = false; // -nkvo: keep KV cache off GPU
-    llama_context* ctx = llama_new_context_with_model(pimpl_->model, cparams);
+    llama_context* ctx = llama_init_from_model(pimpl_->model, cparams);
     if (!ctx) return std::nullopt;
 
     auto cleanup = [&ctx]() { llama_free(ctx); };
@@ -134,7 +141,7 @@ std::optional<Intent> LlamaWrapper::parse_command(const std::string& raw_text) {
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
                                   tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
     if (n_tokens < 0) { cleanup(); return std::nullopt; }
-    tokens.resize(n_tokens);
+    tokens.resize(static_cast<size_t>(n_tokens));
 
     // Evaluate prompt
     llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
@@ -149,7 +156,7 @@ std::optional<Intent> LlamaWrapper::parse_command(const std::string& raw_text) {
         if (id == eos) break;
         char buf[32];
         int n = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, false);
-        if (n > 0) generated.append(buf, n);
+        if (n > 0) generated.append(buf, static_cast<size_t>(n));
         // feed token back
         llama_batch one = llama_batch_get_one(&id, 1);
         if (llama_decode(ctx, one) != 0) break;

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Compiler Warning Cleanup (2026-08-19)
+- Swept all project sources to **zero warnings** under `-Wall -Wextra -Wpedantic
+  -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
+  -Wunused -Woverloaded-virtual -Wdouble-promotion -Wformat=2 -Wnull-dereference`.
+- `src/main.cpp`: fixed `-Wswitch` (fertilizer default), 7 `season` shadow renames,
+  job-board `j`→`jb`, HTTP-handler `player_id`/`target_x`/`target_y` conversion casts,
+  inventory/room/tile-map size_type indices, and ~40 `-Wconversion`/`-Wsign-conversion`
+  sites across travel, farming, economy and the `/cmd` record path.
+- `src/world.cpp`: terrain-gen float casts, do-while `-Wparentheses`, `Vec2 d` shadow →
+  `dd`, market `flux()` casts, `BuildingState` initializer, `weather_of_day_adapted` param
+  rename.
+- `src/llama_wrapper.cpp`: migrated to non-deprecated llama.cpp API
+  (`llama_model_load_from_file` / `llama_model_free` / `llama_init_from_model`).
+- `src/town_consciousness.cpp`, `src/social_cognition.cpp`, `src/nature_mind.cpp`,
+  `src/village_mind.cpp`: unused-parameter/variable cleanups and size_type/float casts.
+- Third-party warnings (httplib.h, llama.cpp) suppressed with scoped `#pragma GCC
+  diagnostic` around the includes.
+- Verified: full build emits zero warnings; server smoke-tested (join/move/till/plant/
+  sleep day-advance).
+
 ### Added — Plant Genetics (ROADMAP 2.3, 2026-08-19)
 - **Allele Set per Crop**: 16-allele `std::array<int8_t,16>` (0 = variety reference),
   `homozygosity` (fraction of reference loci × 255), `giant_crop_counter`, `is_giant`, and

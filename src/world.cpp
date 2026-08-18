@@ -11,7 +11,7 @@
 using json = nlohmann::json;
 
 static float noise(int x, int y, float scale) {
-    return std::sin((x + y) * scale) * std::cos((x - y) * scale * 0.7f) * 0.5f + 0.5f;
+    return std::sin(static_cast<float>(x + y) * scale) * std::cos(static_cast<float>(x - y) * scale * 0.7f) * 0.5f + 0.5f;
 }
 
 static bool is_water(Tile t) {
@@ -64,8 +64,8 @@ void generate_world(World& world) {
         float lcx = fl_cx, lcy = fl_cy;
         for (int y = 0; y < 12; ++y)
             for (int x = 0; x < MAP_W; ++x) {
-                float d = std::hypot((x - lcx) * 1.35f, (y - lcy));
-                if (d < 3.2f + 1.2f * std::sin(x * 0.6f) * std::cos(y * 0.5f) + 1.4f * noise(x, y, 0.4f))
+                float d = std::hypot((static_cast<float>(x) - lcx) * 1.35f, (static_cast<float>(y) - lcy));
+                if (d < 3.2f + 1.2f * std::sin(static_cast<float>(x) * 0.6f) * std::cos(static_cast<float>(y) * 0.5f) + 1.4f * noise(x, y, 0.4f))
                     world.at(x, y).tile = Tile::Ice;
             }
     }
@@ -75,10 +75,10 @@ void generate_world(World& world) {
     // and the docks (east of the river mouth) stay separate.
     std::array<float, MAP_H> river_cx{};
     for (int y = 0; y < MAP_H; ++y) {
-        float drift = y > 55 ? (y - 55) / 41.0f * 15.0f : 0.0f;
-        float cy = MAP_W * 0.34f + std::sin(y * 0.09f) * 3.2f + std::sin(y * 0.21f + 1.5f) * 1.8f + drift;
-        river_cx[y] = cy;
-        float w_variation = 2.4f + 1.0f * std::sin(y * 0.07f);
+        float drift = y > 55 ? static_cast<float>(y - 55) / 41.0f * 15.0f : 0.0f;
+        float cy = static_cast<float>(MAP_W) * 0.34f + std::sin(static_cast<float>(y) * 0.09f) * 3.2f + std::sin(static_cast<float>(y) * 0.21f + 1.5f) * 1.8f + drift;
+        river_cx[static_cast<size_t>(y)] = cy;
+        float w_variation = 2.4f + 1.0f * std::sin(static_cast<float>(y) * 0.07f);
         int half_w = std::max(1, int(w_variation));
         for (int dx = -half_w; dx <= half_w; ++dx) {
             int ix = int(std::round(cy)) + dx;
@@ -92,7 +92,7 @@ void generate_world(World& world) {
         const int widths[3] = {2, 2, 1};
         for (int b = 0; b < 3; ++b) {
             int by = rows[b];
-            int bx = int(std::round(river_cx[by]));
+            int bx = int(std::round(river_cx[static_cast<size_t>(by)]));
             for (int dx = -widths[b]; dx <= widths[b]; ++dx) {
                 int ix = bx + dx;
                 if (world.in_bounds(ix, by)) world.at(ix, by).tile = Tile::Bridge;
@@ -105,8 +105,8 @@ void generate_world(World& world) {
         float sx = 20.0f;
         for (int y = 10; y < 30; ++y) {
             float progress = float(y - 10) / 20.0f;
-            sx += std::sin(y * 0.12f) * 0.8f + std::cos(y * 0.25f) * 0.5f;
-            sx += (river_cx[y] - sx) * (0.03f + 0.06f * progress);  // drift toward river
+            sx += std::sin(static_cast<float>(y) * 0.12f) * 0.8f + std::cos(static_cast<float>(y) * 0.25f) * 0.5f;
+            sx += (river_cx[static_cast<size_t>(y)] - sx) * (0.03f + 0.06f * progress);  // drift toward river
             int half_w = 1 + (progress > 0.6f ? 1 : 0);  // widens near junction
             for (int dx = -half_w; dx <= 0; ++dx) {
                 int ix = int(std::round(sx)) + dx;
@@ -120,8 +120,8 @@ void generate_world(World& world) {
         float mcx = 96.0f, mcy = 16.0f;
         for (int y = 0; y < MAP_H; ++y)
             for (int x = 0; x < MAP_W; ++x) {
-                float d = std::hypot((x - mcx) * 1.45f, (y - mcy));
-                if (d < 6.8f + 1.1f * std::sin(x * 0.35f + y * 0.2f))
+                float d = std::hypot((static_cast<float>(x) - mcx) * 1.45f, (static_cast<float>(y) - mcy));
+                if (d < 6.8f + 1.1f * std::sin(static_cast<float>(x) * 0.35f + static_cast<float>(y) * 0.2f))
                     world.at(x, y).tile = Tile::Water;
             }
     }
@@ -134,7 +134,7 @@ void generate_world(World& world) {
     std::array<bool, MAP_W * MAP_H> was_water{};
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x)
-            was_water[y * MAP_W + x] = is_water(world.at(x, y).tile);
+            was_water[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = is_water(world.at(x, y).tile);
 
     // ---- dirt paths (planned town) ----
     auto road = [&](int x, int y) {
@@ -147,11 +147,11 @@ void generate_world(World& world) {
     };
     // main E-W high street on each bank (gently curving), broken at the river — COBBLESTONE (main loop)
     for (int x = 8; x < 42; ++x) {
-        int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+        int y = 18 + int(std::round(std::sin(static_cast<float>(x) * 0.11f) * 1.5f));
         croad(x, y); croad(x, y + 1);
     }
     for (int x = 48; x < MAP_W - 6; ++x) {
-        int y = 18 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+        int y = 18 + int(std::round(std::sin(static_cast<float>(x) * 0.11f) * 1.5f));
         croad(x, y); croad(x, y + 1);
     }
     // N-S lane east bank linking high street to the farm gate
@@ -204,7 +204,7 @@ void generate_world(World& world) {
     // path + river crossings become bridges
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x)
-            if (was_water[y * MAP_W + x] && world.at(x, y).tile == Tile::Dirt)
+            if (was_water[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] && world.at(x, y).tile == Tile::Dirt)
                 world.at(x, y).tile = Tile::Bridge;
 
     // bridge any short water run that a road punches through (the stream cuts
@@ -234,14 +234,14 @@ void generate_world(World& world) {
     };
     // high street (both rows of the lane), west bank segment
     bridge_run(34, [](int i) { return i + 8; },
-               [](int i) { return 18 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)); });
+               [](int i) { return 18 + int(std::round(std::sin(static_cast<float>(i + 8) * 0.11f) * 1.5f)); });
     bridge_run(34, [](int i) { return i + 8; },
-               [](int i) { return 18 + int(std::round(std::sin((i + 8) * 0.11f) * 1.5f)) + 1; });
+               [](int i) { return 18 + int(std::round(std::sin(static_cast<float>(i + 8) * 0.11f) * 1.5f)) + 1; });
     // high street (both rows of the lane), east bank segment
     bridge_run(MAP_W - 54, [](int i) { return i + 48; },
-               [](int i) { return 18 + int(std::round(std::sin((i + 48) * 0.11f) * 1.5f)); });
+               [](int i) { return 18 + int(std::round(std::sin(static_cast<float>(i + 48) * 0.11f) * 1.5f)); });
     bridge_run(MAP_W - 54, [](int i) { return i + 48; },
-               [](int i) { return 18 + int(std::round(std::sin((i + 48) * 0.11f) * 1.5f)) + 1; });
+               [](int i) { return 18 + int(std::round(std::sin(static_cast<float>(i + 48) * 0.11f) * 1.5f)) + 1; });
     // N-S lane down to the farm gate
     bridge_run(56, [](int) { return 60; }, [](int i) { return i + 14; });
     bridge_run(56, [](int) { return 61; }, [](int i) { return i + 14; });
@@ -348,12 +348,12 @@ void generate_world(World& world) {
             if (is_water(world.at(x,y).tile) || world.at(x,y).tile == Tile::Dirt ||
                 world.at(x,y).tile == Tile::Tilled || world.at(x,y).tile == Tile::Bridge)
                 continue;
-            float d = dist(rng);
-            if (d < 0.35f) world.at(x, y).obj = {ObjType::Pine, 3};
-            else if (d < 0.48f) world.at(x, y).obj = {ObjType::Tree, 3};
-            else if (d < 0.58f) world.at(x, y).obj = {ObjType::Bush, 1};
-            else if (d < 0.66f) world.at(x, y).obj = {ObjType::Mushroom, 1};
-            else if (d < 0.72f) world.at(x, y).obj = {ObjType::Flower, 1};
+            float dd = dist(rng);
+            if (dd < 0.35f) world.at(x, y).obj = {ObjType::Pine, 3};
+            else if (dd < 0.48f) world.at(x, y).obj = {ObjType::Tree, 3};
+            else if (dd < 0.58f) world.at(x, y).obj = {ObjType::Bush, 1};
+            else if (dd < 0.66f) world.at(x, y).obj = {ObjType::Mushroom, 1};
+            else if (dd < 0.72f) world.at(x, y).obj = {ObjType::Flower, 1};
         }
     // carve explicit corridors through Whisper Wood so it's always passable
     // horizontal trail at y=30 and y=46, vertical trail at x=12
@@ -389,9 +389,9 @@ void generate_world(World& world) {
                 y <= world.house_tl.y + 6) continue;
             Cell& c = world.at(x, y);
             if (c.tile != Tile::Snow || c.obj.type != ObjType::None) continue;
-            float d = dist(rng);
-            if (d < 0.30f) c.obj = {ObjType::Pine, 3};
-            else if (d < 0.36f) c.obj = {ObjType::Rock, 2};
+            float dd = dist(rng);
+            if (dd < 0.30f) c.obj = {ObjType::Pine, 3};
+            else if (dd < 0.36f) c.obj = {ObjType::Rock, 2};
         }
     // carve a clear corridor from the high street up to the glacier
     for (int y = 3; y < 16; ++y) {
@@ -411,15 +411,15 @@ void generate_world(World& world) {
     // the river bank that runs from the high street bridge up to the ice
     for (int y = 0; y < 20; ++y)
         for (int x = 22; x < 52; ++x) {
-            float d = std::hypot((x - fl_cx) * 1.35f, y - fl_cy);
-            if (d < 9.5f) { Cell& c = world.at(x, y); c.obj = FarmObj{}; }
+            float dd = std::hypot((static_cast<float>(x) - fl_cx) * 1.35f, static_cast<float>(y) - fl_cy);
+            if (dd < 9.5f) { Cell& c = world.at(x, y); c.obj = FarmObj{}; }
             else if (y >= 6 && y <= 20 && x >= 33 && x <= 44)
                 { Cell& c = world.at(x, y); c.obj = FarmObj{}; }
         }
 
     // orchard row along the south side of the high street
     for (int x = 14; x < MAP_W - 8; x += 3) {
-        int y = 20 + int(std::round(std::sin(x * 0.11f) * 1.5f));
+        int y = 20 + int(std::round(std::sin(static_cast<float>(x) * 0.11f) * 1.5f));
         Cell& c = world.at(x, y);
         if (is_water(c.tile) || c.obj.type != ObjType::None) continue;
         c.obj = {ObjType::Tree, 3};
@@ -434,7 +434,7 @@ void generate_world(World& world) {
         for (int x = 86; x < 106; ++x) {
             Cell& c = world.at(x, y);
             if (c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Sand) continue;
-            float ring = std::hypot((x - 96.0f) * 1.45f, y - 16.0f);
+            float ring = std::hypot((static_cast<float>(x) - 96.0f) * 1.45f, static_cast<float>(y) - 16.0f);
             if (ring > 6.4f && ring < 7.6f && dist(rng) < 0.5f)
                 c.obj = {ObjType::Bush, 1};
             else if (ring > 7.6f && ring < 9.0f && dist(rng) < 0.25f)
@@ -483,9 +483,9 @@ void generate_world(World& world) {
             if (!world.in_bounds(x, y)) continue;
             Cell& c = world.at(x, y);
             if (c.tile == Tile::Dirt || is_water(c.tile)) continue;
-            float d = dist(rng);
-            if (d < 0.06f) c.obj = {ObjType::Weed, 1};
-            else if (d < 0.10f) c.obj = {ObjType::Rock, 2};
+            float dd = dist(rng);
+            if (dd < 0.06f) c.obj = {ObjType::Weed, 1};
+            else if (dd < 0.10f) c.obj = {ObjType::Rock, 2};
         }
 
     // fence ring around farm plot (gap at the farm drive gate, south side)
@@ -538,7 +538,7 @@ void generate_world(World& world) {
     }
     // Initialize building states for all placed buildings (default condition = 100)
     for (auto& b : world.buildings) {
-        world.building_states[b.name] = {100, 0, 100, 0};
+        world.building_states[b.name] = {100, 0, 100, 0, {}};
     }
     init_plots(world);
     resolve_water_edges(world);
@@ -1683,8 +1683,8 @@ void World::init_wildlife() {
             attempts++;
             if (attempts > 100) break;
         } while (!in_bounds(x, y) || 
-                 at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar ||
-                 walkable(x, y) == false);
+                 (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) ||
+                 !walkable(x, y));
         if (attempts <= 100) {
             Wildlife d;
             d.type = WildlifeType::Deer;
@@ -1708,8 +1708,8 @@ void World::init_wildlife() {
             if (attempts > 100) break;
         } while (!in_bounds(x, y) || 
                  !is_tree(at(x, y).obj.type) ||
-                 at(x, y).obj.type != ObjType::Tree && at(x, y).obj.type != ObjType::Pine &&
-                 at(x, y).obj.type != ObjType::Oak);
+                 (at(x, y).obj.type != ObjType::Tree && at(x, y).obj.type != ObjType::Pine &&
+                  at(x, y).obj.type != ObjType::Oak));
         if (attempts <= 100) {
             Wildlife o;
             o.type = WildlifeType::Owl;
@@ -1732,7 +1732,7 @@ void World::init_wildlife() {
             attempts++;
             if (attempts > 100) break;
         } while (!in_bounds(x, y) || 
-                 at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar ||
+                 (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) ||
                  x < 4 || x > 20 || y < 16 || y > 74); // Whisper Wood area
         if (attempts <= 100) {
             Wildlife f;
@@ -1958,13 +1958,13 @@ bool check_building_repair_override(const std::string& name, int hour, Vec2& anc
     if (is_home) {
         // Home repair: NPC goes to building during evening (17-21) or morning (6-8)
         if (hour >= 17 && hour < 21) {
-            anchor = {door_x, door_y};
+            anchor = {static_cast<int16_t>(door_x), static_cast<int16_t>(door_y)};
             return true;
         }
     } else {
         // Workplace repair: Robin goes to Carpenter Shop during work hours
         if (hour >= 9 && hour < 17) {
-            anchor = {door_x, door_y};
+            anchor = {static_cast<int16_t>(door_x), static_cast<int16_t>(door_y)};
             return true;
         }
     }
@@ -2304,8 +2304,8 @@ bool deserialize_world(World& w, const std::string& json_str) {
             int i = 0;
             for (auto& s : pl.value("inv", json::array())) {
                 if (i >= 12) break;
-                p.inv[i].item = static_cast<Item>(s.value("item", 0));
-                p.inv[i].count = static_cast<uint16_t>(s.value("count", 0));
+                p.inv[static_cast<size_t>(i)].item = static_cast<Item>(s.value("item", 0));
+                p.inv[static_cast<size_t>(i)].count = static_cast<uint16_t>(s.value("count", 0));
                 ++i;
             }
             p.sanity = pl.value("sanity", 100.0f);
@@ -2337,8 +2337,8 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 Item item = static_cast<Item>(sj.value("item", 0));
                 SeedGen g;
                 json al = sj.value("alleles", json::array());
-                for (size_t i = 0; i < g.alleles.size() && i < al.size(); ++i)
-                    g.alleles[i] = static_cast<int8_t>(al[i]);
+                for (size_t k = 0; k < g.alleles.size() && k < al.size(); ++k)
+                    g.alleles[k] = static_cast<int8_t>(al[k]);
                 g.homozygosity = static_cast<uint8_t>(sj.value("homozygosity", 0));
                 p.seed_gen[item] = g;
             }
@@ -2575,8 +2575,8 @@ bool World::build_dsl_structure(Player& p, const std::string& struct_name, int g
     // Simple structure placement - just place a building marker
     Bldg bldg;
     bldg.name = struct_name;
-    bldg.x = gx;
-    bldg.y = gy;
+    bldg.x = static_cast<int16_t>(gx);
+    bldg.y = static_cast<int16_t>(gy);
     bldg.w = 4;
     bldg.h = 3;
     bldg.door_x = 1;
@@ -2584,7 +2584,7 @@ bool World::build_dsl_structure(Player& p, const std::string& struct_name, int g
     buildings.push_back(bldg);
     
     // Mark plot as having this structure
-    p.placed_structs.push_back({plot_idx, 0, gx, gy});
+    p.placed_structs.push_back({plot_idx, 0, static_cast<int16_t>(gx), static_cast<int16_t>(gy)});
     
     return true;
 }
@@ -2612,7 +2612,6 @@ void World::generate_daily_quests(Player& p) {
         
         if (q.type == "fetch" || q.type == "deliver") {
             // Use seasonal crops/items
-            int season = season_index(day);
             Item items[] = {Item::Parsnip, Item::Potato, Item::Cauliflower, Item::Corn, 
                            Item::Tomato, Item::Blueberry, Item::Melon, Item::Pumpkin,
                            Item::Egg, Item::Milk, Item::Honey, Item::Wood, Item::Stone};
@@ -2687,23 +2686,23 @@ void World::update_market_prices() {
         
         if (in_season) {
             mp.supply += 5 + flux(rng);
-            mp.demand += static_cast<int>(flux(rng) * demand_mult);
+            mp.demand += static_cast<int>(static_cast<float>(flux(rng)) * demand_mult);
         } else {
             mp.supply -= 2 + flux(rng);
-            mp.demand += static_cast<int>(2 + flux(rng) * demand_mult);
+            mp.demand += static_cast<int>(2 + static_cast<float>(flux(rng)) * demand_mult);
         }
         
         mp.supply = std::max(1, mp.supply);
         mp.demand = std::max(1, mp.demand);
         
         // Price = base * (demand/supply) * 0.5..1.5
-        float ratio = static_cast<float>(mp.demand) / mp.supply;
+        float ratio = static_cast<float>(mp.demand) / static_cast<float>(mp.supply);
         // Phase 7.3: price_elasticity steepens the demand/supply response
         // (0.5 dampens swings, 2.0 amplifies them).
         if (economy_price_elasticity > 0.0f && std::abs(economy_price_elasticity - 1.0f) > 0.01f) {
             ratio = std::pow(ratio, economy_price_elasticity);
         }
-        mp.current_price = static_cast<int>(mp.base_price * ratio * (0.8f + flux(rng) * 0.01f));
+        mp.current_price = static_cast<int>(static_cast<float>(mp.base_price) * ratio * (0.8f + static_cast<float>(flux(rng)) * 0.01f));
         mp.current_price = std::max(1, mp.current_price);
         mp.last_update = day;
     }
@@ -2745,8 +2744,8 @@ void World::apply_adaptations(const json& adaptations) {
 // Adaptation-aware daily weather. Starts from the deterministic base roll, then
 // shifts storm/fog/rain probability using the town's consolidated weather
 // adaptations. Deterministic per-day (seeded), so a saved game still reproduces.
-int World::weather_of_day_adapted(uint32_t day) const {
-    int base = ::weather_of_day(day);
+int World::weather_of_day_adapted(uint32_t wday) const {
+    int base = ::weather_of_day(wday);
     if (weather_storm_chance <= 0.0f && weather_pressure_bias == 0.0f &&
         weather_humidity_drift == 0.0f && weather_fog_intensity <= 0.0f) {
         return base;
@@ -2818,7 +2817,7 @@ bool World::complete_quest(Player& p, const std::string& quest_id) {
                 for (auto& slot : p.inv) {
                     if (slot.item == q.target_item && remaining > 0) {
                         int take = std::min<int>(slot.count, remaining);
-                        slot.count -= take;
+                        slot.count -= static_cast<uint16_t>(take);
                         remaining -= take;
                     }
                 }
@@ -2827,7 +2826,7 @@ bool World::complete_quest(Player& p, const std::string& quest_id) {
             // Give rewards
             p.money += q.reward_money;
             if (q.reward_item != Item::None) {
-                add_item(p, q.reward_item, q.reward_count);
+                add_item(p, q.reward_item, static_cast<uint16_t>(q.reward_count));
             }
             
             q.completed = true;
@@ -2847,7 +2846,7 @@ bool World::start_job(Player& p, const std::string& job_id) {
             // Job started - rewards given immediately for simplicity
             p.money += j.reward_money;
             if (j.reward_item != Item::None) {
-                add_item(p, j.reward_item, j.reward_count);
+                add_item(p, j.reward_item, static_cast<uint16_t>(j.reward_count));
             }
             j.cooldown_until = day + 1; // Next day
             return true;

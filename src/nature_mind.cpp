@@ -69,7 +69,7 @@ NatureMind::NatureMind(World* world)
   for (int cy = 0; cy < n_chunks_y; ++cy) {
     for (int cx = 0; cx < n_chunks_x; ++cx) {
       int chunk_id = cy * n_chunks_x + cx;
-      ForestChunk& chunk = chunks_[chunk_id];
+      ForestChunk& chunk = chunks_[static_cast<size_t>(chunk_id)];
 
       // Sample biome at chunk center
       int gx = cx * 16 + 8;
@@ -101,7 +101,7 @@ NatureMind::NatureMind(World* world)
 }
 
 
-void NatureMind::tick(uint32_t current_day) {
+void NatureMind::tick(uint32_t /*current_day*/) {
   if (!world_) return;
 
   // Run ecological processes
@@ -147,7 +147,7 @@ bool NatureMind::apply_disturbance(DisturbanceType type,
       float dist = std::sqrt(dx * dx + dy * dy);
 
       if (dist <= radius) {
-        ForestChunk& chunk = chunks_[chunk_id];
+        ForestChunk& chunk = chunks_[static_cast<size_t>(chunk_id)];
         float falloff = 1.0f - dist / radius;
         float effect = intensity * falloff;
 
@@ -196,7 +196,7 @@ void NatureMind::advance_succession() {
   for (int cy = 0; cy < n_chunks_y; ++cy) {
     for (int cx = 0; cx < n_chunks_x; ++cx) {
       int chunk_id = cy * n_chunks_x + cx;
-      ForestChunk& chunk = chunks_[chunk_id];
+      ForestChunk& chunk = chunks_[static_cast<size_t>(chunk_id)];
 
       // Base succession rate (slow: ~0.5% per day toward climax)
       float rate = 0.005f;
@@ -338,11 +338,8 @@ void NatureMind::update_carbon_cycle() {
 }
 
 void NatureMind::update_biodiversity() {
-  // Shannon diversity per chunk
-  for (auto& chunk : chunks_) {
-    float shannon = calculate_shannon_diversity(chunk);
-    // Could store per-chunk, for now just track globally
-  }
+  // Shannon diversity per chunk is computed in get_snapshot();
+  // a persistent global index is deferred.
 }
 
 float NatureMind::calculate_shannon_diversity(const ForestChunk& chunk) const {
@@ -357,15 +354,15 @@ float NatureMind::calculate_shannon_diversity(const ForestChunk& chunk) const {
 void NatureMind::update_climate_velocity() {
   // Climate velocity increases over time (simulating climate change)
   // km/decade - starts at 0.5, increases by 0.01 per year
-  climate_velocity_ = 0.5f + (world_->day / 365.0f) * 0.01f;
+  climate_velocity_ = 0.5f + (static_cast<float>(world_->day) / 365.0f) * 0.01f;
 
   // Temperature anomaly trends upward
-  temperature_anomaly_ = 0.5f + (world_->day / 365.0f) * 0.3f;
+  temperature_anomaly_ = 0.5f + (static_cast<float>(world_->day) / 365.0f) * 0.3f;
 
   // Precipitation anomaly - more variable
   std::mt19937 rng(123 + world_->day);
   std::normal_distribution<float> dist(0.0f, 50.0f);
-  precipitation_anomaly_ = dist(rng) + (world_->day / 365.0f) * 10.0f;
+  precipitation_anomaly_ = dist(rng) + (static_cast<float>(world_->day) / 365.0f) * 10.0f;
 }
 
 void NatureMind::decay_disturbance_legacy() {
@@ -400,7 +397,7 @@ void NatureMind::migrate_alleles_between_chunks() {
   for (int cy = 0; cy < n_chunks_y; ++cy) {
     for (int cx = 0; cx < n_chunks_x; ++cx) {
       int chunk_id = cy * n_chunks_x + cx;
-      ForestChunk& chunk = chunks_[chunk_id];
+      ForestChunk& chunk = chunks_[static_cast<size_t>(chunk_id)];
 
       // Check 4-connected neighbors
       const int dx[4] = {-1, 1, 0, 0};
@@ -412,7 +409,7 @@ void NatureMind::migrate_alleles_between_chunks() {
         if (ncx < 0 || ncx >= n_chunks_x || ncy < 0 || ncy >= n_chunks_y) continue;
 
         int neighbor_id = ncy * n_chunks_x + ncx;
-        ForestChunk& neighbor = chunks_[neighbor_id];
+        ForestChunk& neighbor = chunks_[static_cast<size_t>(neighbor_id)];
 
         // Allele flow proportional to frequency difference
         for (auto& kv : chunk.alleles) {
@@ -462,12 +459,6 @@ void NatureMind::push_adaptations() {
   // This would be read by procgen when generating new chunks
   // For now, we just calculate the biases
 
-  // Weather storm chance bias
-  float storm_bias = climate_velocity_ * 0.1f + temperature_anomaly_ * 0.05f;
-
-  // Disaster chance bias
-  float disaster_bias = climate_velocity_ * 0.15f + disturbance_history_.size() * 0.001f;
-
   // Foraging yield multipliers based on species composition
   std::map<std::string, float> foraging_yield;
   foraging_yield["berries"] = map_value(species_pools_, std::string("birch"), 0.0f) * 2.0f + 0.5f;
@@ -498,10 +489,10 @@ NatureMind::Snapshot NatureMind::get_snapshot() const {
   }
 
   if (count > 0) {
-    snap.mean_succession_stage = total_succ / count;
-    snap.total_carbon_stock = total_carbon / count;
-    snap.biodiversity_shannon = total_shannon / count;
-    snap.mean_disturbance_legacy = total_legacy / count;
+    snap.mean_succession_stage = total_succ / static_cast<float>(count);
+    snap.total_carbon_stock = total_carbon / static_cast<float>(count);
+    snap.biodiversity_shannon = total_shannon / static_cast<float>(count);
+    snap.mean_disturbance_legacy = total_legacy / static_cast<float>(count);
   }
 
   snap.climate_velocity = climate_velocity_;
@@ -511,7 +502,7 @@ NatureMind::Snapshot NatureMind::get_snapshot() const {
   snap.procgen_biases = {map_value(species_pools_, std::string("oak"), 0.0f), map_value(species_pools_, std::string("pine"), 0.0f),
                          map_value(species_pools_, std::string("birch"), 0.0f), map_value(species_pools_, std::string("maple"), 0.0f)};
   snap.weather_storm_bias = climate_velocity_ * 0.1f + temperature_anomaly_ * 0.05f;
-  snap.disaster_chance_bias = climate_velocity_ * 0.15f + disturbance_history_.size() * 0.001f;
+  snap.disaster_chance_bias = climate_velocity_ * 0.15f + static_cast<float>(disturbance_history_.size()) * 0.001f;
 
   // Foraging yields
   snap.foraging_yield["berries"] = map_value(species_pools_, std::string("birch"), 0.0f) * 2.0f + 0.5f;

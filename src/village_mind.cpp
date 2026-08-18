@@ -45,9 +45,7 @@ void VillageMind::aggregate_emotional_state() {
   registry_->aggregate_stats(mean_valence, mean_arousal, count);
 
   // Collective fear/joy approximated from mean valence + individual emotion
-  // tags. We recompute fear/joy by scanning each agent's current emotion.
-  float fear_sum = 0.0f, joy_sum = 0.0f;
-  // Note: registry has no direct iterator; use mean valence for the mood
+  // tags. Registry has no direct iterator; use mean valence for the mood
   // baseline and derive fear/joy from valence + arousal.
   float fear_base = clamp01(0.5f - mean_valence);      // negative valence -> fear
   float joy_base = clamp01(0.5f + mean_valence);        // positive valence -> joy

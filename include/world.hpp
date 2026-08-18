@@ -382,11 +382,11 @@ static inline uint8_t forest_undergrowth(uint8_t fs) { return (fs >> 3) & 0x03; 
 static inline bool forest_has_nurse_log(uint8_t fs) { return fs & 0x20; }
 static inline bool forest_recent_windthrow(uint8_t fs) { return fs & 0x40; }
 static inline bool forest_player_managed(uint8_t fs) { return fs & 0x80; }
-static inline void forest_set_canopy(uint8_t& fs, uint8_t v) { fs = (fs & ~0x07) | (v & 0x07); }
-static inline void forest_set_undergrowth(uint8_t& fs, uint8_t v) { fs = (fs & ~0x18) | ((v & 0x03) << 3); }
-static inline void forest_set_nurse_log(uint8_t& fs, bool v) { if (v) fs |= 0x20; else fs &= ~0x20; }
-static inline void forest_set_windthrow(uint8_t& fs, bool v) { if (v) fs |= 0x40; else fs &= ~0x40; }
-static inline void forest_set_player_managed(uint8_t& fs, bool v) { if (v) fs |= 0x80; else fs &= ~0x80; }
+static inline void forest_set_canopy(uint8_t& fs, uint8_t v) { fs = static_cast<uint8_t>((fs & static_cast<uint8_t>(~0x07u)) | (v & 0x07u)); }
+static inline void forest_set_undergrowth(uint8_t& fs, uint8_t v) { fs = static_cast<uint8_t>((fs & static_cast<uint8_t>(~0x18u)) | ((v & 0x03u) << 3)); }
+static inline void forest_set_nurse_log(uint8_t& fs, bool v) { if (v) fs |= static_cast<uint8_t>(0x20u); else fs &= static_cast<uint8_t>(~0x20u); }
+static inline void forest_set_windthrow(uint8_t& fs, bool v) { if (v) fs |= static_cast<uint8_t>(0x40u); else fs &= static_cast<uint8_t>(~0x40u); }
+static inline void forest_set_player_managed(uint8_t& fs, bool v) { if (v) fs |= static_cast<uint8_t>(0x80u); else fs &= static_cast<uint8_t>(~0x80u); }
 
 static inline Item tree_log_item(ObjType t) {
     switch (t) {
@@ -477,7 +477,7 @@ struct InteriorRoom {
     // Helper: get floor by index (0 = ground, 1+ = upper)
     const std::vector<std::string>& get_floor(int floor) const {
         if (floor == 0) return rows;
-        if (floor > 0 && static_cast<int>(floor - 1) < static_cast<int>(floors.size())) return floors[floor - 1];
+        if (floor > 0 && floor - 1 < static_cast<int>(floors.size())) return floors[static_cast<size_t>(floor - 1)];
         static const std::vector<std::string> empty;
         return empty;
     }

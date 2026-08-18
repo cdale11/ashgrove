@@ -47,7 +47,7 @@ std::string json_escape(const std::string& s) {
 SocialCognition::SocialCognition(const std::string& agent_id)
     : agent_id_(agent_id) {}
 
-void SocialCognition::tick(uint32_t current_tick) {
+void SocialCognition::tick(uint32_t /*current_tick*/) {
   // Slow trust drift toward neutral (0.5) when no interactions
   for (auto& kv : edges_) {
     SocialEdge& edge = kv.second;
@@ -121,7 +121,7 @@ std::vector<SocialCognition::TransmittedFact> SocialCognition::propagate_beliefs
 }
 
 bool SocialCognition::receive_belief(const std::string& source_agent_id,
-                                     const SemanticFact& fact,
+                                     const SemanticFact& /*fact*/,
                                      float source_confidence) {
   // Find or create edge to source
   auto& edge = edges_[source_agent_id];
@@ -174,14 +174,6 @@ std::string SocialCognition::to_json() const {
 
 bool SocialCognition::from_json(const std::string& json_str) {
   // Minimal parser - relies on structure from to_json()
-  auto find_float = [&](const std::string& key, float& dst) -> bool {
-    auto k = json_str.find("\"" + key + "\":");
-    if (k == std::string::npos) return false;
-    auto v = json_str.find_first_of("-0123456789", k + key.size() + 3);
-    if (v == std::string::npos) return false;
-    try { dst = std::stof(json_str.substr(v, 32)); return true; }
-    catch (...) { return false; }
-  };
   
   // In a real implementation, use nlohmann::json
   // For now, just validate structure

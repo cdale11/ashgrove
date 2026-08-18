@@ -38,7 +38,7 @@ TownConsciousness::TownConsciousness(World& world, std::function<std::string(con
             current_adaptations_.horror = j.value("horror", json::object());
             current_adaptations_.performance = j.value("performance", json::object());
             current_adaptations_.day = j.value("day", world_.day);
-            current_adaptations_.consolidation_count = j.value("consolidation_count", 0);
+            current_adaptations_.consolidation_count = static_cast<uint32_t>(j.value("consolidation_count", 0));
         }
         current_adaptations_.day = world_.day;
     }
@@ -418,8 +418,8 @@ void TownConsciousness::load_memory() {
         memory_.discovered_secrets = j.value("discovered_secrets", json::array());
         memory_.performance_profile = j.value("performance_profile", json::object());
         memory_.narrative_state = j.value("narrative_state", json::object());
-        memory_.last_consolidation_day = j.value("last_consolidation_day", 0);
-        memory_.consolidation_count = j.value("consolidation_count", 0);
+        memory_.last_consolidation_day = static_cast<uint32_t>(j.value("last_consolidation_day", 0));
+        memory_.consolidation_count = static_cast<uint32_t>(j.value("consolidation_count", 0));
     }
 }
 

@@ -13,7 +13,15 @@
 #include "economy_mind.hpp"
 #include "culture_mind.hpp"
 #include "valley_mind.hpp"
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 #include <httplib.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #include <mutex>
 #include <thread>
 #include <chrono>
@@ -54,7 +62,7 @@ static SeedGen default_seed_gen();
 static SeedGen get_seed_gen(Player& p, Item seed_item);
 static uint8_t compute_homozygosity(const std::array<int8_t, 16>& alleles);
 static int8_t drift_allele(int8_t v, std::mt19937& rng, int step);
-static void grow_morphology(Crop& c, std::mt19937& rng, int growth);
+static void grow_morphology(Crop& c, int growth);
 
 static bool save_world(const World& w, const std::string& path) {
     std::ofstream f(path);
@@ -185,7 +193,7 @@ static void advance_day(World& w) {
                                      static_cast<uint32_t>(cell_idx) * 131u);
                     for (auto& a : cell.crop.alleles) a = drift_allele(a, rng, 1);
                     cell.crop.homozygosity = compute_homozygosity(cell.crop.alleles);
-                    grow_morphology(cell.crop, rng, growth);
+                    grow_morphology(cell.crop, growth);
                     // Giant crops: highly homozygous + large biomass unlock a daily roll.
                     if (!cell.crop.is_giant && cell.crop.homozygosity >= 200 &&
                         cell.crop.biomass >= 30.0f) {
@@ -300,7 +308,7 @@ static void advance_day(World& w) {
                     int head_diff = static_cast<int>(c.water_table_depth) - static_cast<int>(n.water_table_depth);
                     if (head_diff > 0) { // neighbor is shallower (water flows TO neighbor)
                         float transmissivity = c.aquifer_transmissivity / 255.0f * 0.02f; // max 2% per tick
-                        lateral_flow -= head_diff * transmissivity; // water leaves this cell
+                        lateral_flow -= static_cast<float>(head_diff) * transmissivity; // water leaves this cell
                     } else if (head_diff < 0) { // neighbor is deeper (water flows FROM neighbor)
                         float transmissivity = n.aquifer_transmissivity / 255.0f * 0.02f;
                         lateral_flow += static_cast<float>(-head_diff) * transmissivity; // water enters this cell
@@ -339,7 +347,7 @@ static void advance_day(World& w) {
                 // Evapotranspiration (simplified): crops reduce saturation
                 // (handled in crop growth section via uptake)
 
-                new_saturation[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = static_cast<uint8_t>(std::clamp<int>(target_saturation, 0, 255));
+                new_saturation[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = static_cast<uint8_t>(std::clamp<float>(target_saturation, 0.0f, 255.0f));
             }
         }
 
@@ -362,14 +370,14 @@ static void advance_day(World& w) {
                         water_level = 0; // well dry
                     } else if (water_level > 0) {
                         // Pumping lowers local water table (cone of depression)
-                        float drawdown = 10.0f * (255 - water_level) / 100.0f; // max 10 depth units
+                        float drawdown = 10.0f * static_cast<float>(255 - water_level) / 100.0f; // max 10 depth units
                         // Apply to neighbors (cone of depression)
                         for (int dir = 0; dir < 4; ++dir) {
                             int nx = x + dx[dir], ny = y + dy[dir];
                             if (!w.in_bounds(nx, ny)) continue;
-                            float dist_factor = 1.0f / (1.0f + std::abs(dx[dir]) + std::abs(dy[dir])); // simple distance decay
+                            float dist_factor = 1.0f / (1.0f + static_cast<float>(std::abs(dx[dir])) + static_cast<float>(std::abs(dy[dir]))); // simple distance decay
                             int dep = static_cast<int>(drawdown * dist_factor);
-                            int idx = ny * MAP_W + nx;
+                            size_t idx = static_cast<size_t>(ny) * MAP_W + static_cast<size_t>(nx);
                             w.cells[idx].water_table_depth = static_cast<uint8_t>(
                                 std::min(255, w.cells[idx].water_table_depth + dep));
                         }
@@ -393,7 +401,7 @@ static void advance_day(World& w) {
             // Capillary fringe: saturation increases as water table rises
             float wt_factor = 1.0f - (cell.water_table_depth / 255.0f); // 1 at surface, 0 at deep
             float capillary_sat = std::clamp<float>(80.0f + wt_factor * 150.0f, 0.0f, 255.0f);
-            cell.saturation = static_cast<uint8_t>(std::max<int>(cell.saturation, capillary_sat));
+            cell.saturation = static_cast<uint8_t>(std::max<float>(static_cast<float>(cell.saturation), capillary_sat));
         }
     }
 
@@ -479,8 +487,8 @@ static void advance_day(World& w) {
                     // Lean probability (permanent bend)
                     float lean_prob = 0.05f; // base 5%
                     
-                    unsigned roll = ((w.day * 2654435761u) + x * 31 + y * 17) % 10000;
-                    float r = roll / 10000.0f;
+                    unsigned roll = ((w.day * 2654435761u) + static_cast<unsigned>(x) * 31u + static_cast<unsigned>(y) * 17u) % 10000u;
+                    float r = static_cast<float>(roll) / 10000.0f;
                     
                     if (r < uproot_prob) {
                         // Uprooted: becomes nurse log + canopy gap
@@ -503,7 +511,7 @@ static void advance_day(World& w) {
                         }
                     } else if (r < uproot_prob + snap_prob + lean_prob) {
                         // Leaned: permanent bend, reduced growth
-                        c.obj.hp = std::max<uint8_t>(static_cast<int>(c.obj.hp * 0.8f), 30);
+                        c.obj.hp = std::max<uint8_t>(static_cast<uint8_t>(c.obj.hp * 0.8f), static_cast<uint8_t>(30));
                         // Mark as leaned (could add a flag to forest_state)
                         if (c.forest_state != 0) forest_set_windthrow(c.forest_state, true);
                     }
@@ -634,7 +642,7 @@ if (season == 3) { // Winter
                 // Tree growth: small chance to grow (hp increases)
                 if (c.obj.hp < 255) {
                     int growth_chance = (c.obj.hp < 20) ? 5 : (c.obj.hp < 50) ? 3 : 1;
-                    if ((static_cast<int>(w.day) * 7 + x * 13 + y * 19) % 100 < static_cast<unsigned>(growth_chance)) {
+                    if (static_cast<unsigned>((static_cast<int>(w.day) * 7 + x * 13 + y * 19) % 100) < static_cast<unsigned>(growth_chance)) {
                         c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
                     }
                 }
@@ -714,11 +722,11 @@ if (season == 3) { // Winter
                 if (c.obj.type == ObjType::Well) {
                     // Wells recharge 15-25% per rainy day
                     int recharge = 15 + (static_cast<int>(w.day) * 13 + x * 7 + y * 11) % 11;
-                    c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
+                    c.obj.hp = std::min<uint8_t>(static_cast<uint8_t>(100), static_cast<uint8_t>(c.obj.hp + recharge));
                 } else if (c.obj.type == ObjType::Pond) {
                     // Ponds recharge faster (they're larger)
                     int recharge = 25 + (static_cast<int>(w.day) * 11 + x * 5 + y * 13) % 15;
-                    c.obj.hp = std::min<uint8_t>(100, c.obj.hp + recharge);
+                    c.obj.hp = std::min<uint8_t>(static_cast<uint8_t>(100), static_cast<uint8_t>(c.obj.hp + recharge));
                 }
 }
         }
@@ -897,8 +905,8 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         }
         if (well_cell && can.count < 40) {
             if (well_cell->obj.hp > 0) {
-                int fill = std::min(40 - can.count, static_cast<int>(well_cell->obj.hp));
-                can.count += fill;
+                int fill = std::min(40 - static_cast<int>(can.count), static_cast<int>(well_cell->obj.hp));
+                can.count = static_cast<uint16_t>(can.count + fill);
                 well_cell->obj.hp -= static_cast<uint8_t>(fill);
                 return "Drew " + std::to_string(fill) + " units from well. Can: " + std::to_string(can.count) + "/40";
             } else {
@@ -1255,20 +1263,21 @@ static Player make_fresh_player(uint32_t id, const std::string& name, Vec2 pos) 
 
 // Levenshtein distance for fuzzy command matching
 static int levenshtein(const std::string& a, const std::string& b) {
-    int n = a.size(), m = b.size();
+    const int n = static_cast<int>(a.size()), m = static_cast<int>(b.size());
     if (n == 0) return m;
     if (m == 0) return n;
-    std::vector<int> dp(m + 1), prev(m + 1);
-    for (int j = 0; j <= m; ++j) prev[j] = j;
+    std::vector<int> dp(static_cast<size_t>(m) + 1u), prev(static_cast<size_t>(m) + 1u);
+    for (int j = 0; j <= m; ++j) prev[static_cast<size_t>(j)] = j;
     for (int i = 1; i <= n; ++i) {
         dp[0] = i;
         for (int j = 1; j <= m; ++j) {
-            int cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
-            dp[j] = std::min({prev[j] + 1, dp[j - 1] + 1, prev[j - 1] + cost});
+            const size_t ui = static_cast<size_t>(i), uj = static_cast<size_t>(j);
+            int cost = (a[ui - 1] == b[uj - 1]) ? 0 : 1;
+            dp[uj] = std::min({prev[uj] + 1, dp[uj - 1] + 1, prev[uj - 1] + cost});
         }
         prev.swap(dp);
     }
-    return prev[m];
+    return prev[static_cast<size_t>(m)];
 }
 
 // Find closest command matches for suggestions
@@ -1295,7 +1304,7 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
     std::sort(scores.begin(), scores.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     std::vector<std::string> result;
-    for (size_t i = 0; i < std::min<size_t>(scores.size(), max_suggestions); ++i) {
+    for (size_t i = 0; i < std::min<size_t>(scores.size(), static_cast<size_t>(max_suggestions)); ++i) {
         result.push_back(scores[i].second);
     }
     return result;
@@ -1409,7 +1418,7 @@ static int8_t drift_allele(int8_t v, std::mt19937& rng, int step) {
     return static_cast<int8_t>(std::clamp(nv, -40, 40));
 }
 // Update L-System morphology fields from alleles (called each growing day).
-static void grow_morphology(Crop& c, std::mt19937& rng, int growth) {
+static void grow_morphology(Crop& c, int growth) {
     auto& a = c.alleles;
     float g = static_cast<float>(growth);
     c.height  = std::min(c.height  + g * (0.4f + a[0] / 128.0f), 20.0f);
@@ -1894,7 +1903,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 else if (stepped.snow_compaction > 200) cost_mult = 1.5f;
                 else cost_mult = 2.0f;
                 p.energy = std::max(0.0f, p.energy - cost_mult);
-                stepped.track_age = 1; stepped.track_type = 1; stepped.track_dir = it->second;
+                stepped.track_age = 1; stepped.track_type = 1; stepped.track_dir = static_cast<int8_t>(it->second);
             } else {
                 p.energy = std::max(0.0f, p.energy - 1.0f);
             }
@@ -1978,7 +1987,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int dx = std::abs(destination.x - p.pos.x);
         int dy = std::abs(destination.y - p.pos.y);
         int dist_chunks = (std::max(dx, dy) + 63) / 64; // CHUNK_SIZE = 128, so 2 tiles per chunk roughly
-        float base_hours = dist_chunks * 0.5f;
+        float base_hours = static_cast<float>(dist_chunks) * 0.5f;
         
         // Terrain modifier
         std::string region = region_at(w, p.pos.x, p.pos.y);
@@ -1990,18 +1999,18 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         float total_hours = std::max(0.5f, base_hours + terrain_mod);
         
         // Apply costs
-        int energy_cost = static_cast<int>(p.max_energy * 0.1f); // 10% energy
+        int energy_cost = static_cast<int>(static_cast<float>(p.max_energy) * 0.1f); // 10% energy
         float sanity_cost = 5.0f; // sanity
         
-        if (p.energy < energy_cost) { say("Not enough energy for the journey."); return out; }
+        if (p.energy < static_cast<float>(energy_cost)) { say("Not enough energy for the journey."); return out; }
         if (w.perception_tier(p) >= 3) { say("Your mind is too fractured for safe travel."); return out; }
         
-        p.energy -= energy_cost;
+        p.energy -= static_cast<float>(energy_cost);
         w.damage_sanity(p, sanity_cost);
         
         // Advance time
         int hours_to_add = static_cast<int>(total_hours);
-        w.day_seconds += hours_to_add * 3600; // 3600 seconds per hour (simplified)
+        w.day_seconds += static_cast<float>(hours_to_add) * 3600.0f; // 3600 seconds per hour (simplified)
         while (w.day_seconds >= 86400) { // 86400 = DAY_LENGTH_S * 24? Actually DAY_LENGTH_S = 800s = 20 game hours
             w.day_seconds -= 86400;
             advance_day(w);
@@ -2064,14 +2073,14 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             return out;
         }
         Cell& c = w.at(p.pos);
-        int season = season_index(w.day);
+        int season_local = season_index(w.day);
         int hour = hour_of_day(w);
         const char* part = hour < 9 ? "early morning" : hour < 12 ? "morning" :
                            hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
         say("You stand on " + std::string(terrain_name(c.tile)) + " in " +
             std::string(region_at(w, p.pos.x, p.pos.y)) + ".");
         say("It's a " + std::string(weather_name_adapted(w, w.day)) + " " +
-            std::string(season_name(season)) + " " + std::string(part) + ".");
+            std::string(season_name(season_local)) + " " + std::string(part) + ".");
         // R9.3: Foggy weather reduces visibility
         bool foggy = (w.weather_of_day_adapted(w.day) == 2);
         if (foggy) say("A thick fog clings to the valley. You can barely see a few feet ahead.");
@@ -2321,9 +2330,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "plant" || cmd == "planting") {
         const CropDef* crop = crop_def(arg.c_str());
         if (!crop) { say("Plant what? parsnip, potato, cauliflower, corn, tomato, wheat, blueberry, green bean, hops, strawberry, melon, pumpkin, red cabbage, rhubarb, garlic, artichoke, bok choy, kale, cranberry, grape, apple, cherry, peach, pomegranate, apricot, orange, banana, mango, plum, pear, fig, avocado, lemon, lime, grapefruit, persimmon."); return out; }
-        int season = season_index(w.day);
-        if (season == 3) { say("The soil is frozen solid. Nothing grows in winter."); return out; }
-        if (season < crop->min_season || season > crop->max_season) {
+        int season_local = season_index(w.day);
+        if (season_local == 3) { say("The soil is frozen solid. Nothing grows in winter."); return out; }
+        if (season_local < crop->min_season || season_local > crop->max_season) {
             say(std::string(crop->name) + " grows best in " +
                 std::string(season_name(crop->min_season)) + " through " +
                 std::string(season_name(crop->max_season)) + ". It won't thrive now.");
@@ -2470,6 +2479,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 c.potassium = static_cast<uint8_t>(std::min<int>(c.potassium + 15, 255));
                 say("Applied Premium Fertilizer (legacy). NPK increased.");
                 break;
+            default:
+                break;
         }
         p.energy -= 1;
         consume_item(p, fert, 1);
@@ -2529,10 +2540,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         Item produce = c.crop.crop;
         // Fruit trees: don't remove the crop, just mark as harvested this season
         if (c.crop.is_fruit_tree) {
-            int season = season_index(w.day);
+            int season_local = season_index(w.day);
             // Only harvestable if the tree has produced fruit this season (set by advance_day).
             // Prevents re-harvesting the same tree repeatedly in one season.
-            if (c.crop.last_harvest_season != season) {
+            if (c.crop.last_harvest_season != season_local) {
                 say("The tree has no ripe fruit right now. It will fruit once per season.");
                 return out;
             }
@@ -2560,7 +2571,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         }
         int sell_price = item_def(produce).sell;
         std::string quality_msg = "";
-        if (flower_bonus > 0 && (static_cast<int>(w.day) * 7 + f.x * 13 + f.y * 19) % 100 < static_cast<unsigned>(20 * flower_bonus)) {
+        if (flower_bonus > 0 && static_cast<unsigned>((static_cast<int>(w.day) * 7 + f.x * 13 + f.y * 19) % 100) < static_cast<unsigned>(20 * flower_bonus)) {
             // 20% chance per adjacent flower for quality bonus (double price)
             sell_price *= 2;
             quality_msg = " ★ Quality!";
@@ -2618,9 +2629,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (!near_water) { say("There's no water here to fish in."); return out; }
         if (p.energy < 8) { say("Too tired to fish. Rest or sleep."); return out; }
         p.energy -= 8;
-        int season = season_index(w.day);
+        int season_local = season_index(w.day);
         int count = 0;
-        fish_table(season, count);
+        fish_table(season_local, count);
         static const struct { const char* name; int price; int min_h, max_h; } fish[5][5] = {
             {{"Anchovy",30,6,21},{"Sardine",40,6,19},{"Bream",55,6,20},{"Halibut",90,6,11},{"Salmon",100,6,21}},
             {{"Tuna",80,6,19},{"Rainbow Trout",100,6,21},{"Sunfish",80,6,19},{"Catfish",100,12,2},{"Pufferfish",180,12,16}},
@@ -2633,7 +2644,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int catch_chance = rainy ? 65 : 55;
         if (roll < catch_chance) {
             // pick among fish whose active hours cover now (wrap for 2 AM fish)
-            const int seasi = season < 0 || season > 3 ? 0 : season;
+            const int seasi = season_local < 0 || season_local > 3 ? 0 : season_local;
             int pool[5];
             int npool = 0;
             for (int i = 0; i < 5; ++i) {
@@ -2662,7 +2673,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     if (cmd == "forage") {
         if (p.energy < 4) { say("Too tired to forage. Rest or sleep."); return out; }
         p.energy -= 4;
-        int season = season_index(w.day);
+        int season_local = season_index(w.day);
         static const struct { const char* name; int price; } forage[4][4] = {
             {{"Dandelion",25},{"Wild Horseradish",40},{"Leek",60},{"Morel Mushroom",90}},
             {{"Spice Berry",80},{"Grape",120},{"Sweet Pea",55},{"Red Mushroom",110}},
@@ -2684,7 +2695,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int roll = rand() % 100;
         int chance = (rainy ? 45 : 35) + (in_wood ? 15 : 0) + ug_bonus;
         if (roll < chance) {
-            int sidx = season < 0 || season > 3 ? 0 : season;
+            int sidx = season_local < 0 || season_local > 3 ? 0 : season_local;
             // L4: Undergrowth type influences forage table selection
             int table_idx = rand() % 4;
             if (ug == 3) table_idx = 3; // mushroom patch -> mushroom
@@ -2712,7 +2723,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             // Collect sap
             Item sap = tree_sap_item(c.obj.type);
             int amount = 1 + (c.obj.hp - 50) / 50; // more mature = more sap
-            add_item(p, sap, amount);
+            add_item(p, sap, static_cast<uint16_t>(amount));
             c.obj.ore = 0; // tapper removed after collection
             say("Collected " + std::to_string(amount) + "x " + std::string(item_def(sap).name) + " from the " + std::string(obj_type_name(c.obj.type)) + ".");
             return out;
@@ -2748,7 +2759,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.energy -= 2;
         // Shake: 25% chance for sapling from mature trees, 10% from younger
         int chance = (c.obj.hp > 150) ? 25 : (c.obj.hp > 100) ? 20 : (c.obj.hp > 50) ? 10 : 0;
-        if (chance > 0 && (w.day * 7 + f.x * 13 + f.y * 19) % 100 < static_cast<unsigned>(chance)) {
+        if (chance > 0 && static_cast<unsigned>((w.day * 7u + static_cast<unsigned>(f.x) * 13u + static_cast<unsigned>(f.y) * 19u) % 100u) < static_cast<unsigned>(chance)) {
             Item sapling = Item::None;
             switch (c.obj.type) {
                 case ObjType::Tree: sapling = Item::OakSapling; break;
@@ -2871,7 +2882,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             std::string name = item_def(it->second).name;
             if (w.economy_demand_shift.contains(name) && w.economy_demand_shift[name].is_number()) {
                 float mult = w.economy_demand_shift[name].get<float>();
-                price = static_cast<int>(price * mult);
+                price = static_cast<int>(static_cast<float>(price) * mult);
                 if (price < 1) price = 1;
             }
         }
@@ -3196,7 +3207,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.money -= gold_cost;
         consume_item(p, Item::Wood, wood_cost);
         if (stone_cost > 0) consume_item(p, Item::Stone, stone_cost);
-        w.farmhouse_level = next_level;
+        w.farmhouse_level = static_cast<uint8_t>(next_level);
         
         say("Farmhouse upgraded to " + std::string(level_name) + "! (-" + std::to_string(gold_cost) + "g, -" + 
             std::to_string(wood_cost) + " wood" + (stone_cost > 0 ? ", -" + std::to_string(stone_cost) + " stone" : "") + ")");
@@ -3244,9 +3255,9 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         int slot = find_slot(p, it->second.first);
         if (slot < 0) { say("You don't have any to eat."); return out; }
         if (p.energy >= p.max_energy) { say("You're already full of energy."); return out; }
-        p.inv[slot].count--;
-        if (p.inv[slot].count == 0) p.inv[slot].item = Item::None;
-        p.energy = std::min<float>(p.max_energy, p.energy + it->second.second);
+        p.inv[static_cast<size_t>(slot)].count--;
+        if (p.inv[static_cast<size_t>(slot)].count == 0) p.inv[static_cast<size_t>(slot)].item = Item::None;
+        p.energy = std::min<float>(p.max_energy, p.energy + static_cast<float>(it->second.second));
         say("You eat " + std::string(item_def(it->second.first).name) +
             ". +" + std::to_string(it->second.second) + " energy.");
         return out;
@@ -3276,8 +3287,8 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         if (slot < 0) { say("You don't have any " + std::string(item_def(gift).name) + " to give."); return out; }
         int taste = gift_taste(found->name, gift);
         p.gifted_today.insert(found->name);
-        p.inv[slot].count--;
-        if (p.inv[slot].count == 0) p.inv[slot].item = Item::None;
+        p.inv[static_cast<size_t>(slot)].count--;
+        if (p.inv[static_cast<size_t>(slot)].count == 0) p.inv[static_cast<size_t>(slot)].item = Item::None;
         uint8_t h = p.hearts[found->name];
         std::string reaction;
         if (taste >= 2) { h = std::min<uint8_t>(h + 2, 10); reaction = found->name + " beams! \"Oh, this is wonderful!\""; }
@@ -3336,7 +3347,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             return out;
         }
         if (best > 3) { say(found->name + " is too far away. Walk closer first."); return out; }
-        int season = season_index(w.day);
+        int season_local = season_index(w.day);
         p.dir = 0;
         if (found->pos.y < p.pos.y) p.dir = 3;
         else if (found->pos.x > p.pos.x) p.dir = 2;
@@ -3349,7 +3360,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             try {
                 core = &ashgrove::CognitiveRegistry::instance().get_or_create("npc:" + found->name);
             } catch (...) { core = nullptr; }
-            std::string base = cognitive_dialogue_line(found->name, core, season);
+            std::string base = cognitive_dialogue_line(found->name, core, season_local);
             std::string distorted = w.distort_dialogue(p, found->name, base);
             say(found->name + ": " + distorted);
         }
@@ -3438,7 +3449,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.inx = static_cast<int16_t>(r.w / 2);
         p.iny = static_cast<int16_t>(r.h - 2);
         for (int16_t sy = r.h - 2; sy >= 0; --sy) {
-            char ch = r.rows[sy][r.w / 2];
+            char ch = r.rows[static_cast<size_t>(sy)][static_cast<size_t>(r.w / 2)];
             if (ch == '.' || ch == ' ' || ch == 'P') { p.iny = sy; break; }
         }
         p.dir = 3;
@@ -3667,7 +3678,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             for (auto [ox, oy, dir] : std::vector<std::tuple<int,int,std::string>>{{0,-1,"north"},{0,1,"south"},{-1,0,"west"},{1,0,"east"}}) {
                 int tx = p.inx + ox, ty = p.iny + oy;
                 if (tx < 0 || tx >= room.w || ty < 0 || ty >= room.h) continue;
-                char ch = room.rows[ty][tx];
+                char ch = room.rows[static_cast<size_t>(ty)][static_cast<size_t>(tx)];
                 if (ch != '.' && ch != ' ' && ch != 'P' && ch != '#') {
                     adjacent.emplace_back(ch, dir);
                 }
@@ -3699,7 +3710,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                             "FALL: Grapes hang heavy. Harvest before the first frost.",
                             "WINTER: The Travelling Cart visits Thurs–Sun this week. Prices are slashed.",
                         };
-                        say("Correspondent: \"" + tips[season_index(w.day)] + "\"");
+                        say("Correspondent: \"" + tips[static_cast<size_t>(season_index(w.day))] + "\"");
                         say("\"And now, the Stardew Valley Fair is coming...\"");
                         return out;
                     } else if (ch == 'S') { // Stove
@@ -3904,7 +3915,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             "FALL: Grapes hang heavy. Harvest before the first frost.",
             "WINTER: The Travelling Cart visits Thurs–Sun this week. Prices are slashed.",
         };
-        say("Correspondent: \"" + tips[season_index(w.day)] + "\"");
+        say("Correspondent: \"" + tips[static_cast<size_t>(season_index(w.day))] + "\"");
         say("\"And now, the Stardew Valley Fair is coming...\"");
         return out;
     }
@@ -4011,7 +4022,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         bool egg[37] = {};
         int placed = 0;
         while (placed < 8) {
-            int n = 1 + rnd() % 36;
+            int n = static_cast<int>(1 + rnd() % 36u);
             if (!egg[n]) { egg[n] = true; ++placed; }
         }
         if (egg[patch]) {
@@ -4307,10 +4318,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
     }
     if (cmd == "festival") {
         // simple seasonal festival trigger
-        int season = season_index(w.day);
-        if (season == 0) say("🌸 Spring Festival begins! Villagers gather at the plaza.");
-        else if (season == 1) say("☀️ Summer Luau! Beach party tonight.");
-        else if (season == 2) say("🍂 Autumn Harvest Festival! Feast and games.");
+        int season_local = season_index(w.day);
+        if (season_local == 0) say("🌸 Spring Festival begins! Villagers gather at the plaza.");
+        else if (season_local == 1) say("☀️ Summer Luau! Beach party tonight.");
+        else if (season_local == 2) say("🍂 Autumn Harvest Festival! Feast and games.");
         else say("❄️ Winter Star Festival! Lights and songs.");
         return out;
     }
@@ -4331,8 +4342,6 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
 }
 
 std::vector<std::string> process_intent(World& w, Player& p, const nlohmann::json& intent) {
-    std::vector<std::string> out;
-    auto say = [&](const std::string& s) { out.push_back(s); };
     std::string action = intent.value("action", "");
     auto params = intent.value("parameters", nlohmann::json::object());
 
@@ -4404,7 +4413,7 @@ int main(int argc, char** argv) {
         if (!res || res->status != 200) return false;
         std::ofstream ofs(dst, std::ios::binary);
         if (!ofs) return false;
-        ofs.write(res->body.data(), res->body.size());
+        ofs.write(res->body.data(), static_cast<std::streamsize>(res->body.size()));
         return true;
     };
 
@@ -4491,7 +4500,7 @@ int main(int argc, char** argv) {
 
     // precompute static tile map (never changes after gen)
     std::vector<uint8_t> tile_map(MAP_W * MAP_H);
-    for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[i] = static_cast<uint8_t>(world.cells[i].tile);
+    for (int i = 0; i < MAP_W * MAP_H; ++i) tile_map[static_cast<size_t>(i)] = static_cast<uint8_t>(world.cells[static_cast<size_t>(i)].tile);
 
     httplib::Server svr;
     svr.set_base_dir("assets");
@@ -4553,8 +4562,8 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
             for (auto& [id, p] : world.players) {
                 json inv = json::array();
                 for (int i = 0; i < 12; ++i)
-                    inv.push_back({{"item", static_cast<int>(p.inv[i].item)},
-                                   {"count", p.inv[i].count}});
+                    inv.push_back({{"item", static_cast<int>(p.inv[static_cast<size_t>(i)].item)},
+                                   {"count", p.inv[static_cast<size_t>(i)].count}});
                 plist.push_back({
                     {"player_id", id}, {"x", p.pos.x}, {"y", p.pos.y}, {"dir", p.dir},
                     {"moving", p.moving}, {"name", p.name}, {"energy", p.energy},
@@ -4840,9 +4849,9 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- move (BFS) ----
     svr.Post("/move", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
-        int16_t tx = j.value("target_x", 0);
-        int16_t ty = j.value("target_y", 0);
+        uint32_t pid = j.value("player_id", 0u);
+        int16_t tx = static_cast<int16_t>(j.value("target_x", 0));
+        int16_t ty = static_cast<int16_t>(j.value("target_y", 0));
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
             Player& p = it->second;
@@ -4851,7 +4860,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             if (bfs_path(world, p.pos, {tx, ty}, path)) {
                 p.path = std::move(path);
                 p.moving = !p.path.empty();
-                p.move_start_ms = now_ms();
+                p.move_start_ms = static_cast<uint32_t>(now_ms());
                 int dx = tx - p.pos.x, dy = ty - p.pos.y;
                 if (std::abs(dx) > std::abs(dy)) p.dir = dx > 0 ? 2 : 1;
                 else p.dir = dy > 0 ? 0 : 3;
@@ -4863,8 +4872,8 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- dev warp ----
     svr.Post("/warp", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
-        int16_t wx = j.value("x", 0), wy = j.value("y", 0);
+        uint32_t pid = j.value("player_id", 0u);
+        int16_t wx = static_cast<int16_t>(j.value("x", 0)), wy = static_cast<int16_t>(j.value("y", 0));
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
             Player& p = it->second;
@@ -4883,9 +4892,9 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- action (tool use, harvest, plant, slot select) ----
     svr.Post("/action", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
-        int16_t tx = j.value("x", -9999);
-        int16_t ty = j.value("y", -9999);
+        uint32_t pid = j.value("player_id", 0u);
+        int16_t tx = static_cast<int16_t>(j.value("x", -9999));
+        int16_t ty = static_cast<int16_t>(j.value("y", -9999));
         std::string msg;
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
@@ -4907,7 +4916,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- text command ----
     svr.Post("/cmd", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string cmd = j.value("cmd", "");
         // Tiered intent parse: rule fast path first, LLM fallback (Phase 8).
         uint64_t t0 = now_ms();
@@ -4940,7 +4949,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             }
             for (auto& l : lines) resp["lines"].push_back(l);
             uint64_t latency = now_ms() - t0;
-            cmdlog.record(now_ms(), pid, world.day, season_name(season_index(world.day)),
+            cmdlog.record(static_cast<uint32_t>(now_ms()), pid, static_cast<int>(world.day), season_name(season_index(world.day)),
                           hour_of_day(world), cmd, intent_json, tier, latency, lines);
             // Feed the command into Town Consciousness so consolidation sees
             // real player behaviour (Phase 7).
@@ -4963,7 +4972,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- sleep: advance a day ----
     svr.Post("/sleep", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string msg;
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
@@ -4984,7 +4993,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- explore: show current chunk and adjacent chunks ----
     svr.Post("/explore", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
@@ -4999,12 +5008,12 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             
             for (int dy = -1; dy <= 1; ++dy) {
                 for (int dx = -1; dx <= 1; ++dx) {
-                    int16_t acx = cx + dx, acy = cy + dy;
+                    int16_t acx = static_cast<int16_t>(cx + dx), acy = static_cast<int16_t>(cy + dy);
                     if (std::abs(acx) > MAX_CHUNK_RADIUS || std::abs(acy) > MAX_CHUNK_RADIUS) continue;
                     const Chunk* ch = world.get_chunk_const(acx, acy);
                     if (ch && ch->generated) {
-                        int building_count = ch->buildings.size();
-                        int npc_count = ch->npcs.size();
+                        int building_count = static_cast<int>(ch->buildings.size());
+                        int npc_count = static_cast<int>(ch->npcs.size());
                         resp["lines"].push_back("  Chunk (" + std::to_string(acx) + ", " + std::to_string(acy) + "): generated, " + 
                             std::to_string(building_count) + " buildings, " + std::to_string(npc_count) + " NPCs");
                     } else {
@@ -5021,7 +5030,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- travel: fast travel to adjacent explored chunk ----
     svr.Post("/travel", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         int16_t target_cx = static_cast<int16_t>(j.value("chunk_x", 0));
         int16_t target_cy = static_cast<int16_t>(j.value("chunk_y", 0));
         json resp = {{"lines", json::array()}};
@@ -5044,8 +5053,8 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 if (!ch || !ch->generated) {
                     resp["lines"].push_back("Target chunk not explored yet");
                 } else {
-                    p.pos.x = target_cx * CHUNK_SIZE + CHUNK_SIZE / 2;
-                    p.pos.y = target_cy * CHUNK_SIZE + CHUNK_SIZE / 2;
+                    p.pos.x = static_cast<int16_t>(target_cx * CHUNK_SIZE + CHUNK_SIZE / 2);
+                    p.pos.y = static_cast<int16_t>(target_cy * CHUNK_SIZE + CHUNK_SIZE / 2);
                     world.current_chunk_cx = target_cx;
                     world.current_chunk_cy = target_cy;
                     resp["lines"].push_back("Fast-traveled to chunk (" + std::to_string(target_cx) + ", " + std::to_string(target_cy) + ")");
@@ -5061,7 +5070,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- region: generate procgen region ----
     svr.Post("/region", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string subcmd = j.value("subcmd", "");
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -5099,7 +5108,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- dsl: construct structures from DSL string ----
     svr.Post("/dsl", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string dsl_str = j.value("dsl", "");
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -5138,7 +5147,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- quest: view available quests ----
     svr.Post("/quest", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string subcmd = j.value("subcmd", "");
         std::string quest_id = j.value("quest_id", "");
         json resp = {{"lines", json::array()}};
@@ -5188,7 +5197,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- job: view/do jobs ----
     svr.Post("/job", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string subcmd = j.value("subcmd", "");
         std::string job_id = j.value("job_id", "");
         json resp = {{"lines", json::array()}};
@@ -5198,13 +5207,13 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             if (subcmd == "list" || subcmd.empty()) {
                 world.add_job_board_entries(); // Refresh daily
                 resp["lines"].push_back("=== Job Board ===");
-                for (auto& j : world.job_board) {
-                    resp["lines"].push_back("[" + j.id + "] " + j.title + " (" + j.type + ")");
-                    resp["lines"].push_back("  " + j.description);
-                    resp["lines"].push_back("  Reward: " + std::to_string(j.reward_money) + "g" + 
-                        (j.reward_item != Item::None ? ", " + std::to_string(j.reward_count) + "x " + item_def(j.reward_item).name : ""));
-                    if (j.cooldown_until > world.day) {
-                        resp["lines"].push_back("  Cooldown: " + std::to_string(j.cooldown_until - world.day) + " days");
+                for (auto& jb : world.job_board) {
+                    resp["lines"].push_back("[" + jb.id + "] " + jb.title + " (" + jb.type + ")");
+                    resp["lines"].push_back("  " + jb.description);
+                    resp["lines"].push_back("  Reward: " + std::to_string(jb.reward_money) + "g" + 
+                        (jb.reward_item != Item::None ? ", " + std::to_string(jb.reward_count) + "x " + item_def(jb.reward_item).name : ""));
+                    if (jb.cooldown_until > world.day) {
+                        resp["lines"].push_back("  Cooldown: " + std::to_string(jb.cooldown_until - world.day) + " days");
                     } else {
                         resp["lines"].push_back("  Available now!");
                     }
@@ -5229,7 +5238,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- market: view prices ----
     svr.Post("/market", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
@@ -5237,7 +5246,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
             resp["lines"].push_back("=== Market Prices (Day " + std::to_string(world.day) + ") ===");
             for (auto& mp : world.market_prices) {
                 if (mp.current_price > 0) {
-                    float ratio = static_cast<float>(mp.current_price) / mp.base_price;
+                    float ratio = static_cast<float>(mp.current_price) / static_cast<float>(mp.base_price);
                     std::string trend = ratio > 1.1f ? " ▲" : (ratio < 0.9f ? " ▼" : "");
                     std::string line = std::string(item_def(mp.item).name) + ": " + std::to_string(mp.current_price) + "g" + trend + 
                         " (base: " + std::to_string(mp.base_price) + "g, supply: " + std::to_string(mp.supply) + ", demand: " + std::to_string(mp.demand) + ")";
@@ -5253,7 +5262,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- horror: sanity + narrative state (Phase 6) ----
     svr.Post("/horror", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
         if (auto it = world.players.find(pid); it != world.players.end()) {
@@ -5289,7 +5298,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
     // ---- basement: enter/leave the hidden under-map (Phase 6) ----
     svr.Post("/basement", [&](const httplib::Request& req, httplib::Response& res) {
         json j = json::parse(req.body);
-        uint32_t pid = j.value("player_id", 0);
+        uint32_t pid = j.value("player_id", 0u);
         std::string sub = j.value("subcmd", "enter");
         json resp = {{"lines", json::array()}};
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -5416,7 +5425,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                             if (cor >= 128) world.bump_dread(p, 3);
                         }
                         p.path.erase(p.path.begin());
-                        p.move_start_ms = now_ms();
+                        p.move_start_ms = static_cast<uint32_t>(now_ms());
                         if (p.pos == p.target || p.path.empty()) p.moving = false;
                     }
                     // P2 death: sanity can reach zero from staying up / horror;
@@ -5435,7 +5444,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                 }
                 for (auto& n : world.npcs) {
                     if (now_ms() < n.next_move_ms) continue;
-                    n.next_move_ms = now_ms() + 400 + rand() % 300;
+                    n.next_move_ms = now_ms() + static_cast<uint64_t>(400 + rand() % 300);
                     if (hour_of_day(world) >= 21) continue;   // villagers turn in at night
                     Vec2 anchor;
                     int slot = schedule_slot(n.name, world.day, hour_of_day(world), anchor, &world);

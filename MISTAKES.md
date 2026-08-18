@@ -47,6 +47,28 @@ serialization + a stub `breed` command existed. The real implementation had to b
 **Lesson:** Trust `git diff`/`git status`, not memory of what a previous session "planned".
 Verify claimed work against the actual working tree before building on it.
 
+### M12 — Unused-parameter comment applied to the wrong parameter
+
+**What happened:** In `SocialCognition::receive_belief` the compiler flagged `fact` as an unused
+parameter, but the cleanup commented out `source_confidence` instead — a parameter the body
+still uses (`effective_confidence = source_confidence * edge.trust`). The full build failed
+with "source_confidence was not declared in this scope" and a second build cycle was needed.
+
+**Lesson:** Always re-read the exact warning text (it names the parameter) before editing, and
+re-run the fast `g++ -fsyntax-only` single-file check before kicking off the full 3-minute
+build — it catches these immediately.
+
+### M13 — Batch variable rename left a live reference to the old name
+
+**What happened:** Renamed the job-board loop variable `j` → `jb` to fix a `-Wshadow`, but a
+`j.cooldown_until` reference deeper in the same block wasn't matched by the replacement batch.
+The syntax check passed (shadow gone), but the full build failed with a hard error
+(`json has no member named 'cooldown_until'`). Fixed by editing the remaining reference.
+
+**Lesson:** After a multi-line `replace` batch, grep the file for the old identifier to catch
+unmatched references; the fast syntax-only check validates compile-ability but not
+name-correctness across a whole block. The `-fsyntax-only` loop is the cheapest first gate.
+
 ### M1 — `pkill -f ashgrove_server` killed the agent's own shell (hang/timeout)
 
 **What happened:** Tried to restart the server with `pkill -f ashgrove_server`. `-f` matches the
