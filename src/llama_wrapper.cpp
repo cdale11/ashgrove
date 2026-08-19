@@ -53,6 +53,8 @@ std::string LlamaWrapper::infer(const std::string& prompt, int max_tokens, float
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
                                   tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
     if (n_tokens < 0) { cleanup(); return ""; }
+    // Cap prompt length so decode never trips GGML_ASSERT(n_tokens_all <= n_batch).
+    if (n_tokens > 2000) n_tokens = 2000;
     tokens.resize(static_cast<size_t>(n_tokens));
 
     // Evaluate prompt
@@ -141,6 +143,8 @@ std::optional<Intent> LlamaWrapper::parse_command(const std::string& raw_text) {
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
                                   tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
     if (n_tokens < 0) { cleanup(); return std::nullopt; }
+    // Cap prompt length so decode never trips GGML_ASSERT(n_tokens_all <= n_batch).
+    if (n_tokens > 2000) n_tokens = 2000;
     tokens.resize(static_cast<size_t>(n_tokens));
 
     // Evaluate prompt

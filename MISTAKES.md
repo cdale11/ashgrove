@@ -137,4 +137,22 @@ the whole `World` under the mutex while worker threads may hold references; trea
 
 ### M7 — LLM one-line dialogue: the runtime model (intent LoRA) is unsuited for dialogue generation
 **What happened:** While implementing ROADMAP 1.7d (LLM one-line cognitive dialogue), the `LlamaWrapper` loads the intent-parsing LoRA (Qwen2.5-0.5B fine-tuned for intent JSON). Given a free-form dialogue prompt, it produces narrative continuation ("Leah said. Sure, I can drink...") instead of a single quoted dialogue line. Strict validation rejects this garbage, falling back to the static template.
-**Lesson:** The architecture doc assumes a dialogue-capable LLM at runtime, but the deployed model is an intent LoRA. For production dialogue, a separate dialogue-tuned model (or a unified model with dialogue head) is needed. The current fallback-to-template is correct defensive behavior. Document this gap in the cognitive-architecture doc and ROADMAP (future training task).
+**Lesson:** The architecture doc assumes a dialogue-capable LLM at runtime, but the deployed model is an intent LoRA. For production dialogue, a separate dialogue-tuned model (or a unified model with dialogue head) is needed. The current fallback-to-template is correct defensive behavior. Document this gap in the cognitive-architecture doc and ROADMAP (future training task).### M14 — Release placement loop lacked a `placed < count` guard on the inner loop
+**What happened:** The new `release` command asked for 2 ladybugs but placed 3 (and charged
+for 2). The outer loop checked `placed < count` but the inner `dx` loop placed one predator
+per neighbor unconditionally, so every outer iteration over-released by up to 3.
+**Lesson:** When two nested loops both contribute to a budget, guard BOTH loop conditions
+(and never derive cost from the requested count when the placed count may differ — refund the
+difference and report the actual charge).
+
+### M15 — Town Consciousness consolidation could crash the whole server
+**What happened:** The consolidation prompt grows with accumulated town memory and events.
+On a long-lived save it exceeded the model's `n_batch`, tripping
+`GGML_ASSERT(n_tokens_all <= n_batch)` (an abort, not an exception) and killing the server
+silently mid-session. Restarts appeared to "randomly" fail until `/tmp/server.log` showed the
+assert.
+**Lesson:** Any code path that builds a prompt from player/event data must bound its length
+well under the decode batch. A bare `llama_decode` of an over-long batch is a process-level
+abort — never assume it returns an error you can catch. Cap prompts centrally in
+`LlamaWrapper` (2000 tokens) AND budget the prompt builder (memory ≤1500 chars/section,
+events ≤3500 chars). Check `/tmp/server.log` for `GGML_ASSERT` when the server dies.

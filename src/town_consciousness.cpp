@@ -246,14 +246,24 @@ std::string TownConsciousness::build_consolidation_prompt() const {
     oss << "Consolidation #" << (memory_.consolidation_count + 1) << "\n\n";
     
     oss << "=== MEMORY ===\n";
-    // Only include non-empty memory sections, truncated
-    if (!memory_.player_habits.empty()) oss << "player_habits: " << memory_.player_habits.dump() << "\n";
-    if (!memory_.npc_relationships.empty()) oss << "npc_relationships: " << memory_.npc_relationships.dump() << "\n";
-    if (!memory_.economic_trends.empty()) oss << "economic_trends: " << memory_.economic_trends.dump() << "\n";
-    if (!memory_.ecological_state.empty()) oss << "ecological_state: " << memory_.ecological_state.dump() << "\n";
-    if (!memory_.discovered_secrets.empty()) oss << "discovered_secrets: " << memory_.discovered_secrets.dump() << "\n";
-    if (!memory_.performance_profile.empty()) oss << "performance_profile: " << memory_.performance_profile.dump() << "\n";
-    if (!memory_.narrative_state.empty()) oss << "narrative_state: " << memory_.narrative_state.dump() << "\n\n";
+    // Only include non-empty memory sections, truncated to keep the prompt well
+    // under the model's decode batch (oversized prompts abort the process).
+    const std::pair<const char*, const json*> mem_sections[] = {
+        {"player_habits", &memory_.player_habits},
+        {"npc_relationships", &memory_.npc_relationships},
+        {"economic_trends", &memory_.economic_trends},
+        {"ecological_state", &memory_.ecological_state},
+        {"discovered_secrets", &memory_.discovered_secrets},
+        {"performance_profile", &memory_.performance_profile},
+        {"narrative_state", &memory_.narrative_state},
+    };
+    for (const auto& [name, section] : mem_sections) {
+        if (section->empty()) continue;
+        std::string dump = section->dump();
+        if (dump.size() > 1500) dump = dump.substr(0, 1500);   // keep prompt small
+        oss << name << ": " << dump << "\n";
+    }
+    oss << "\n";
     
     oss << "=== CURRENT ADAPTATIONS ===\n";
     oss << "procgen: " << current_adaptations_.procgen.dump() << "\n";
@@ -268,6 +278,9 @@ std::string TownConsciousness::build_consolidation_prompt() const {
     {
         // Include the actual recent events so the model can reason about them.
         // Snapshot the buffer under the lock (max 50, newest first), then render.
+        // events_chars caps the block so the whole prompt stays under the
+        // model's decode batch (oversized prompts abort the process).
+        int events_chars = 0;
         std::vector<TownEvent> snapshot;
         {
             std::lock_guard<std::mutex> lock(buffer_mutex_);
@@ -278,8 +291,11 @@ std::string TownConsciousness::build_consolidation_prompt() const {
             }
         }
         for (const auto& e : snapshot) {
-            oss << "  - [" << e.system << ":" << e.event_type << "] day=" << e.day
-                << " payload=" << e.payload.dump() << "\n";
+            std::string line = "  - [" + e.system + ":" + e.event_type + "] day=" +
+                               std::to_string(e.day) + " payload=" + e.payload.dump() + "\n";
+            if (events_chars + static_cast<int>(line.size()) > 3500) break;
+            events_chars += static_cast<int>(line.size());
+            oss << line;
         }
     }
     oss << "\n";

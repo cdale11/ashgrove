@@ -495,6 +495,17 @@ struct Plot {
 
 struct FarmObj { ObjType type = ObjType::None; uint8_t hp = 0; uint8_t ore = 0; uint8_t hp2 = 0; uint8_t hp3 = 0; };
 
+// ROADMAP 2.4 (8.1d) — Pest/Disease agents.
+// Pests (kind < 128): 0=aphid, 1=caterpillar, 2=locust.
+// Predators (kind >= 128): 128=ladybug (eats aphids), 129=lacewing (eats caterpillars/locusts).
+struct PestAgent {
+    uint8_t kind = 0;
+    int16_t x = 0, y = 0;      // cell position (a crop cell)
+    uint8_t hp = 10;           // damaged by predators
+    int16_t age = 0;           // days alive
+    bool is_predator() const { return kind >= 128; }
+};
+
 struct Crop {
     Item crop = Item::None;   // Parsnip / Potato / Cauliflower
     uint8_t stage = 0;        // 0..3 (sprite index)
@@ -506,6 +517,10 @@ struct Crop {
     bool is_fruit_tree = false;
     int8_t last_harvest_season = -1; // for fruit trees: season when last harvested
     bool is_crop() const { return crop != Item::None; }
+
+    // ROADMAP 2.4 (8.1d) — Pest/Disease state (0..255).
+    uint8_t pest_level = 0;      // infestation of pest agents on this crop
+    uint8_t disease_level = 0;   // fungal infection (spore cellular automaton)
 
     // ROADMAP 2.3 (8.1c) — Plant Genetics
     // 16 alleles per variety (growth_rate, wood_density, shade_tol, drought_tol,
@@ -722,6 +737,11 @@ struct World {
     uint32_t day = 1;
     float day_seconds = 0.0f;   // seconds since 6:00 AM
     static constexpr float DAY_LENGTH_S = 800.0f; // 20h @ 40s per game hour
+
+    // ROADMAP 2.4 (8.1d) — Pest/Disease agents (serialized).
+    std::vector<PestAgent> pests;      // free-roaming pest agents on the farm
+    std::vector<PestAgent> predators;  // beneficial agents (ladybugs / lacewings)
+    float pest_bias = 1.0f;            // severity multiplier (default neutral)
 
     // Farmhouse upgrade level (1=starter, 2=cottage, 3=house, 4=manor)
     uint8_t farmhouse_level = 1;

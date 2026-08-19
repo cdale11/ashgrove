@@ -77,7 +77,13 @@ static bool save_world(const World& w, const std::string& path) {
 static bool load_world(World& w, const std::string& path) {
     std::ifstream f(path);
     if (!f) return false;
-    std::string s((std::istreambuf_iterator<char>(f)), {});
+    f.seekg(0, std::ios::end);
+    std::streamoff sz = f.tellg();
+    if (sz <= 0) return false;
+    std::string s(static_cast<size_t>(sz), '\0');
+    f.seekg(0, std::ios::beg);
+    f.read(&s[0], static_cast<std::streamsize>(sz));
+    if (!f) return false;
     if (!deserialize_world(w, s)) return false;
     clear_paths(w);   // fix bridges/doors blocked by pre-fix saves
     for (auto& n : w.npcs) {
@@ -97,6 +103,249 @@ static const char* weather_name_adapted(const World& w, uint32_t day) {
     if (wd == 3) return "Severe Storm";
     if (wd == 2) return "Foggy";
     return wd ? "Rainy" : "Sunny";
+}
+
+// ===== ROADMAP 2.4 (8.1d) — Pest / Disease =====
+// Pest kinds: 0=aphid, 1=caterpillar, 2=locust. Predators: 128=ladybug (eats aphids),
+// 129=lacewing (eats caterpillars + locusts).
+// Allele indices in Crop::alleles (see world.hpp): 10=disease_res, 11=pest_res.
+static constexpr size_t kAlleleDiseaseRes = 10;
+static constexpr size_t kAllelePestRes = 11;
+
+static const char* pest_kind_name(uint8_t kind) {
+    switch (kind) {
+        case 0: return "aphids";
+        case 1: return "caterpillars";
+        case 2: return "locusts";
+        case 128: return "ladybugs";
+        case 129: return "lacewings";
+        default: return "pests";
+    }
+}
+
+// 0..1 susceptibility of a crop variety to each pest kind (transmission-graph edge weight).
+static float pest_susceptibility(Item crop, uint8_t kind) {
+    switch (kind) {
+        case 0:  // aphids: leafy / trellis
+            switch (crop) {
+                case Item::Tomato: case Item::GreenBean: case Item::Hops:
+                case Item::Strawberry: case Item::Blueberry:
+                case Item::BokChoy: case Item::Kale: case Item::RedCabbage: return 0.9f;
+                case Item::Cauliflower: return 0.7f;
+                case Item::Parsnip: case Item::Potato: case Item::Corn: return 0.5f;
+                default: return 0.2f;
+            }
+        case 1:  // caterpillars: brassicas / leafy greens
+            switch (crop) {
+                case Item::Cauliflower: case Item::RedCabbage:
+                case Item::BokChoy: case Item::Kale: return 0.95f;
+                case Item::Tomato: case Item::Strawberry: return 0.4f;
+                default: return 0.15f;
+            }
+        case 2:  // locusts: grains / vines
+            switch (crop) {
+                case Item::Wheat: case Item::Corn: return 0.9f;
+                case Item::Pumpkin: case Item::Melon: return 0.7f;
+                default: return 0.1f;
+            }
+        default: return 0.0f;
+    }
+}
+
+// 0..1 genetic resistance from the pest_res / disease_res allele (positive = resistant).
+static float genetic_resistance(const Crop& c, size_t allele_idx) {
+    int8_t v = c.alleles[allele_idx];
+    if (v <= 0) return 0.0f;
+    return std::min(1.0f, static_cast<float>(v) / 128.0f);
+}
+
+// Multiplier on pest spawn/spore infection for a crop cell, from companion planting
+// and scarecrow protection (the transmission graph's edge weight modifiers).
+static float companion_pest_mod(const World& w, int x, int y) {
+    float mod = 1.0f;
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            int nx = x + dx, ny = y + dy;
+            if (!w.in_bounds(nx, ny)) continue;
+            const Cell& n = w.at(nx, ny);
+            if (n.crop.is_crop() && n.crop.crop == Item::Garlic) mod *= 0.5f;      // garlic repels pests/spores
+            if (n.crop.is_crop() && n.crop.crop == Item::Hops) mod *= 1.5f;        // hops are an aphid magnet
+            if (n.crop.is_crop() && n.crop.crop == Item::GreenBean) mod *= 1.2f;   // beans draw some pests
+            if (n.obj.type == ObjType::Flower) mod *= 0.75f;                       // flowers shelter predators
+        }
+    // Scarecrow: the existing 17x17 crow protection deters all pests.
+    bool covered = false;
+    for (int dy = -8; dy <= 8 && !covered; ++dy)
+        for (int dx = -8; dx <= 8 && !covered; ++dx) {
+            int sx = x + dx, sy = y + dy;
+            if (!w.in_bounds(sx, sy)) continue;
+            if (w.at(sx, sy).obj.type == ObjType::Scarecrow) covered = true;
+        }
+    if (covered) mod *= 0.3f;
+    return mod;
+}
+
+// Daily pest/disease step: spore CA (fungus), pest-agent feeding + reproduction along
+// the crop-adjacency transmission graph, and predator hunting. Fully deterministic per day.
+static void tick_pest_disease(World& w, bool rain) {
+    std::mt19937 rng(w.day * 104729u + 1234u);
+    std::uniform_int_distribution<int> pct(0, 99);
+    const int season = season_index(w.day);
+    const float season_mod = season == 0 ? 1.0f : season == 1 ? 1.3f : season == 2 ? 0.8f : 0.2f;
+    const int dx4[4] = {1, -1, 0, 0};
+    const int dy4[4] = {0, 0, 1, -1};
+
+    // ---- 1. Disease spore cellular automaton (simultaneous update) ----
+    std::vector<int> delta(w.cells.size(), 0);
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!c.crop.is_crop()) continue;
+            size_t idx = static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x);
+            // Dry sunny days help recovery; rain slows it.
+            if (c.crop.disease_level > 0) delta[idx] -= rain ? 4 : 12;
+            // New infection: weather + wounded tissue, reduced by companions/resistance.
+            float inf = 1.5f + (rain ? 5.0f : 0.0f) +
+                        (static_cast<float>(c.crop.pest_level) / 255.0f) * 4.0f;
+            inf *= companion_pest_mod(w, x, y);
+            inf *= (1.0f - genetic_resistance(c.crop, kAlleleDiseaseRes) * 0.7f);
+            inf *= season_mod * w.pest_bias;
+            if (c.crop.disease_level == 0 && pct(rng) < static_cast<int>(inf))
+                delta[idx] += 30;
+        }
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (c.crop.disease_level == 0) continue;
+            int amount = static_cast<int>(c.crop.disease_level) * (rain ? 40 : 22) / 255;
+            if (amount <= 0) continue;
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!w.in_bounds(nx, ny)) continue;
+                Cell& n = w.at(nx, ny);
+                if (!n.crop.is_crop()) continue;
+                delta[static_cast<size_t>(ny) * MAP_W + static_cast<size_t>(nx)] += amount;
+            }
+        }
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!c.crop.is_crop()) continue;
+            size_t idx = static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x);
+            int nl = static_cast<int>(c.crop.disease_level) + delta[idx];
+            c.crop.disease_level = static_cast<uint8_t>(std::clamp(nl, 0, 255));
+            if (c.crop.disease_level > 230 && pct(rng) < 2) c.crop = Crop{};  // severe blight kills the crop
+        }
+
+    // ---- 2. Pest agents: feed, reproduce along the transmission graph, age, die ----
+    std::vector<PestAgent> born;
+    for (auto& pe : w.pests) {
+        if (!w.in_bounds(pe.x, pe.y)) continue;
+        Cell& c = w.at(pe.x, pe.y);
+        if (c.crop.is_crop() && !c.crop.is_fruit_tree) {
+            float sus = pest_susceptibility(c.crop.crop, pe.kind);
+            int add = static_cast<int>(6.0f * sus * (1.0f - genetic_resistance(c.crop, kAllelePestRes) * 0.7f));
+            c.crop.pest_level = static_cast<uint8_t>(
+                std::min(255, static_cast<int>(c.crop.pest_level) + std::max(1, add)));
+            if (c.crop.biomass > 0.0f) c.crop.biomass = std::max(0.0f, c.crop.biomass - 0.5f);
+            // Reproduction: hop to a random adjacent crop (4-neighbour graph edge).
+            if (pct(rng) < 30 && static_cast<int>(w.pests.size() + born.size()) < 50) {
+                int order[4] = {0, 1, 2, 3};
+                for (int i = 3; i > 0; --i) { int j = static_cast<int>(rng() % static_cast<unsigned>(i + 1)); std::swap(order[i], order[j]); }
+                for (int k = 0; k < 4; ++k) {
+                    int nx = pe.x + dx4[order[k]], ny = pe.y + dy4[order[k]];
+                    if (!w.in_bounds(nx, ny)) continue;
+                    Cell& n = w.at(nx, ny);
+                    if (!n.crop.is_crop() || n.crop.is_fruit_tree || n.crop.pest_level >= 255) continue;
+                    born.push_back({pe.kind, static_cast<int16_t>(nx), static_cast<int16_t>(ny), 10, 0});
+                    break;
+                }
+            }
+        }
+        pe.age++;
+    }
+    for (auto& b : born) w.pests.push_back(b);
+    w.pests.erase(std::remove_if(w.pests.begin(), w.pests.end(),
+                                 [](const PestAgent& a) { return a.age >= 10; }),
+                  w.pests.end());
+
+    // New infestations arrive from beyond the farm (seeded).
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!c.crop.is_crop() || c.crop.is_fruit_tree) continue;
+            for (uint8_t kind = 0; kind < 3; ++kind) {
+                float sus = pest_susceptibility(c.crop.crop, kind);
+                if (sus <= 0.0f) continue;
+                float chance = 2.0f * sus * season_mod * w.pest_bias *
+                               companion_pest_mod(w, x, y) *
+                               (1.0f - genetic_resistance(c.crop, kAllelePestRes) * 0.7f);
+                if (c.crop.pest_level > 60) chance *= 1.5f;
+                if (static_cast<int>(w.pests.size() + w.predators.size()) < 60 &&
+                    pct(rng) < static_cast<int>(chance * 100.0f)) {
+                    w.pests.push_back({kind, static_cast<int16_t>(x), static_cast<int16_t>(y), 10, 0});
+                }
+            }
+        }
+
+    // ---- 3. Predators: hunt adjacent prey, age, die; immigration when pests are plenty ----
+    for (auto& pd : w.predators) {
+        bool ate = false;
+        for (int dy = -1; dy <= 1 && !ate; ++dy)
+            for (int dx = -1; dx <= 1 && !ate; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                int nx = pd.x + dx, ny = pd.y + dy;
+                if (!w.in_bounds(nx, ny)) continue;
+                for (auto& pe : w.pests) {
+                    if (pe.hp == 0 || pe.x != nx || pe.y != ny) continue;
+                    bool prey = (pd.kind == 128 && pe.kind == 0) ||
+                                (pd.kind == 129 && (pe.kind == 1 || pe.kind == 2));
+                    if (!prey) continue;
+                    if (pct(rng) < 40) { pe.hp = 0; ate = true; break; }
+                }
+            }
+        if (!ate) {
+            // Drift one tile toward the nearest pest (radius 14) so released
+            // predators roam to infestations instead of staying put.
+            int best = 9999, bx = 0, by = 0;
+            bool found = false;
+            for (auto& pe : w.pests) {
+                if (pe.hp == 0) continue;
+                int dd = std::abs(static_cast<int>(pe.x) - pd.x) +
+                         std::abs(static_cast<int>(pe.y) - pd.y);
+                if (dd < best && dd <= 14) { best = dd; bx = pe.x; by = pe.y; found = true; }
+            }
+            if (found) {
+                int nx = pd.x, ny = pd.y;
+                if (bx > pd.x) nx++; else if (bx < pd.x) nx--;
+                if (by > pd.y) ny++; else if (by < pd.y) ny--;
+                if (std::abs(static_cast<int>(bx) - pd.x) > std::abs(static_cast<int>(by) - pd.y))
+                    ny = pd.y;
+                else if (std::abs(static_cast<int>(by) - pd.y) > std::abs(static_cast<int>(bx) - pd.x))
+                    nx = pd.x;
+                if (w.in_bounds(nx, ny)) { pd.x = static_cast<int16_t>(nx); pd.y = static_cast<int16_t>(ny); }
+            }
+        }
+        pd.age++;
+    }
+    w.pests.erase(std::remove_if(w.pests.begin(), w.pests.end(),
+                                 [](const PestAgent& a) { return a.hp == 0; }),
+                  w.pests.end());
+    w.predators.erase(std::remove_if(w.predators.begin(), w.predators.end(),
+                                     [](const PestAgent& a) { return a.age >= 12; }),
+                      w.predators.end());
+    if (static_cast<int>(w.pests.size()) >= 6 && static_cast<int>(w.predators.size()) < 12 &&
+        pct(rng) < 8) {
+        for (int y = 0; y < MAP_H; ++y)
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.crop.is_crop() && c.crop.pest_level > 20) {
+                    w.predators.push_back({128, static_cast<int16_t>(x), static_cast<int16_t>(y), 10, 0});
+                    y = MAP_H; x = MAP_W;  // spawn at most one
+                }
+            }
+    }
 }
 
 // Advance to the next day: crops that were watered grow, rain waters everything,
@@ -148,8 +397,13 @@ static void advance_day(World& w) {
                 float om_factor = 0.8f + (cell.organic_matter / 255.0f) * 0.4f; // 0.8 to 1.2
                 float micro_factor = 0.9f + (cell.microbiome / 255.0f) * 0.2f; // 0.9 to 1.1
 
+                // ROADMAP 2.4 (8.1d) — pest/disease stress reduces growth
+                float pest_factor = 1.0f - (static_cast<float>(cell.crop.pest_level) / 255.0f) * 0.8f;
+                float disease_factor = 1.0f - (static_cast<float>(cell.crop.disease_level) / 255.0f) * 0.7f;
+
                 // Combined growth factor
-                float total_factor = ph_factor * nutrient_factor * om_factor * micro_factor;
+                float total_factor = ph_factor * nutrient_factor * om_factor * micro_factor *
+                                     pest_factor * disease_factor;
                 growth = static_cast<int>(std::round(static_cast<float>(growth) * total_factor));
                 growth = std::max(1, std::min(growth, 5)); // clamp 1-5
 
@@ -206,6 +460,7 @@ static void advance_day(World& w) {
             cell.crop.watered = rain;   // overnight rain waters every plot
         }
     }
+    tick_pest_disease(w, rain);   // ROADMAP 2.4 (8.1d) — pests, spores, predators
     // sprinklers auto-water adjacent crops overnight
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
@@ -1479,6 +1734,10 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  tap <tree>     install/collect tapper for sap/syrup/resin/rubber");
         say("  shake <tree>   shake mature trees for saplings (costs 2 energy)");
         say("  breed <s1> <s2>  cross two seeds to recombine genetics (2.3)");
+        say("  pest           farm pest & disease report (2.4)");
+        say("  spray [all]    clear pests/blight on crops ahead, or the whole farm");
+        say("  release [ladybugs|lacewings] [n]  release beneficial insects");
+        say("  companion      show companion-planting effects");
         say("  repair <bldg>  fix a building at Carpenter Shop");
         say("  upgrade farmhouse  expand: cottage/house/manor");
         say("  interact       use furniture inside buildings (alias: use)");
@@ -1576,6 +1835,156 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         else if (c.ph > 75) say("  - Soil too alkaline: apply sulfur to lower pH");
         if (c.organic_matter < 60) say("  - Low organic matter: add compost or organic fertilizer");
         if (c.microbiome < 100) say("  - Poor microbiome: add organic matter, reduce chemical inputs");
+        return out;
+    }
+    // ---------- ROADMAP 2.4 (8.1d) — pest / disease / predators ----------
+    if (cmd == "pest" || cmd == "pests" || cmd == "peststatus") {
+        int aphids = 0, caterpillars = 0, locusts = 0;
+        for (auto& a : w.pests) {
+            if (a.kind == 0) aphids++;
+            else if (a.kind == 1) caterpillars++;
+            else if (a.kind == 2) locusts++;
+        }
+        int ladybugs = 0, lacewings = 0;
+        for (auto& a : w.predators) {
+            if (a.kind == 128) ladybugs++;
+            else if (a.kind == 129) lacewings++;
+        }
+        if (w.pests.empty() && w.predators.empty()) {
+            say("The farm is clean — no pests, no predators.");
+        } else {
+            say("=== Pest Report ===");
+            say("  Pests:  " + std::to_string(aphids) + " aphids, " +
+                std::to_string(caterpillars) + " caterpillars, " + std::to_string(locusts) + " locusts");
+            say("  Predators: " + std::to_string(ladybugs) + " ladybugs, " +
+                std::to_string(lacewings) + " lacewings");
+            if (w.pest_bias != 1.0f)
+                say("  Severity: x" + std::to_string(w.pest_bias));
+        }
+        // Most-infested crops
+        int worst_level = 0, worst_count = 0, worst_disease = 0;
+        for (auto& cell : w.cells) {
+            if (!cell.crop.is_crop()) continue;
+            if (cell.crop.pest_level > 40) worst_count++;
+            worst_level = std::max(worst_level, static_cast<int>(cell.crop.pest_level));
+            worst_disease = std::max(worst_disease, static_cast<int>(cell.crop.disease_level));
+        }
+        if (worst_count > 0)
+            say("  " + std::to_string(worst_count) + " crop" + (worst_count == 1 ? "" : "s") +
+                " under heavy pest pressure (peak " + std::to_string(worst_level) + "/255).");
+        if (worst_disease > 0)
+            say("  Fungal infection present (peak " + std::to_string(worst_disease) + "/255). 'spray all' to clear.");
+        if (worst_count == 0 && worst_disease == 0 && !w.pests.empty())
+            say("  Infestation is young — spray soon.");
+        return out;
+    }
+    if (cmd == "spray" || cmd == "spraycrops") {
+        // Spray costs 100g + 15 energy; clears pest_level/disease_level.
+        const int cost = 100;
+        if (p.money < cost) { say("Spray costs " + std::to_string(cost) + "g. You can't afford it."); return out; }
+        if (p.energy < 15.0f) { say("You're too tired to spray."); return out; }
+        bool all = (arg == "all" || arg == "everything" || arg == "farm");
+        int cleared = 0;
+        if (all) {
+            for (auto& cell : w.cells) {
+                if (!cell.crop.is_crop()) continue;
+                cell.crop.pest_level = 0;
+                cell.crop.disease_level = 0;
+                cleared++;
+            }
+        } else {
+            // Spray the crop in front of the player (and its 3x3 neighbourhood).
+            int fx = p.pos.x + (p.dir == 2 ? 1 : p.dir == 1 ? -1 : 0);
+            int fy = p.pos.y + (p.dir == 0 ? 1 : p.dir == 3 ? -1 : 0);
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = fx + dx, ny = fy + dy;
+                    if (!w.in_bounds(nx, ny)) continue;
+                    Cell& c = w.at(nx, ny);
+                    if (!c.crop.is_crop()) continue;
+                    c.crop.pest_level = 0;
+                    c.crop.disease_level = 0;
+                    cleared++;
+                }
+            if (cleared == 0) { say("No crops to spray there."); return out; }
+        }
+        p.money -= cost;
+        p.energy -= 15.0f;
+        say("You spray the crops (" + std::to_string(cleared) + " plot" + (cleared == 1 ? "" : "s") +
+            " cleared). -" + std::to_string(cost) + "g");
+        return out;
+    }
+    if (cmd == "release" || cmd == "releasepredators") {
+        // Release beneficial insects: 128=ladybug (aphids), 129=lacewing (caterpillars/locusts).
+        std::vector<std::string> a = split_words(lower_trim(arg));
+        uint8_t kind = 128;
+        size_t ki = 0;
+        for (; ki < a.size(); ++ki) {   // skip filler words ("some", "a", "the", "of")
+            std::string wrd = a[ki];
+            if (wrd == "some" || wrd == "a" || wrd == "an" || wrd == "the" || wrd == "of") continue;
+            break;
+        }
+        if (ki < a.size() && (a[ki] == "lacewing" || a[ki] == "lacewings")) kind = 129;
+        else if (ki >= a.size() || (a[ki] != "ladybug" && a[ki] != "ladybugs" &&
+                 a[ki] != "bug" && a[ki] != "bugs")) {
+            say("Usage: release [ladybugs|lacewings] [count]");
+            return out;
+        }
+        int count = 3;
+        if (ki + 1 < a.size()) {
+            try { count = std::stoi(a[ki + 1]); } catch (...) {}
+        }
+        count = std::max(1, std::min(count, 10));
+        int cost = count * 150;
+        if (p.money < cost) {
+            say("Releasing " + std::to_string(count) + " " + pest_kind_name(kind) +
+                " costs " + std::to_string(cost) + "g. You can't afford it.");
+            return out;
+        }
+        p.money -= cost;
+        int placed = 0;
+        for (int dy = -1; dy <= 1 && placed < count; ++dy)
+            for (int dx = -1; dx <= 1 && placed < count; ++dx) {
+                int nx = p.pos.x + dx, ny = p.pos.y + dy;
+                if (!w.in_bounds(nx, ny)) continue;
+                w.predators.push_back({kind, static_cast<int16_t>(nx), static_cast<int16_t>(ny), 10, 0});
+                placed++;
+            }
+        if (placed < count) p.money += (count - placed) * 150;   // refund unplaced
+        say("You release " + std::to_string(placed) + " " + pest_kind_name(kind) +
+            " around the farm. -" + std::to_string(placed * 150) + "g");
+        return out;
+    }
+    if (cmd == "companion" || cmd == "companions") {
+        say("=== Companion Planting ===");
+        int garlic_adj = 0, flower_adj = 0, hops_adj = 0, crops = 0;
+        for (int y = 0; y < MAP_H; ++y)
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (!c.crop.is_crop()) continue;
+                crops++;
+                bool g = false, f = false, h = false;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx, ny = y + dy;
+                        if (!w.in_bounds(nx, ny)) continue;
+                        const Cell& n = w.at(nx, ny);
+                        if (n.crop.is_crop() && n.crop.crop == Item::Garlic) g = true;
+                        if (n.crop.is_crop() && n.crop.crop == Item::Hops) h = true;
+                        if (n.obj.type == ObjType::Flower) f = true;
+                    }
+                if (g) garlic_adj++;
+                if (f) flower_adj++;
+                if (h) hops_adj++;
+            }
+        say("  Garlic next to a crop repels pests and blight (crops near garlic: " +
+            std::to_string(garlic_adj) + ").");
+        say("  Flowers shelter predators and muffle pest scent (crops near flowers: " +
+            std::to_string(flower_adj) + ").");
+        say("  Hops are an aphid magnet — keep them apart (crops near hops: " +
+            std::to_string(hops_adj) + ").");
+        say("  " + std::to_string(crops) + " crop" + (crops == 1 ? "" : "s") + " on the farm.");
         return out;
     }
     if (cmd == "inventory" || cmd == "inv") {
@@ -4509,7 +4918,9 @@ int main(int argc, char** argv) {
         auto path = fs::path("assets/index.html");
         if (fs::exists(path)) {
             std::ifstream f(path);
-            res.set_content(std::string(std::istreambuf_iterator<char>(f), {}), "text/html");
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            res.set_content(ss.str(), "text/html");
         } else res.status = 404;
     });
 

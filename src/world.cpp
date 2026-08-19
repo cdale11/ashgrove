@@ -2228,6 +2228,9 @@ std::string serialize_world(const World& w) {
                 cj["biomass"] = c.crop.biomass;
                 cj["root_depth"] = c.crop.root_depth;
                 cj["canopy_width"] = c.crop.canopy_width;
+                // ROADMAP 2.4 (8.1d) — Pest/Disease state
+                cj["pest_level"] = c.crop.pest_level;
+                cj["disease_level"] = c.crop.disease_level;
             }
             j["cells"].push_back(cj);
         }
@@ -2256,6 +2259,18 @@ std::string serialize_world(const World& w) {
     // so only the scalar guilt/awakening are persisted).
     j["collective_guilt"] = w.collective_guilt;
     j["valley_awakening"] = w.valley_awakening;
+    // ROADMAP 2.4 (8.1d) — Pest/Disease agents + severity bias
+    {
+        json pests = json::array();
+        for (auto& a : w.pests)
+            pests.push_back({{"kind", a.kind}, {"x", a.x}, {"y", a.y}, {"hp", a.hp}, {"age", a.age}});
+        j["pests"] = pests;
+        json predators = json::array();
+        for (auto& a : w.predators)
+            predators.push_back({{"kind", a.kind}, {"x", a.x}, {"y", a.y}, {"hp", a.hp}, {"age", a.age}});
+        j["predators"] = predators;
+        j["pest_bias"] = w.pest_bias;
+    }
     return j.dump();
 }
 
@@ -2392,6 +2407,9 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 c.crop.biomass = cj.value("biomass", 0.0f);
                 c.crop.root_depth = cj.value("root_depth", 0.0f);
                 c.crop.canopy_width = cj.value("canopy_width", 0.0f);
+                // ROADMAP 2.4 (8.1d) — Pest/Disease state
+                c.crop.pest_level = static_cast<uint8_t>(cj.value("pest_level", 0));
+                c.crop.disease_level = static_cast<uint8_t>(cj.value("disease_level", 0));
             }
         }
         // Deserialize building states
@@ -2422,6 +2440,28 @@ bool deserialize_world(World& w, const std::string& json_str) {
         // ROADMAP 1.2 — Valley Entity state.
         w.collective_guilt = j.value("collective_guilt", 0.0f);
         w.valley_awakening = j.value("valley_awakening", 0.0f);
+        // ROADMAP 2.4 (8.1d) — Pest/Disease agents + severity bias
+        w.pests.clear();
+        for (auto& aj : j.value("pests", json::array())) {
+            PestAgent a;
+            a.kind = static_cast<uint8_t>(aj.value("kind", 0));
+            a.x = static_cast<int16_t>(aj.value("x", 0));
+            a.y = static_cast<int16_t>(aj.value("y", 0));
+            a.hp = static_cast<uint8_t>(aj.value("hp", 10));
+            a.age = static_cast<int16_t>(aj.value("age", 0));
+            w.pests.push_back(a);
+        }
+        w.predators.clear();
+        for (auto& aj : j.value("predators", json::array())) {
+            PestAgent a;
+            a.kind = static_cast<uint8_t>(aj.value("kind", 128));
+            a.x = static_cast<int16_t>(aj.value("x", 0));
+            a.y = static_cast<int16_t>(aj.value("y", 0));
+            a.hp = static_cast<uint8_t>(aj.value("hp", 10));
+            a.age = static_cast<int16_t>(aj.value("age", 0));
+            w.predators.push_back(a);
+        }
+        w.pest_bias = j.value("pest_bias", 1.0f);
         return true;
     } catch (const std::exception& e) {
         std::cerr << "save load failed: " << e.what() << "\n";

@@ -100,6 +100,10 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"tap"})) { set("tap"); intent.parameters["tree"] = arg; return intent; }
     if (one_of(c, {"shake"})) { set("shake"); intent.parameters["tree"] = arg; return intent; }
     if (one_of(c, {"breed"})) { set("breed"); return intent; }
+    if (one_of(c, {"pest", "pests", "peststatus"})) { set("pest"); return intent; }
+    if (one_of(c, {"spray"})) { set("spray"); intent.parameters["target"] = arg; return intent; }
+    if (one_of(c, {"release", "releasepredators"})) { set("release"); intent.parameters["thing"] = arg; return intent; }
+    if (one_of(c, {"companion", "companions"})) { set("companion"); return intent; }
 
     // Social
     if (one_of(c, {"talk", "speak", "chat", "converse"})) { set("talk"); intent.parameters["npc"] = arg; return intent; }

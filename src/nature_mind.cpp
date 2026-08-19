@@ -20,10 +20,6 @@ inline float clamp11(float x) {
   return x < -1.0f ? -1.0f : (x > 1.0f ? 1.0f : x);
 }
 
-float gaussian_kernel(float dist, float sigma) {
-  return std::exp(-0.5f * (dist * dist) / (sigma * sigma));
-}
-
 // Helper to get map value with default (since std::map doesn't have value())
 template <typename K, typename V>
 V map_value(const std::map<K, V>& m, const K& key, const V& def) {

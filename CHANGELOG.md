@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
+- Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
+  transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily
+  `tick_pest_disease` (feeding, reproduction cap 50, age-out, seeding, severe-blight kill).
+- Predators (ladybugs/lacewings) hunt adjacent prey 40%/day, drift toward the nearest
+  pest (radius 14), age-out at 12 days, natural immigration when pests ≥ 6.
+- Growth now penalized by `pest_factor`/`disease_factor` (up to −80%/−70% at 255).
+- Commands: `pest`, `spray [all]` (100g+15 energy), `release [ladybugs|lacewings] [n]`
+  (150g each, shortfall refunded), `companion`; companion planting (garlic −50%,
+  hops +50%, green bean +20%, flowers −25%, scarecrow −70%) auto-applied.
+- Rule verbs `pest`/`spray`/`release`/`companion` added to the intent fast path.
+
+### Fixed — server crash on oversized LLM prompts (2026-08-19)
+- Town Consciousness consolidation could build a prompt over `n_batch`, tripping
+  `GGML_ASSERT(n_tokens_all <= n_batch)` and aborting the process. Both llama paths now
+  cap tokenized prompts at 2000 tokens; memory sections truncated to 1500 chars;
+  events block budgeted to 3500 chars.
+
 ### Changed — Compiler Warning Cleanup (2026-08-19)
 - Swept all project sources to **zero warnings** under `-Wall -Wextra -Wpedantic
   -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align

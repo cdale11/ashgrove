@@ -935,6 +935,52 @@ Swept every project source file to zero warnings under the full warning set
 
 ---
 
+## 36. Pest / Disease / Predators (ROADMAP 2.4)
+
+Shipped 2026-08-19. Verified end-to-end against the running server (plant → sleep →
+report → spray → release → predator control).
+
+### Agents & state
+- ✅ `World` gains `pests` / `predators` agent lists and `pest_bias` (world severity,
+  serialized in `save.json`); `Crop` gains `pest_level` / `disease_level` (0–255)
+- ✅ Pest kinds 0=aphid, 1=caterpillar, 2=locust; predators 128=ladybug (aphids),
+  129=lacewing (caterpillars + locusts)
+
+### Daily tick (`tick_pest_disease`, deterministic per day)
+- ✅ Disease spore cellular automaton with simultaneous delta update, recovery on dry
+  days (rain slows it), new infection from weather + wounded tissue, 4-neighbour
+  spread scaled by host level; severe blight (level > 230, 2%/day) kills the crop
+- ✅ Pest agents feed (raising `pest_level`, draining biomass), reproduce along the
+  crop-adjacency transmission graph (4-neighbour hop, cap 50 total), age out at 10 days
+- ✅ New infestations seed onto susceptible crops (2%/season/day, `season_mod`
+  spring 1.0 / summer 1.3 / fall 0.8 / winter 0.2 × `pest_bias` × companion modifiers)
+- ✅ Predators hunt adjacent prey at 40%/day, drift one tile toward the nearest pest
+  (radius 14) so released insects roam to infestations, age out at 12 days;
+  natural ladybug immigration when pests ≥ 6
+- ✅ Growth in `advance_day` now multiplies in `pest_factor` / `disease_factor`
+  (up to −80% / −70% at level 255)
+
+### Player controls
+- ✅ `pest` — farm report (counts per kind, predator counts, heavy-pressure crops,
+  peak levels, disease present)
+- ✅ `spray [all]` — 100g + 15 energy, clears `pest_level`/`disease_level` on the
+  3×3 in front of the player, or the whole farm with `all`
+- ✅ `release [ladybugs|lacewings] [n]` — 150g each (n ≤ 10, default 3), placed on the
+  3×3 around the player, shortfall refunded; filler words ("some"/"a"/"the") tolerated
+- ✅ `companion` — reports which crops are near garlic / flowers / hops
+- ✅ Companion planting auto-applied via `companion_pest_mod`: garlic −50%, hops +50%,
+  green bean +20%, flowers −25%, scarecrow 17×17 −70%
+- ✅ Rule verbs `pest`/`spray`/`release`/`companion` added to the intent fast path
+
+### Reliability fixes landed alongside
+- ✅ **Oversized-prompt crash**: Town Consciousness consolidation could build a prompt
+  over the model's `n_batch`, tripping `GGML_ASSERT(n_tokens_all <= n_batch)` and
+  aborting the whole server. Both llama paths now cap tokenized prompts at 2000 tokens,
+  memory sections are truncated to 1500 chars, and the events block is budgeted to
+  3500 chars. Verified: server survives consecutive day-advances through consolidation.
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.
