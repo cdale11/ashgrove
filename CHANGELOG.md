@@ -60,6 +60,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (regional counts, temp min/max, per-player `weather_local`).
 - Intent regression 26/30 held (same 4 known param-only failures).
 
+### Added — Structural Physics (ROADMAP 2.7, 2026-08-19)
+- BuildingState gains `rot`/`erosion`/`stress`/`material`/`fire_*`; Cell gains
+  `building_id`/`fire_*`; InvSlot gains `durability`/`max_durability`; lazy init for old saves.
+- Daily `tick_structural_physics`: rot/erosion CA (material-dependent, moisture-driven,
+  neighbor spread); foundation stress fields (CSP load distribution: weight, foundation,
+  erosion, saturation, Jacobi neighbor sharing); fire risk (fuel×dryness+wind); fire
+  spread CA (fuel+wind+humidity deterministic spread, basement hatch escape).
+- Tool wear grammar: per-tool max durability (hoe 200, watering can 150, axe 300,
+  pickaxe 350, scythe 180); wear on use (hoe 2, can 1, axe 3, pickaxe 4, scythe 2);
+  repair at Blacksmith (metal bars); broken tools repairable.
+- Commands: `inspect`/`check` (building report), `toolrepair`/`fixtool` (blacksmith),
+  `fire`/`ignite` (manual ignition), `structural` (valley report); intent rule verbs.
+- Intent regression 26/30 held (same 4 known param-only failures).
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily

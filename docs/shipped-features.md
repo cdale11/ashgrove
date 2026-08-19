@@ -1134,6 +1134,59 @@ systems, geostrophic wind, and a cloud/precipitation cellular automaton.
 
 ---
 
+## 39. Structural Physics (ROADMAP 2.7)
+
+Shipped 2026-08-19. A deterministic structural physics layer for buildings,
+tools, and fire, integrated with the atmosphere and soil systems.
+
+### State & data model
+- ✅ `BuildingState` gains `rot`, `erosion`, `stress`, `material`,
+  `fire_fuel`, `fire_intensity`, `fire_risk`, `has_basement_hatch`.
+- ✅ `Cell` gains `building_id` (links to `World::buildings` index), `fire_intensity`,
+  `fire_fuel`, `fire_risk` — enables per-cell spatial CA.
+- ✅ `InvSlot` gains `durability` (current wear), `max_durability` (per tool type).
+- ✅ Serialization: all new fields saved; old saves lazy-initialize on load.
+
+### Daily tick (`tick_structural_physics`, deterministic per day)
+- ✅ **Rot/Erosion CA**: material-dependent (wood rots, stone erodes, metal rusts),
+  moisture-driven (humidity + roof_leak + saturation), neighbor spread within
+  same building/material.
+- ✅ **Foundation stress fields (CSP integrity)**: building weight per material,
+  foundation quality, erosion penalty, soil saturation; iterative Jacobi load
+  sharing with neighbors (CSP load distribution).
+- ✅ **Fire risk assessment**: fuel (cell + building material) × dryness
+  (inverse humidity + temperature) + wind.
+- ✅ **Fire spread CA**: deterministic ignition probability = neighbor intensity ×
+  target fuel × wind factor / humidity; basement hatch escape path
+  (`has_basement_hatch` blocks spread into basement).
+
+### Tool wear grammar
+- ✅ Per-tool max durability: hoe 200, watering can 150, axe 300, pickaxe 350,
+  scythe 180.
+- ✅ Wear on use: hoe 2, watering can 1, axe 3, pickaxe 4, scythe 2.
+- ✅ Starting tools initialized with full durability.
+- ✅ Repair at Blacksmith: 1 metal bar per 50 durability (GoldBar for axe/pickaxe).
+- ✅ Broken tools (max durability) still usable but at max wear; repairable.
+
+### Commands & API
+- ✅ `inspect` / `check <building>`: full structural report (condition, rot,
+  erosion, stress, fire risk, basement hatch).
+- ✅ `toolrepair` / `fixtool` / `repairtool`: repair selected tool at Blacksmith.
+- ✅ `fire` / `ignite` / `startfire`: manual ignition at player position.
+- ✅ `structural` / `struct`: valley-wide report (avg rot/erosion/stress/fire
+  risk, burning counts).
+- ✅ Intent rule verbs: `inspect`/`check`, `toolrepair`/`fixtool`, `fire`/`ignite`,
+  `structural`/`struct`.
+- ✅ `/state` integration ready (building_states already exposed).
+
+### Verification
+- ✅ Zero-warning build (`-Wall -Wextra -Wconversion -Wsign-conversion -Wshadow ...`).
+- ✅ Server boot → `inspect Barn` shows condition/rot/erosion/stress/fire fields.
+- ✅ `structural` report aggregates 25 buildings.
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

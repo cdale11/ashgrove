@@ -833,6 +833,7 @@ static void advance_day(World& w) {
     }
     tick_pest_disease(w);   // ROADMAP 2.4 (8.1d) — pests, spores, predators
     tick_forest_ecology(w); // ROADMAP 2.5 (8.1e) — tree physiology, seeds, succession
+    w.tick_structural_physics(); // ROADMAP 2.7 (8.3) — rot/erosion, stress, fire
     // sprinklers auto-water adjacent crops overnight
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
@@ -1509,7 +1510,10 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
 
     switch (tool) {
     case Item::Hoe: {
+        InvSlot& slot = p.inv[p.sel];
         if (!spend(def.energy)) return "Exhausted";
+        // Initialize tool durability if new
+        if (slot.max_durability == 0) slot.max_durability = w.tool_max_durability(slot.item);
         Tile t = c.tile;
         if (t == Tile::Grass || t == Tile::GrassVar || t == Tile::Dirt ||
             t == Tile::Sand || t == Tile::Tilled) {
@@ -1518,6 +1522,8 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             // ROADMAP 2.5 — tilling cultivates the soil: dormant wild seeds are destroyed.
             c.seed_bank = 0;
             c.seed_bank_species = 0;
+            // ROADMAP 2.7 (8.3) — tool wear: hoeing wears the tool
+            w.apply_tool_wear(slot, 2);
             return "";
         }
         return "Can't hoe here";
@@ -1555,17 +1561,26 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         if (can.count == 0) return "Can is empty";
         if (c.tile == Tile::Tilled) {
             if (!spend(def.energy)) return "Exhausted";
+            // Initialize tool durability if new
+            if (can.max_durability == 0) can.max_durability = w.tool_max_durability(can.item);
             can.count--;
             c.crop.watered = true;
             // ROADMAP 2.2: irrigation slightly raises local saturation
             c.saturation = static_cast<uint8_t>(std::min<int>(c.saturation + 5, 255));
+            // ROADMAP 2.7 (8.3) — tool wear: watering wears the can
+            w.apply_tool_wear(can, 1);
             return "";
         }
         return "Water the soil";
     }
     case Item::Axe: {
+        InvSlot& slot = p.inv[p.sel];
         if (!is_tree(c.obj.type) && c.obj.type != ObjType::Stump) return "";
         if (!spend(def.energy)) return "Exhausted";
+        // Initialize tool durability if new
+        if (slot.max_durability == 0) slot.max_durability = w.tool_max_durability(slot.item);
+        // ROADMAP 2.7 (8.3) — tool wear: chopping wears the axe
+        w.apply_tool_wear(slot, 3);
         if (--c.obj.hp > 0) return "";
         ObjType was = c.obj.type;
         bool was_old_growth = c.tree.old_growth;   // ROADMAP 2.5 — legacy value
@@ -1646,8 +1661,13 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
                 (was == ObjType::RubberTree ? " (latex sap drips)" : ""));
     }
     case Item::Pickaxe: {
+        InvSlot& slot = p.inv[p.sel];
         if (c.obj.type != ObjType::Rock) return "";
         if (!spend(def.energy)) return "Exhausted";
+        // Initialize tool durability if new
+        if (slot.max_durability == 0) slot.max_durability = w.tool_max_durability(slot.item);
+        // ROADMAP 2.7 (8.3) — tool wear: mining wears the pickaxe
+        w.apply_tool_wear(slot, 4);
         if (--c.obj.hp > 0) return "";
         if (c.obj.ore) {
             Item ore_item = Item::CopperOre;
@@ -1663,9 +1683,14 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         return "+2 stone";
     }
     case Item::Scythe: {
+        InvSlot& slot = p.inv[p.sel];
         if (c.obj.type != ObjType::Weed && c.obj.type != ObjType::TallGrass &&
             c.obj.type != ObjType::Mushroom) return "";
         if (!spend(def.energy)) return "Exhausted";
+        // Initialize tool durability if new
+        if (slot.max_durability == 0) slot.max_durability = w.tool_max_durability(slot.item);
+        // ROADMAP 2.7 (8.3) — tool wear: scything wears the scythe
+        w.apply_tool_wear(slot, 2);
         bool tall = c.obj.type == ObjType::TallGrass;
         bool shroom = c.obj.type == ObjType::Mushroom;
         bool is_weed = c.obj.type == ObjType::Weed;
@@ -1904,11 +1929,11 @@ static Player make_fresh_player(uint32_t id, const std::string& name, Vec2 pos) 
     p.pos = pos;
     p.target = pos;
     p.last_safe_pos = pos;   // fresh farmers wake at the farmhouse door
-    p.inv[0] = {Item::Hoe, 1};
-    p.inv[1] = {Item::WateringCan, 40};
-    p.inv[2] = {Item::Axe, 1};
-    p.inv[3] = {Item::Pickaxe, 1};
-    p.inv[4] = {Item::Scythe, 1};
+    p.inv[0] = {Item::Hoe, 1, 0, World::tool_max_durability(Item::Hoe)};
+    p.inv[1] = {Item::WateringCan, 40, 0, World::tool_max_durability(Item::WateringCan)};
+    p.inv[2] = {Item::Axe, 1, 0, World::tool_max_durability(Item::Axe)};
+    p.inv[3] = {Item::Pickaxe, 1, 0, World::tool_max_durability(Item::Pickaxe)};
+    p.inv[4] = {Item::Scythe, 1, 0, World::tool_max_durability(Item::Scythe)};
     p.inv[5] = {Item::ParsnipSeeds, 15};
     p.inv[6] = {Item::PotatoSeeds, 15};
     p.inv[7] = {Item::CauliflowerSeeds, 10};
@@ -1948,7 +1973,8 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
         "gift", "give", "hearts", "friends", "festival", "fest",
         "sleep", "rest", "bed", "save", "load", "newgame", "plots", "deeds",
         "basement", "horror", "sanity", "dsl", "explore", "map", "travel",
-        "region", "fasttravel", "buy plot", "place barn", "place coop", "weather"
+        "region", "fasttravel", "buy plot", "place barn", "place coop", "weather",
+        "inspect", "toolrepair", "fire", "structural"
     };
     std::vector<std::pair<int, std::string>> scores;
     for (const auto& cmd : all_commands) {
@@ -4044,7 +4070,104 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         bs.foundation = 100;
         bs.last_maintained_day = w.day;
         say(std::string(target->name) + " repaired to perfect condition! (-" + std::to_string(wood_cost) + " wood, -" + std::to_string(stone_cost) + " stone)");
+        // ROADMAP 2.7 (8.3) — also reset structural damage
+        bs.rot = 0; bs.erosion = 0; bs.stress = 0; bs.fire_risk = 0;
         if (target_is_dynamic) delete target;
+        return out;
+    }
+
+    // ---------- inspect (structural) ----------
+    if (cmd == "inspect") {
+        std::string building = lower_trim(arg);
+        if (building.empty()) { say("Inspect what? Usage: inspect <building_name>"); return out; }
+        Bldg* target = nullptr;
+        for (auto& b : w.buildings) {
+            if (lower_trim(b.name).find(building) != std::string::npos) { target = &b; break; }
+        }
+        if (!target && building == "farmhouse") { target = new Bldg{"Farmhouse", 0, 0, 0, 0}; }
+        if (!target) { say("There's no '" + arg + "' to inspect."); return out; }
+        auto it = w.building_states.find(target->name);
+        if (it == w.building_states.end()) { say("No structural data."); if (target && target->name == "Farmhouse") delete target; return out; }
+        BuildingState& bs = it->second;
+        say("=== " + target->name + " Structural Report ===");
+        say("Condition: " + std::to_string(bs.condition) + "/100");
+        say("Roof leak: " + std::to_string(bs.roof_leak) + "/100");
+        say("Foundation: " + std::to_string(bs.foundation) + "/100");
+        say("Rot (wood/metal): " + std::to_string(bs.rot) + "/100");
+        say("Erosion (stone): " + std::to_string(bs.erosion) + "/100");
+        say("Stress (load): " + std::to_string(bs.stress) + "/100");
+        say("Fire risk: " + std::to_string(bs.fire_risk) + "/100");
+        say("Fire fuel: " + std::to_string(bs.fire_fuel) + "/100");
+        say("Fire intensity: " + std::to_string(bs.fire_intensity) + "/100");
+        if (bs.has_basement_hatch) say("Basement hatch: YES (fire escape)");
+        if (target && target->name == "Farmhouse") delete target;
+        return out;
+    }
+
+    // ---------- toolrepair ----------
+    if (cmd == "toolrepair") {
+        InvSlot& slot = p.inv[p.sel];
+        if (slot.item == Item::None) { say("No tool selected."); return out; }
+        if (slot.max_durability == 0) { say("That tool has no durability tracking."); return out; }
+        if (slot.durability == 0) { say("That tool is already in perfect condition."); return out; }
+        // Must be at Blacksmith
+        bool at_blacksmith = false;
+        for (auto& b : w.buildings) {
+            if (b.name == "Blacksmith" && p.pos.x == b.x + (b.w - 1) / 2 && p.pos.y == b.y + b.h) {
+                at_blacksmith = true; break;
+            }
+        }
+        if (!at_blacksmith) { say("Visit the Blacksmith to repair tools."); return out; }
+        // Cost: 1 metal bar per 50 durability points
+        int needed = slot.durability;
+        int bars = (needed + 49) / 50;
+        Item bar_type = Item::IronBar;
+        if (slot.item == Item::Pickaxe || slot.item == Item::Axe) bar_type = Item::GoldBar;
+        if (!has_item(p, bar_type, bars)) {
+            say("Repair needs " + std::to_string(bars) + " " + item_def(bar_type).name + ".");
+            say("Durability: " + std::to_string(slot.max_durability - slot.durability) + "/" + std::to_string(slot.max_durability));
+            return out;
+        }
+        consume_item(p, bar_type, bars);
+        slot.durability = 0;
+        say("Tool repaired to perfect condition! (-" + std::to_string(bars) + " " + item_def(bar_type).name + ")");
+        return out;
+    }
+
+    // ---------- fire (manual ignition for testing) ----------
+    if (cmd == "fire") {
+        Cell& c = w.at(p.pos.x, p.pos.y);
+        if (c.fire_fuel == 0) { say("Nothing to burn here."); return out; }
+        if (c.fire_intensity > 0) { say("Already burning!"); return out; }
+        c.fire_intensity = std::min<uint8_t>(100, c.fire_fuel);
+        w.spread_fire(p.pos.x, p.pos.y);
+        say("Fire started! Intensity: " + std::to_string(c.fire_intensity));
+        return out;
+    }
+
+    // ---------- structural (world report) ----------
+    if (cmd == "structural") {
+        int total_buildings = 0, total_rot = 0, total_erosion = 0, total_stress = 0, total_fire_risk = 0, burning = 0;
+        for (auto& [name, bs] : w.building_states) {
+            total_buildings++;
+            total_rot += bs.rot;
+            total_erosion += bs.erosion;
+            total_stress += bs.stress;
+            total_fire_risk += bs.fire_risk;
+            if (bs.fire_intensity > 0) burning++;
+        }
+        int burning_cells = 0;
+        for (int y = 0; y < MAP_H; ++y)
+            for (int x = 0; x < MAP_W; ++x)
+                if (w.at(x, y).fire_intensity > 0) burning_cells++;
+        say("=== Valley Structural Report ===");
+        say("Buildings tracked: " + std::to_string(total_buildings));
+        say("Avg rot: " + std::to_string(total_buildings ? total_rot / total_buildings : 0) + "/100");
+        say("Avg erosion: " + std::to_string(total_buildings ? total_erosion / total_buildings : 0) + "/100");
+        say("Avg stress: " + std::to_string(total_buildings ? total_stress / total_buildings : 0) + "/100");
+        say("Avg fire risk: " + std::to_string(total_buildings ? total_fire_risk / total_buildings : 0) + "/100");
+        say("Buildings burning: " + std::to_string(burning));
+        say("Cells burning: " + std::to_string(burning_cells));
         return out;
     }
 
@@ -5089,8 +5212,17 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 barn.y = w.house_tl.y + 5;
                 barn.w = 6; barn.h = 4;
                 barn.door_x = 2; barn.door_y = 3;
+                const int16_t bid = static_cast<int16_t>(w.buildings.size());
                 w.buildings.push_back(barn);
                 w.building_states["Barn"] = BuildingState{};
+                // Mark cells with building_id and initialize fire fuel (wood)
+                for (int y = barn.y; y < barn.y + barn.h; ++y)
+                    for (int x = barn.x; x < barn.x + barn.w; ++x) {
+                        if (!w.in_bounds(x, y)) continue;
+                        Cell& c = w.at(x, y);
+                        c.building_id = bid;
+                        c.fire_fuel = 70;  // wooden barn
+                    }
             }
             say("Barn ready. Use 'place chicken Barn' to add livestock.");
         } else if (arg == "coop") {
@@ -5104,8 +5236,17 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
                 coop.y = w.house_tl.y + 3;
                 coop.w = 4; coop.h = 3;
                 coop.door_x = 1; coop.door_y = 1;
+                const int16_t bid = static_cast<int16_t>(w.buildings.size());
                 w.buildings.push_back(coop);
                 w.building_states["Coop"] = BuildingState{};
+                // Mark cells with building_id and initialize fire fuel (wood)
+                for (int y = coop.y; y < coop.y + coop.h; ++y)
+                    for (int x = coop.x; x < coop.x + coop.w; ++x) {
+                        if (!w.in_bounds(x, y)) continue;
+                        Cell& c = w.at(x, y);
+                        c.building_id = bid;
+                        c.fire_fuel = 65;  // wooden coop
+                    }
             }
             say("Coop ready. Use 'place chicken Coop' to add chickens.");
         } else {

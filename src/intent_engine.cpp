@@ -125,6 +125,10 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"bus"})) { set("bus"); return intent; }
     if (one_of(c, {"tv", "watch"})) { set("tv"); return intent; }
     if (one_of(c, {"weather", "forecast"})) { set("weather"); return intent; }
+    if (one_of(c, {"inspect", "check"})) { set("inspect"); return intent; }
+    if (one_of(c, {"toolrepair", "fixtool", "repairtool"})) { set("toolrepair"); return intent; }
+    if (one_of(c, {"fire", "ignite", "startfire"})) { set("fire"); return intent; }
+    if (one_of(c, {"structural", "struct"})) { set("structural"); return intent; }
     if (one_of(c, {"festival", "fest"})) { set("festival"); return intent; }
     if (one_of(c, {"basement", "cellar"})) { set("basement"); return intent; }
     if (one_of(c, {"horror", "sanity"})) { set("horror"); return intent; }

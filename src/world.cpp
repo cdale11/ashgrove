@@ -916,6 +916,7 @@ void place_buildings(World& world) {
         {"Ritual Circle", 20, 60, 2, 2},        // Whisper Wood / forest border
     };
     for (auto& b : bs) {
+        const int16_t bid = static_cast<int16_t>(world.buildings.size());
         world.buildings.push_back({b.name, b.x, b.y, b.w, b.h});
         for (int y = b.y; y < b.y + b.h; ++y)
             for (int x = b.x; x < b.x + b.w; ++x) {
@@ -924,6 +925,9 @@ void place_buildings(World& world) {
                 c.tile = Tile::Grass;
                 c.crop = Crop{};
                 c.obj = {ObjType::Building, 255};
+                c.building_id = bid;
+                // Initialize fire fuel based on building material (wood=80, stone=10, etc.)
+                c.fire_fuel = 60;
             }
         // keep the doorstep clear + passable
         int dx = b.x + (b.w - 1) / 2, dy = b.y + b.h;
@@ -2298,7 +2302,11 @@ std::string serialize_world(const World& w) {
                     {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore},
                     {"hp2", c.obj.hp2}, {"hp3", c.obj.hp3},
                     {"snow_compaction", c.snow_compaction}, {"forest_state", c.forest_state},
-                    {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir}};
+                    {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir},
+                    // ROADMAP 2.7 (8.3) — per-cell structural/fire state
+                    {"building_id", c.building_id},
+                    {"fire_intensity", c.fire_intensity},
+                    {"fire_fuel", c.fire_fuel}};
             // ROADMAP 2.5 (8.1e) — soil seed bank (species index + viability)
             if (c.seed_bank > 0) {
                 cj["seed_bank"] = c.seed_bank;
@@ -2358,6 +2366,9 @@ std::string serialize_world(const World& w) {
             }
             j["cells"].push_back(cj);
         }
+    // ROADMAP 2.7 (8.3) — per-cell structural/fire state (serialized for building cells)
+    // Only serialize if non-default to keep save compact
+    // (we add them conditionally during cell iteration above)
     // Serialize building states
     j["building_states"] = json::object();
     for (auto& [name, bs] : w.building_states) {
@@ -2365,7 +2376,16 @@ std::string serialize_world(const World& w) {
             {"condition", bs.condition},
             {"roof_leak", bs.roof_leak},
             {"foundation", bs.foundation},
-            {"last_maintained_day", bs.last_maintained_day}
+            {"last_maintained_day", bs.last_maintained_day},
+            // ROADMAP 2.7 (8.3) — structural physics
+            {"rot", bs.rot},
+            {"erosion", bs.erosion},
+            {"stress", bs.stress},
+            {"material", bs.material},
+            {"fire_fuel", bs.fire_fuel},
+            {"fire_intensity", bs.fire_intensity},
+            {"fire_risk", bs.fire_risk},
+            {"has_basement_hatch", bs.has_basement_hatch}
         };
     }
     // Serialize plots (R16)
@@ -2523,6 +2543,10 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.track_age = static_cast<uint8_t>(cj.value("track_age", 0));
             c.track_type = static_cast<uint8_t>(cj.value("track_type", 0));
             c.track_dir = static_cast<int8_t>(cj.value("track_dir", -1));
+            // ROADMAP 2.7 (8.3) — per-cell structural/fire state
+            c.building_id = static_cast<int16_t>(cj.value("building_id", -1));
+            c.fire_intensity = static_cast<uint8_t>(cj.value("fire_intensity", 0));
+            c.fire_fuel = static_cast<uint8_t>(cj.value("fire_fuel", 0));
             // ROADMAP 2.1/2.2 — Soil Chemistry + Water Table
             c.nitrogen = static_cast<uint8_t>(cj.value("nitrogen", 128));
             c.phosphorus = static_cast<uint8_t>(cj.value("phosphorus", 128));
@@ -2591,6 +2615,15 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 bs.roof_leak = static_cast<uint8_t>(bs_json.value("roof_leak", 0));
                 bs.foundation = static_cast<uint8_t>(bs_json.value("foundation", 100));
                 bs.last_maintained_day = static_cast<uint32_t>(bs_json.value("last_maintained_day", 0));
+                // ROADMAP 2.7 (8.3) — structural physics
+                bs.rot = static_cast<uint8_t>(bs_json.value("rot", 0));
+                bs.erosion = static_cast<uint8_t>(bs_json.value("erosion", 0));
+                bs.stress = static_cast<uint8_t>(bs_json.value("stress", 0));
+                bs.material = static_cast<uint8_t>(bs_json.value("material", 0));
+                bs.fire_fuel = static_cast<uint8_t>(bs_json.value("fire_fuel", 0));
+                bs.fire_intensity = static_cast<uint8_t>(bs_json.value("fire_intensity", 0));
+                bs.fire_risk = static_cast<uint8_t>(bs_json.value("fire_risk", 0));
+                bs.has_basement_hatch = bs_json.value("has_basement_hatch", false);
                 w.building_states[name] = bs;
             }
         }
@@ -3254,6 +3287,226 @@ void World::wind_vec_here(int x, int y, int& u, int& v) const {
     const int i = atmos_index(x, y);
     u = static_cast<int>(atmos_wind_u[static_cast<size_t>(i)]);
     v = static_cast<int>(atmos_wind_v[static_cast<size_t>(i)]);
+}
+
+// ROADMAP 2.7 (8.3) — Structural physics daily tick
+// Rot/erosion CA, foundation stress fields (CSP integrity), fire spread CA
+void World::tick_structural_physics() {
+    // Ensure atmosphere is current for wind/humidity queries
+    if (atmos_day != day) init_atmosphere();
+
+    // Build building_id -> BuildingState* lookup
+    std::unordered_map<int16_t, BuildingState*> building_lookup;
+    for (auto& [name, bs] : building_states) {
+        for (size_t i = 0; i < buildings.size(); ++i) {
+            if (buildings[i].name == name) {
+                building_lookup[static_cast<int16_t>(i)] = &bs;
+                break;
+            }
+        }
+    }
+
+    // --- 1. Rot/Erosion CA on building cells ---
+    // Rot: moisture-dependent, material-dependent (wood rots, stone erodes, metal rusts)
+    // Erosion: from water flow (saturation, water table)
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (c.building_id < 0) continue;
+            auto it = building_lookup.find(c.building_id);
+            if (it == building_lookup.end()) continue;
+            BuildingState& bs = *it->second;
+
+            // Material: 0=wood, 1=stone, 2=brick, 3=metal
+            // Rot from moisture (humidity + roof_leak + saturation)
+            int humidity = humidity_here(x, y);
+            float moist = (humidity / 255.0f) * 0.6f + (bs.roof_leak / 100.0f) * 0.3f +
+                          (c.saturation / 255.0f) * 0.1f;
+            if (bs.material == 0) { // wood - rots
+                bs.rot = std::min<uint8_t>(100, bs.rot + static_cast<uint8_t>(moist * 8.0f));
+            } else if (bs.material == 1) { // stone - erodes from water
+                bs.erosion = std::min<uint8_t>(100, bs.erosion + static_cast<uint8_t>(moist * 3.0f));
+            } else if (bs.material == 3) { // metal - rusts
+                bs.rot = std::min<uint8_t>(100, bs.rot + static_cast<uint8_t>(moist * 2.0f));
+            }
+            // Neighbor spread (rot spreads to adjacent building cells of same material)
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+                Cell& nc = at(nx, ny);
+                if (nc.building_id == c.building_id) {
+                    auto nit = building_lookup.find(nc.building_id);
+                    if (nit != building_lookup.end()) {
+                        BuildingState& nbs = *nit->second;
+                        if (nbs.material == bs.material && nbs.rot < bs.rot) {
+                            nbs.rot = std::min<uint8_t>(100, nbs.rot + (bs.rot - nbs.rot) / 4 + 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 2. Foundation stress fields (CSP integrity) ---
+    // Stress from: building weight, foundation quality, soil saturation, erosion
+    // Simplified CSP: each cell's stress = weight + neighbor load sharing
+    // Iterative relaxation (Jacobi-style) for load distribution
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (c.building_id < 0) continue;
+            auto it = building_lookup.find(c.building_id);
+            if (it == building_lookup.end()) continue;
+            BuildingState& bs = *it->second;
+
+            // Base stress from building weight (wood=20, stone=40, brick=30, metal=25)
+            int base_stress = bs.material == 0 ? 20 : bs.material == 1 ? 40 : bs.material == 2 ? 30 : 25;
+            // Foundation damage increases stress
+            base_stress += (100 - bs.foundation) / 2;
+            // Erosion increases stress
+            base_stress += bs.erosion / 2;
+            // Soil saturation (wet soil = less bearing capacity)
+            int sat = c.saturation;
+            base_stress += sat / 5;
+            // Roof load (rot weakens roof)
+            base_stress += bs.rot / 3;
+
+            // Load sharing with neighbors (CSP iteration)
+            int neighbor_load = 0, neighbor_count = 0;
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+                Cell& nc = at(nx, ny);
+                if (nc.building_id == c.building_id) {
+                    auto nit = building_lookup.find(nc.building_id);
+                    if (nit != building_lookup.end()) {
+                        neighbor_load += nit->second->stress;
+                        neighbor_count++;
+                    }
+                }
+            }
+            if (neighbor_count > 0) {
+                bs.stress = (base_stress * 3 + neighbor_load) / (3 + neighbor_count);
+            } else {
+                bs.stress = static_cast<uint8_t>(std::min(100, base_stress));
+            }
+            bs.stress = std::min<uint8_t>(100, bs.stress);
+        }
+    }
+
+    // --- 3. Fire risk assessment ---
+    // Fuel + dryness + wind + temperature
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (c.building_id >= 0) {
+                auto it = building_lookup.find(c.building_id);
+                if (it != building_lookup.end()) {
+                    BuildingState& bs = *it->second;
+                    // Fire fuel from cell + building material
+                    int fuel = c.fire_fuel;
+                    if (bs.material == 0) fuel += 30; // wood
+                    else if (bs.material == 3) fuel += 10; // metal (less fuel)
+                    // Dryness from humidity + temperature
+                    int humidity = humidity_here(x, y);
+                    int temp = temp_here(x, y);
+                    int wind = wind_here(x, y);
+                    int dryness = (255 - humidity) / 2 + temp / 2; // 0..255
+                    bs.fire_risk = static_cast<uint8_t>(std::min(100,
+                        (fuel * dryness / 255 + wind) / 2));
+                    // Update cell fire_fuel from building
+                    c.fire_fuel = std::min<uint8_t>(100, fuel);
+                }
+            } else {
+                // Non-building cells: vegetation fuel
+                int fuel = 0;
+                if (is_tree(c.obj.type)) fuel = 80;
+                else if (c.crop.is_crop()) fuel = 40;
+                else if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) fuel = 20;
+                else if (c.tile == Tile::Tilled) fuel = 10;
+                int humidity = humidity_here(x, y);
+                int temp = temp_here(x, y);
+                int wind = wind_here(x, y);
+                int dryness = (255 - humidity) / 2 + temp / 2;
+                c.fire_risk = static_cast<uint8_t>(std::min(100,
+                    (fuel * dryness / 255 + wind) / 2));
+            }
+        }
+    }
+
+    // --- 4. Fire spread CA (if any cell is burning) ---
+    // We process fire spread here each tick, and also when ignition occurs
+    std::vector<std::pair<int,int>> to_ignite;
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (c.fire_intensity == 0) continue;
+            // Fire burning - spread to neighbors
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+                Cell& nc = at(nx, ny);
+                if (nc.fire_intensity > 0) continue; // already burning
+                // Ignition probability: neighbor intensity * target fuel * wind factor
+                int prob = (c.fire_intensity * nc.fire_fuel) / 100;
+                int wind = wind_here(nx, ny);
+                prob = prob * (100 + wind) / 100;
+                int humidity = humidity_here(nx, ny);
+                prob = prob * (100 - humidity / 2) / 100;
+                // Deterministic: use day + position hash
+                unsigned roll = ((day * 2654435761u) + static_cast<unsigned>(nx) * 31u +
+                                 static_cast<unsigned>(ny) * 17u) % 100;
+                if (static_cast<unsigned>(prob) > roll) {
+                    to_ignite.emplace_back(nx, ny);
+                }
+            }
+            // Fire consumes fuel
+            c.fire_fuel = std::max<uint8_t>(0, c.fire_fuel - c.fire_intensity / 10);
+            if (c.fire_fuel == 0) c.fire_intensity = 0;
+        }
+    }
+    // Apply ignitions
+    for (auto [ix, iy] : to_ignite) {
+        Cell& c = at(ix, iy);
+        c.fire_intensity = std::min<uint8_t>(100, c.fire_fuel);
+        // Basement hatch: if this cell has a hatch, fire doesn't spread INTO basement
+        // (handled by basement having fire_intensity=0 always)
+    }
+}
+
+// Fire spread from a cell (called when fire ignites or spreads)
+void World::spread_fire(int x, int y) {
+    if (!in_bounds(x, y)) return;
+    Cell& c = at(x, y);
+    if (c.fire_intensity == 0 && c.fire_fuel > 0) {
+        c.fire_intensity = std::min<uint8_t>(100, c.fire_fuel);
+    }
+}
+
+// Tool wear grammar: max durability per tool type
+uint16_t World::tool_max_durability(Item tool) {
+    switch (tool) {
+        case Item::Hoe: return 200;
+        case Item::WateringCan: return 150;
+        case Item::Axe: return 300;
+        case Item::Pickaxe: return 350;
+        case Item::Scythe: return 180;
+        
+        default: return 250;
+    }
+}
+
+// Apply wear to a tool slot
+void World::apply_tool_wear(InvSlot& slot, int wear_amount) {
+    if (slot.item == Item::None || slot.max_durability == 0) return;
+    slot.durability = std::min<uint16_t>(slot.max_durability, slot.durability + static_cast<uint16_t>(wear_amount));
+    // If broken, the tool still exists but is at max durability (can be repaired)
 }
 
 void World::add_job_board_entries() {

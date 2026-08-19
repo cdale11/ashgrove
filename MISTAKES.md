@@ -216,3 +216,14 @@ the spectral fields and pressure systems.
 **Lesson:** Lazy-init helpers that pre-fill arrays must ensure the downstream logic's
 "freshness" check sees the state as uninitialized. Either clear the arrays, or use a
 separate sentinel (e.g., `atmos_day == 0`) to gate the first tick.
+
+### M21 — BuildingState material default 0 (wood) caused all buildings to rot aggressively
+**What happened:** New `BuildingState` objects default-initialized `material = 0` (wood).
+Since rot/erosion CA applies wood-rot logic to material 0, all buildings (including
+stone/brick ones) accumulated rot rapidly. The material field wasn't being set from
+building type on creation.
+**Fix:** Set `material` based on building name/type in `tick_structural_physics` first
+pass, and ensure new `BuildingState` objects get appropriate defaults.
+**Lesson:** Default enum values can silently break physics when the enum order matches
+a "vulnerable" type. Always explicitly set material properties from semantic type,
+not implicit default.

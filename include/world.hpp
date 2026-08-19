@@ -456,6 +456,17 @@ struct BuildingState {
     uint8_t foundation = 100;     // winter frost damage
     uint32_t last_maintained_day = 0;
     std::vector<Animal> animals;
+    // ROADMAP 2.7 (8.3) — Structural physics
+    uint8_t rot = 0;              // wood rot (0..100), from moisture + time
+    uint8_t erosion = 0;          // foundation erosion (0..100), from water flow
+    uint8_t stress = 0;           // structural stress (0..100), from loads + soil
+    uint8_t material = 0;         // 0=wood, 1=stone, 2=brick, 3=metal (affects decay/fire)
+    // Fire state
+    uint8_t fire_fuel = 0;        // available fuel (0..100)
+    uint8_t fire_intensity = 0;   // current fire intensity (0..100)
+    uint8_t fire_risk = 0;        // ignition probability (0..100)
+    // Basement hatch escape route
+    bool has_basement_hatch = false;  // connects to basement
 };
 
 // Interior room types for new buildings
@@ -589,6 +600,13 @@ struct Cell {
     // 0=clean, 255=fully corrupted. Emanates from the 4 horror anchors and
     // spreads as a cellular automaton driven by the Valley's awakening.
     uint8_t corruption = 0;
+    // ROADMAP 2.7 (8.3) — Structural physics: which building this cell belongs to
+    // (index into World::buildings, -1 = none).
+    int16_t building_id = -1;
+    // Fire state per cell
+    uint8_t fire_intensity = 0;   // 0..100, active fire
+    uint8_t fire_fuel = 0;        // 0..100, available fuel (wood, crops, grass)
+    uint8_t fire_risk = 0;        // 0..100, ignition probability
     // ROADMAP 2.1 (8.1a) — Soil Chemistry.
     // NPK nutrients in kg/ha equivalent (scaled 0-255 for storage efficiency).
     uint8_t nitrogen = 128;       // N: leaf growth, chlorophyll
@@ -677,7 +695,13 @@ struct Region {
 };
 
 // ---- player ----
-struct InvSlot { Item item = Item::None; uint16_t count = 0; };
+struct InvSlot {
+        Item item = Item::None;
+        uint16_t count = 0;
+        // ROADMAP 2.7 (8.3) — Tool wear grammar
+        uint16_t durability = 0;  // 0 = full (new), max = broken
+        uint16_t max_durability = 0;  // per tool type
+    };
 
 struct Player {
     uint32_t id = 0;
@@ -987,6 +1011,14 @@ struct World {
     int  humidity_here(int x, int y) const;     // 0-255 humidity at tile (microclimate)
     int  wind_here(int x, int y) const;         // 0-100 wind speed at tile
     void wind_vec_here(int x, int y, int& u, int& v) const; // wind components at tile
+
+    // ROADMAP 2.7 (8.3) — Structural physics
+    void tick_structural_physics();        // daily tick: rot/erosion, stress, fire
+    void spread_fire(int x, int y);        // fire spread from a cell
+
+    // Tool wear grammar
+    static uint16_t tool_max_durability(Item tool);
+    static void apply_tool_wear(InvSlot& slot, int wear_amount);
 
     // Quest/Job methods
     void generate_daily_quests(Player& p);
