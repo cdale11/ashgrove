@@ -626,6 +626,23 @@ struct Cell {
     uint8_t specific_yield = 50;
     // Recharge rate modifier (0-255): local recharge capacity.
     uint8_t recharge_capacity = 100;
+    // ROADMAP 2.9 (8.5) — Terrain & ecological change.
+    // Flood state
+    uint8_t flood_depth = 0;       // 0..255 cm standing water above ground
+    uint8_t flood_duration = 0;    // days since flood started
+    // Erosion & sediment transport
+    int16_t elevation = 0;         // cm relative to reference (can be negative)
+    int16_t slope = 0;             // 0..255, max slope to neighbor (tan * 255)
+    uint8_t sediment_depth = 0;    // 0..255 cm deposited sediment
+    uint8_t erosion_rate = 0;      // 0..255, recent erosion magnitude
+    // Soil degradation
+    uint8_t compaction = 0;        // 0=loose, 255=compacted (reduces infiltration)
+    uint8_t salinity = 0;          // 0=none, 255=severe (reduces crop growth)
+    uint8_t nutrient_depletion = 0; // 0=none, 255=mined out (reduces fertility)
+    uint8_t structure = 200;       // 0=destroyed, 255=pristine (aggregation, biopores)
+    // Ecological succession (per-cell, complements forest_succession_index)
+    uint8_t succession_stage = 0;  // 0=bare, 1=pioneer, 2=early, 3=mid, 4=late, 5=climax
+    uint8_t disturbance_timer = 0; // days since last disturbance (fire, flood, tillage)
 };
 
 // L6: Wildlife system
@@ -1063,6 +1080,8 @@ struct World {
     // ROADMAP 2.7 (8.3) — Structural physics
     void tick_structural_physics();        // daily tick: rot/erosion, stress, fire
     void spread_fire(int x, int y);        // fire spread from a cell
+    // ROADMAP 2.9 (8.5) — Terrain & ecological change
+    void tick_terrain_ecology();           // daily tick: flood, river migration, erosion, fire, succession, soil degradation
 
     // Tool wear grammar
     static uint16_t tool_max_durability(Item tool);

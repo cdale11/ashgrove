@@ -2807,6 +2807,19 @@ std::string serialize_world(const World& w) {
             cj["aquifer_transmissivity"] = c.aquifer_transmissivity;
             cj["specific_yield"] = c.specific_yield;
             cj["recharge_capacity"] = c.recharge_capacity;
+            // ROADMAP 2.9 (8.5) — Terrain & ecological change
+            cj["flood_depth"] = c.flood_depth;
+            cj["flood_duration"] = c.flood_duration;
+            cj["elevation"] = c.elevation;
+            cj["slope"] = c.slope;
+            cj["sediment_depth"] = c.sediment_depth;
+            cj["erosion_rate"] = c.erosion_rate;
+            cj["compaction"] = c.compaction;
+            cj["salinity"] = c.salinity;
+            cj["nutrient_depletion"] = c.nutrient_depletion;
+            cj["structure"] = c.structure;
+            cj["succession_stage"] = c.succession_stage;
+            cj["disturbance_timer"] = c.disturbance_timer;
             if (c.crop.is_crop()) {
                 cj["crop"] = static_cast<int>(c.crop.crop);
                 cj["stage"] = c.crop.stage;
@@ -3042,6 +3055,19 @@ bool deserialize_world(World& w, const std::string& json_str) {
             c.aquifer_transmissivity = static_cast<uint8_t>(cj.value("aquifer_transmissivity", 100));
             c.specific_yield = static_cast<uint8_t>(cj.value("specific_yield", 50));
             c.recharge_capacity = static_cast<uint8_t>(cj.value("recharge_capacity", 100));
+            // ROADMAP 2.9 (8.5) — Terrain & ecological change
+            c.flood_depth = static_cast<uint8_t>(cj.value("flood_depth", 0));
+            c.flood_duration = static_cast<uint8_t>(cj.value("flood_duration", 0));
+            c.elevation = static_cast<int16_t>(cj.value("elevation", 0));
+            c.slope = static_cast<int16_t>(cj.value("slope", 0));
+            c.sediment_depth = static_cast<uint8_t>(cj.value("sediment_depth", 0));
+            c.erosion_rate = static_cast<uint8_t>(cj.value("erosion_rate", 0));
+            c.compaction = static_cast<uint8_t>(cj.value("compaction", 0));
+            c.salinity = static_cast<uint8_t>(cj.value("salinity", 0));
+            c.nutrient_depletion = static_cast<uint8_t>(cj.value("nutrient_depletion", 0));
+            c.structure = static_cast<uint8_t>(cj.value("structure", 200));
+            c.succession_stage = static_cast<uint8_t>(cj.value("succession_stage", 0));
+            c.disturbance_timer = static_cast<uint8_t>(cj.value("disturbance_timer", 0));
             if (cj.contains("crop")) {
                 c.crop.crop = static_cast<Item>(cj["crop"]);
                 c.crop.stage = static_cast<uint8_t>(cj.value("stage", 0));
@@ -3969,6 +3995,235 @@ void World::spread_fire(int x, int y) {
     Cell& c = at(x, y);
     if (c.fire_intensity == 0 && c.fire_fuel > 0) {
         c.fire_intensity = std::min<uint8_t>(100, c.fire_fuel);
+    }
+}
+
+// ROADMAP 2.9 (8.5) — Terrain & ecological change: daily tick for flood, river migration,
+// erosion, fire spread, succession, and soil degradation.
+void World::tick_terrain_ecology() {
+    // --- 1. Flood CA: water spreads from rivers/lakes and accumulates from rain ---
+    // Flood spreads to adjacent lower-elevation cells; depth increases with rain/saturation
+    std::vector<uint8_t> new_flood_depth(cells.size(), 0);
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (!in_bounds(x, y)) continue;
+            // Base flood depth from existing flood
+            uint8_t base = c.flood_depth;
+            // Rain adds to flood (local rain_here already computed by atmosphere)
+            uint8_t rain = rain_here(x, y);
+            if (rain > 5) base = std::min<uint8_t>(255, base + rain / 4);
+            // River/lake cells are permanent flood sources
+            if (is_water(c.tile)) base = 255;
+            // Spread to lower neighbors
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+                Cell& n = at(nx, ny);
+                // Water flows downhill (elevation lower) or to same level
+                if (n.elevation <= c.elevation) {
+                    uint8_t transfer = std::min<uint8_t>(base / 4, n.flood_depth + 10);
+                    if (transfer > n.flood_depth) {
+                        new_flood_depth[static_cast<size_t>(ny) * MAP_W + static_cast<size_t>(nx)] = transfer;
+                    }
+                }
+            }
+            new_flood_depth[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] = base;
+        }
+    }
+    // Apply flood depths
+    for (size_t i = 0; i < cells.size(); ++i) {
+        cells[i].flood_depth = new_flood_depth[i];
+        if (cells[i].flood_depth > 0) cells[i].flood_duration++;
+        else cells[i].flood_duration = 0;
+    }
+
+    // --- 2. River migration: river banks erode/deposit based on flow velocity ---
+    // Simplified: river tiles on outer bends erode (become water), inner bends deposit (become land)
+    // Find river cells (water with non-water neighbors)
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (!is_water(c.tile)) continue;
+            int water_neighbors = 0;
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (in_bounds(nx, ny) && is_water(at(nx, ny).tile)) water_neighbors++;
+            }
+            // Outer bank (few water neighbors) -> erosion, might widen
+            if (water_neighbors <= 2) {
+                // Adjacent land cells might become water (bank erosion)
+                for (int d = 0; d < 4; ++d) {
+                    int nx = x + dx4[d], ny = y + dy4[d];
+                    if (!in_bounds(nx, ny)) continue;
+                    Cell& n = at(nx, ny);
+                    if (!is_water(n.tile) && n.tile != Tile::Bridge && (day * 31u + x * 7u + y * 13u) % 1000 < 5) {
+                        n.tile = Tile::Water;
+                        n.elevation = std::max<int16_t>(-50, n.elevation - 5);
+                    }
+                }
+            }
+            // Inner bank (many water neighbors) -> deposition, might build land
+            else if (water_neighbors >= 3) {
+                for (int d = 0; d < 4; ++d) {
+                    int nx = x + dx4[d], ny = y + dy4[d];
+                    if (!in_bounds(nx, ny)) continue;
+                    Cell& n = at(nx, ny);
+                    if (is_water(n.tile) && (day * 17u + x * 11u + y * 19u) % 2000 < 2) {
+                        n.tile = Tile::Dirt;
+                        n.elevation = std::min<int16_t>(10, n.elevation + 2);
+                        n.sediment_depth = std::min<uint8_t>(255, n.sediment_depth + 5);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 3. Erosion CA: slope-driven sediment transport and deposition ---
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (is_water(c.tile)) continue;
+            // Compute slope to neighbors (max difference)
+            int max_slope = 0;
+            int steepest_dx = 0, steepest_dy = 0;
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+int diff = c.elevation - at(nx, ny).elevation;
+                if (diff > max_slope) {
+                    max_slope = diff;
+                    steepest_dx = dx4[d];
+                    steepest_dy = dy4[d];
+                }
+            }
+            c.slope = static_cast<uint8_t>(std::min(255, max_slope * 10));
+            // Erosion on steep slopes, especially when saturated/flooded
+            if (c.slope > 20 && (c.saturation > 200 || c.flood_depth > 10)) {
+                uint8_t erode = std::min<uint8_t>(c.erosion_rate + 2, 255);
+                c.erosion_rate = erode;
+                c.elevation = std::max<int16_t>(-100, c.elevation - 1);
+                // Deposit sediment downslope
+                int nx = x + steepest_dx, ny = y + steepest_dy;
+                if (in_bounds(nx, ny)) {
+                    Cell& n = at(nx, ny);
+                    n.sediment_depth = std::min<uint8_t>(255, n.sediment_depth + 2);
+                    n.elevation = std::min<int16_t>(100, n.elevation + 1);
+                }
+            }
+            // Deposition on flat, well-vegetated areas
+            if (c.slope < 5 && c.structure > 100) {
+                c.sediment_depth = std::min<uint8_t>(255, c.sediment_depth + 1);
+                c.elevation = std::min<int16_t>(50, c.elevation + 1);
+            }
+        }
+    }
+
+    // --- 4. Fire spread CA (integrates with atmosphere wind/humidity) ---
+    // Already handled in tick_structural_physics, but update cell fire state here too
+    // Fire consumes fuel and spreads based on wind, humidity, slope
+    std::vector<std::pair<int,int>> to_ignite;
+    for (int y = 0; y < MAP_H; ++y) {
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = at(x, y);
+            if (c.fire_intensity == 0) continue;
+            const int dx4[4] = {1, -1, 0, 0};
+            const int dy4[4] = {0, 0, 1, -1};
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + dx4[d], ny = y + dy4[d];
+                if (!in_bounds(nx, ny)) continue;
+                Cell& n = at(nx, ny);
+                if (n.fire_intensity > 0) continue;
+                int prob = (c.fire_intensity * n.fire_fuel) / 100;
+                int wind = wind_here(nx, ny);
+                prob = prob * (100 + wind) / 100;
+                int humidity = humidity_here(nx, ny);
+                prob = prob * (100 - humidity / 2) / 100;
+                // Slope effect: fire spreads faster uphill
+                int slope_diff = n.elevation - c.elevation;
+                if (slope_diff > 0) prob = prob * (100 + slope_diff) / 100;
+                unsigned roll = ((day * 2654435761u) + static_cast<unsigned>(nx) * 31u +
+                                 static_cast<unsigned>(ny) * 17u) % 100;
+                if (static_cast<unsigned>(prob) > roll) {
+                    to_ignite.emplace_back(nx, ny);
+                }
+            }
+            // Fire consumes fuel
+            c.fire_fuel = std::max<uint8_t>(0, c.fire_fuel - c.fire_intensity / 10);
+            if (c.fire_fuel == 0) c.fire_intensity = 0;
+        }
+    }
+    // Apply ignitions
+    for (auto [ix, iy] : to_ignite) {
+        Cell& c = at(ix, iy);
+        c.fire_intensity = std::min<uint8_t>(100, c.fire_fuel);
+    }
+
+    // --- 5. Ecological succession: succession_stage advances toward climax ---
+    for (auto& c : cells) {
+        if (is_water(c.tile)) continue;
+        // Disturbance resets succession
+        if (c.disturbance_timer > 0) c.disturbance_timer--;
+        if (c.disturbance_timer == 0 && c.succession_stage < 5) {
+            // Natural progression toward climax
+            unsigned roll = ((day * 2654435761u) + static_cast<unsigned>(&c - &cells[0]) * 31u) % 1000;
+            if (roll < 10 && c.succession_stage < 5) c.succession_stage++;
+        }
+        // Disturbances: fire, flood, tillage reset succession
+        if (c.fire_intensity > 50 || c.flood_depth > 50 || (c.tile == Tile::Tilled)) {
+            c.disturbance_timer = 30;
+            if (c.succession_stage > 1) c.succession_stage = 1; // reset to pioneer
+        }
+        // Vegetation affects structure and fuel
+        if (c.succession_stage >= 3) c.fire_fuel = std::max<uint8_t>(c.fire_fuel, 40);
+        if (c.succession_stage >= 4) c.structure = std::min<uint8_t>(255, c.structure + 1);
+    }
+
+    // --- 6. Soil degradation: compaction, salinization, nutrient mining, structure loss ---
+    for (auto& c : cells) {
+        if (is_water(c.tile)) continue;
+        // Compaction from tillage and traffic
+        if (c.tile == Tile::Tilled) c.compaction = std::min<uint8_t>(255, c.compaction + 5);
+        // Natural recovery of structure
+        if (c.compaction > 0 && c.succession_stage >= 2) c.compaction = std::max<uint8_t>(0, c.compaction - 1);
+        // Salinization in irrigated/low-lying areas
+        if (c.saturation > 200 && c.tile == Tile::Tilled) c.salinity = std::min<uint8_t>(255, c.salinity + 1);
+        if (c.salinity > 0 && c.saturation < 100) c.salinity = std::max<uint8_t>(0, c.salinity - 1);
+        // Nutrient depletion from cropping
+        if (c.crop.is_crop() && c.crop.days_left > 0) {
+            c.nutrient_depletion = std::min<uint8_t>(255, c.nutrient_depletion + 2);
+        }
+        // Structure loss from compaction and low OM
+        if (c.compaction > 200 || c.organic_matter < 30) {
+            c.structure = std::max<uint8_t>(0, c.structure - 1);
+        }
+        // Recovery of structure from OM and roots
+        if (c.organic_matter > 100 && c.succession_stage >= 2) {
+            c.structure = std::min<uint8_t>(255, c.structure + 1);
+        }
+    }
+
+    // --- 7. Elevation/slope update from erosion/deposition ---
+    for (auto& c : cells) {
+        if (is_water(c.tile)) continue;
+        // Recompute slope from elevation differences
+        int max_slope = 0;
+        const int dx4[4] = {1, -1, 0, 0};
+        const int dy4[4] = {0, 0, 1, -1};
+        for (int d = 0; d < 4; ++d) {
+            int nx = static_cast<int>(&c - &cells[0]) % MAP_W + dx4[d];
+            int ny = static_cast<int>(&c - &cells[0]) / MAP_W + dy4[d];
+            if (!in_bounds(nx, ny)) continue;
+            int diff = c.elevation - at(nx, ny).elevation;
+            if (diff > max_slope) max_slope = diff;
+        }
+        c.slope = static_cast<uint8_t>(std::min(255, max_slope * 10));
     }
 }
 

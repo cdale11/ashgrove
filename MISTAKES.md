@@ -232,3 +232,8 @@ not implicit default.
 **What happened:** The newly added `creature`/`herd`/`disease` commands used `for (auto& w : w.wildlife)` where the loop variable `w` shadowed the function parameter `World& w`. This caused the compiler to fail with "shadowed declaration" errors. The bug was introduced because the commands were added via a script that didn't properly rename the loop variable.
 **Fix:** Renamed all loop variables from `w` to `creature` in the new command blocks, and updated all member accesses accordingly.
 **Lesson:** When adding code to functions with parameters named `w`, `p`, etc., always use descriptive loop variable names (`creature`, `building`, `item`) to avoid shadowing. A global search for `for (auto& w : w.` would have caught this.
+
+### M23 — Missing `c.` prefix in tick_terrain_ecology caused compile errors
+**What happened:** The `tick_terrain_ecology` function referenced member variables like `elevation`, `flood_depth`, `saturation`, `structure` without the `c.` prefix, causing "was not declared in this scope" errors. The function iterates with `for (auto& c : cells)` but the body used bare names.
+**Fix:** Added `c.` prefix to all member accesses in the terrain ecology tick loops.
+**Lesson:** When iterating with a named loop variable (`auto& c`), always use the prefix for member access. A grep for bare member names inside loop bodies would catch this.

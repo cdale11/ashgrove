@@ -132,6 +132,11 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"creature", "wildlife", "animal"})) { set("creature"); return intent; }
     if (one_of(c, {"herd", "pack", "herds"})) { set("herd"); return intent; }
     if (one_of(c, {"disease", "sickness", "illness"})) { set("disease"); return intent; }
+    if (one_of(c, {"terrain", "land"})) { set("terrain"); return intent; }
+    if (one_of(c, {"flood", "flooding"})) { set("flood"); return intent; }
+    if (one_of(c, {"erosion", "erode"})) { set("erosion"); return intent; }
+    if (one_of(c, {"succession", "succession_stage"})) { set("succession"); return intent; }
+    if (one_of(c, {"soil", "soil_health", "degradation"})) { set("soil"); return intent; }
     if (one_of(c, {"festival", "fest"})) { set("festival"); return intent; }
     if (one_of(c, {"basement", "cellar"})) { set("basement"); return intent; }
     if (one_of(c, {"horror", "sanity"})) { set("horror"); return intent; }
@@ -141,6 +146,13 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"save"})) { set("save"); intent.parameters["name"] = arg; return intent; }
     if (one_of(c, {"load"})) { set("load"); intent.parameters["name"] = arg; return intent; }
     if (one_of(c, {"newgame", "reset"})) { set("newgame"); return intent; }
+
+    // ROADMAP 2.9 (8.5) — Terrain & ecological change
+    if (one_of(c, {"terrain", "land"})) { set("terrain"); return intent; }
+    if (one_of(c, {"flood", "flooding"})) { set("flood"); return intent; }
+    if (one_of(c, {"erosion", "erode"})) { set("erosion"); return intent; }
+    if (one_of(c, {"succession", "succession_stage"})) { set("succession"); return intent; }
+    if (one_of(c, {"soil", "soil_health", "degradation"})) { set("soil"); return intent; }
 
     return std::nullopt;
 }

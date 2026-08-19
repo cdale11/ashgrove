@@ -1238,6 +1238,54 @@ and social graph rewriting, all driven by the atmosphere and terrain systems.
 
 ---
 
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
+## 41. Terrain & Ecological Change (ROADMAP 2.9)
+
+Shipped 2026-08-19. A deterministic terrain and ecological change layer integrating
+flood dynamics, river migration, erosion, fire spread, ecological succession, and
+soil degradation — all driven by the atmosphere, hydrology, and creature systems.
+
+### State & data model
+- ✅ `Cell` gains terrain fields: `flood_depth`, `flood_duration`, `elevation`,
+  `slope`, `sediment_depth`, `erosion_rate`, `compaction`, `salinity`,
+  `nutrient_depletion`, `structure`, `succession_stage`, `disturbance_timer`.
+- ✅ Serialization: all new fields saved; old saves lazy-initialize terrain fields.
+
+### Daily tick (`tick_terrain_ecology`, deterministic per day)
+- ✅ **Flood CA**: water spreads from rivers/lakes and accumulates from rain;
+  elevation-driven spread to lower neighbors; river/lake cells as permanent sources.
+- ✅ **River migration**: outer banks erode (widening), inner banks deposit (building);
+  deterministic seeded randomness for bank evolution.
+- ✅ **Erosion CA**: slope-driven sediment transport from steep cells to neighbors;
+  erosion accelerated by saturation/flooding; deposition on flat, vegetated areas.
+- ✅ **Fire spread CA**: fuel + wind + humidity + slope; deterministic ignition
+  probability; integrates with atmosphere wind/humidity and terrain slope.
+- ✅ **Ecological succession**: 6 stages (bare→pioneer→early→mid→late→climax);
+  natural progression; disturbances (fire/flood/tillage) reset to pioneer.
+- ✅ **Soil degradation**: compaction from tillage, salinization from irrigation,
+  nutrient mining from cropping, structure loss from compaction/low OM; recovery
+  from succession and organic matter.
+
+### Commands & API
+- ✅ `terrain`: valley-wide report (flooded/eroded/degraded counts, avg elevation).
+- ✅ `flood`: local 11x11 flood depth map + player position details.
+- ✅ `erosion`: local 11x11 erosion rate/slope map + player details.
+- ✅ `succession`: valley-wide stage counts + player local stage + disturbance timer.
+- ✅ `soil`: degradation report (compaction/salinity/nutrient/structure counts).
+- ✅ Intent rule verbs: `terrain`/`land`, `flood`/`flooding`, `erosion`/`erode`,
+  `succession`/`succession_stage`, `soil`/`soil_health`/`degradation`.
+- ✅ `/state` integration ready (cell terrain fields already exposed).
+
+### Verification
+- ✅ Zero-warning build (`-Wall -Wextra -Wconversion -Wsign-conversion -Wshadow ...`).
+- ✅ Server boot → terrain fields initialize; flood/erosion/succession evolve over days.
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

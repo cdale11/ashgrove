@@ -89,6 +89,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `disease`/`sickness` (valley report); intent rule verbs.
 - Intent regression 26/30 held (same 4 known param-only failures).
 
+### Added — Terrain & Ecological Change (ROADMAP 2.9, 2026-08-19)
+- Cell gains terrain fields: `flood_depth/duration`, `elevation`, `slope`,
+  `sediment_depth`, `erosion_rate`, `compaction`, `salinity`, `nutrient_depletion`,
+  `structure`, `succession_stage`, `disturbance_timer`; lazy init for old saves.
+- Daily `tick_terrain_ecology`: flood CA (rivers/rain + elevation spread); river
+  migration (bank erosion/deposition); erosion CA (slope-driven sediment transport);
+  fire spread CA (fuel+wind+humidity+slope); succession stages 0-5 with disturbance
+  reset; soil degradation (compaction/salinity/nutrient depletion/structure loss).
+- Commands: `terrain`/`flood`/`erosion`/`succession`/`soil` + intent verbs.
+- Intent regression 26/30 held (same 4 known param-only failures).
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily
