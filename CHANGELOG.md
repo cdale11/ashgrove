@@ -74,6 +74,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fire`/`ignite` (manual ignition), `structural` (valley report); intent rule verbs.
 - Intent regression 26/30 held (same 4 known param-only failures).
 
+### Added — Creature Biology (ROADMAP 2.8, 2026-08-19)
+- Wildlife gains metabolism Petri nets (hunger/thirst/energy/body_temp/circadian/age/
+  life_stage); disease contact graph (disease_level/type/timer/carrier/immunity);
+  aging L-systems (infant/juvenile/adult/senior, gestation/birth, senior mortality,
+  genetic inheritance+mutation); social graph rewriting (herd/pack formation, alpha/
+  territory/cohesion, bond formation/decay, territorial disputes).
+- Daily `tick_creature_metabolism/disease/aging/social`: circadian activity windows,
+  hunger/thirst/energy/thermoregulation; proximity disease transmission with immunity
+  genes; life-stage transitions, gestation/birth, genetic inheritance+mutation, senior
+  mortality; herd/pack formation, alpha selection, territory/cohesion, bond formation/
+  decay, territorial disputes.
+- Commands: `creature`/`wildlife`/`animal` (census/report), `herd`/`pack` (details),
+  `disease`/`sickness` (valley report); intent rule verbs.
+- Intent regression 26/30 held (same 4 known param-only failures).
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily

@@ -1779,123 +1779,593 @@ void World::init_wildlife() {
     std::uniform_int_distribution<int> dist_x(0, MAP_W - 1);
     std::uniform_int_distribution<int> dist_y(0, MAP_H - 1);
     
+    auto init_biology = [&](Wildlife& w, WildlifeType t) {
+        w.type = t;
+        w.age_ticks = 0;
+        w.life_stage = (rng() % 100 < 20) ? 0 : 1;
+        w.hunger = static_cast<uint8_t>(rng() % 30);
+        w.thirst = static_cast<uint8_t>(rng() % 30);
+        w.energy = static_cast<uint8_t>(70 + rng() % 31);
+        w.body_temp = 37;
+        w.circadian = 0;
+        w.disease_level = 0;
+        w.disease_type = 0;
+        w.disease_timer = 0;
+        w.is_carrier = false;
+        w.social_rank = static_cast<uint8_t>(rng() % 100);
+        w.herd_id = -1;
+        w.social_bonds = 0;
+        w.territory_radius = 0;
+        w.gestation_timer = 0;
+        w.fertility = static_cast<uint8_t>(50 + rng() % 50);
+        w.immunity_genes = static_cast<uint16_t>(rng());
+        w.social_genes = static_cast<uint16_t>(rng() >> 16);
+    };
+    
     // Spawn deer in forest/edge biomes
     for (int i = 0; i < 8; ++i) {
-        int x, y;
-        int attempts = 0;
-        do {
-            x = dist_x(rng);
-            y = dist_y(rng);
-            attempts++;
-            if (attempts > 100) break;
-        } while (!in_bounds(x, y) || 
-                 (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) ||
-                 !walkable(x, y));
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) || !walkable(x, y));
         if (attempts <= 100) {
-            Wildlife d;
-            d.type = WildlifeType::Deer;
-            d.pos = {int16_t(x), int16_t(y)};
-            d.home = {int16_t(x), int16_t(y)};
-            d.range = 15;
-            d.state = 1; // grazing
-            d.last_move = 0;
-            wildlife.push_back(d);
+            Wildlife d; d.type = WildlifeType::Deer; d.pos = {int16_t(x), int16_t(y)}; d.home = {int16_t(x), int16_t(y)}; d.range = 15; d.state = 1; d.last_move = 0; init_biology(d, WildlifeType::Deer); wildlife.push_back(d);
+        }
+    }
+    
+    // Spawn rabbits in meadows
+    for (int i = 0; i < 6; ++i) {
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) || !walkable(x, y));
+        if (attempts <= 100) {
+            Wildlife r; r.type = WildlifeType::Rabbit; r.pos = {int16_t(x), int16_t(y)}; r.home = {int16_t(x), int16_t(y)}; r.range = 8; r.state = 1; r.last_move = 0; init_biology(r, WildlifeType::Rabbit); wildlife.push_back(r);
         }
     }
     
     // Spawn owls in forest (perch in large trees)
     for (int i = 0; i < 4; ++i) {
-        int x, y;
-        int attempts = 0;
-        do {
-            x = dist_x(rng);
-            y = dist_y(rng);
-            attempts++;
-            if (attempts > 100) break;
-        } while (!in_bounds(x, y) || 
-                 !is_tree(at(x, y).obj.type) ||
-                 (at(x, y).obj.type != ObjType::Tree && at(x, y).obj.type != ObjType::Pine &&
-                  at(x, y).obj.type != ObjType::Oak));
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || !is_tree(at(x, y).obj.type) || (at(x, y).obj.type != ObjType::Tree && at(x, y).obj.type != ObjType::Pine && at(x, y).obj.type != ObjType::Oak));
         if (attempts <= 100) {
-            Wildlife o;
-            o.type = WildlifeType::Owl;
-            o.pos = {int16_t(x), int16_t(y)};
-            o.home = {int16_t(x), int16_t(y)};
-            o.range = 20;
-            o.state = 4; // perching
-            o.last_move = 0;
-            wildlife.push_back(o);
+            Wildlife o; o.type = WildlifeType::Owl; o.pos = {int16_t(x), int16_t(y)}; o.home = {int16_t(x), int16_t(y)}; o.range = 20; o.state = 4; o.last_move = 0; init_biology(o, WildlifeType::Owl); wildlife.push_back(o);
+        }
+    }
+    
+    // Spawn wolves in deep forest (packs)
+    for (int i = 0; i < 3; ++i) {
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) || x < 4 || x > 20 || y < 16 || y > 74);
+        if (attempts <= 100) {
+            Wildlife w; w.type = WildlifeType::Wolf; w.pos = {int16_t(x), int16_t(y)}; w.home = {int16_t(x), int16_t(y)}; w.range = 30; w.state = 3; w.last_move = 0; init_biology(w, WildlifeType::Wolf); wildlife.push_back(w);
         }
     }
     
     // Spawn fisher-cats in deep forest
     for (int i = 0; i < 2; ++i) {
-        int x, y;
-        int attempts = 0;
-        do {
-            x = dist_x(rng);
-            y = dist_y(rng);
-            attempts++;
-            if (attempts > 100) break;
-        } while (!in_bounds(x, y) || 
-                 (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) ||
-                 x < 4 || x > 20 || y < 16 || y > 74); // Whisper Wood area
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || (at(x, y).tile != Tile::Grass && at(x, y).tile != Tile::GrassVar) || x < 4 || x > 20 || y < 16 || y > 74);
         if (attempts <= 100) {
-            Wildlife f;
-            f.type = WildlifeType::FisherCat;
-            f.pos = {int16_t(x), int16_t(y)};
-            f.home = {int16_t(x), int16_t(y)};
-            f.range = 25;
-            f.state = 3; // hunting
-            f.last_move = 0;
-            wildlife.push_back(f);
+            Wildlife f; f.type = WildlifeType::FisherCat; f.pos = {int16_t(x), int16_t(y)}; f.home = {int16_t(x), int16_t(y)}; f.range = 25; f.state = 3; f.last_move = 0; init_biology(f, WildlifeType::FisherCat); wildlife.push_back(f);
+        }
+    }
+    
+    // Spawn bears in mountains/north
+    for (int i = 0; i < 2; ++i) {
+        int x, y; int attempts = 0;
+        do { x = dist_x(rng); y = dist_y(rng); attempts++; if (attempts > 100) break; }
+        while (!in_bounds(x, y) || y > 30);
+        if (attempts <= 100) {
+            Wildlife b; b.type = WildlifeType::Bear; b.pos = {int16_t(x), int16_t(y)}; b.home = {int16_t(x), int16_t(y)}; b.range = 40; b.state = 1; b.last_move = 0; init_biology(b, WildlifeType::Bear); wildlife.push_back(b);
         }
     }
 }
 
-void World::tick_wildlife() {
-    uint32_t now = day * 10000; // approximate ms
+void World::spawn_wildlife_near(WildlifeType type, int x, int y, int count) {
+    std::mt19937 rng(day * 12345 + 67890);
+    for (int i = 0; i < count; ++i) {
+        std::uniform_int_distribution<int> dist(-3, 3);
+        int nx = x + dist(rng);
+        int ny = y + dist(rng);
+        if (!in_bounds(nx, ny) || !walkable(nx, ny)) continue;
+        Wildlife w;
+        w.type = type;
+        w.pos = {int16_t(nx), int16_t(ny)};
+        w.home = {int16_t(nx), int16_t(ny)};
+        w.range = (type == WildlifeType::Owl) ? 20 : (type == WildlifeType::FisherCat ? 25 : (type == WildlifeType::Wolf ? 30 : (type == WildlifeType::Bear ? 40 : (type == WildlifeType::Rabbit ? 8 : 15))));
+        w.state = (type == WildlifeType::Owl) ? 4 : (type == WildlifeType::FisherCat ? 3 : 1);
+        w.last_move = 0;
+        w.age_ticks = 0;
+        w.life_stage = (rng() % 100 < 20) ? 0 : 1;
+        w.hunger = static_cast<uint8_t>(rng() % 30);
+        w.thirst = static_cast<uint8_t>(rng() % 30);
+        w.energy = static_cast<uint8_t>(70 + rng() % 31);
+        w.body_temp = 37;
+        w.circadian = 0;
+        w.disease_level = 0;
+        w.disease_type = 0;
+        w.disease_timer = 0;
+        w.is_carrier = false;
+        w.social_rank = static_cast<uint8_t>(rng() % 100);
+        w.herd_id = -1;
+        w.social_bonds = 0;
+        w.territory_radius = 0;
+        w.gestation_timer = 0;
+        w.fertility = static_cast<uint8_t>(50 + rng() % 50);
+        w.immunity_genes = static_cast<uint16_t>(rng());
+        w.social_genes = static_cast<uint16_t>(rng() >> 16);
+        wildlife.push_back(w);
+    }
+}
+
+// ROADMAP 2.8 (8.4) — Creature biology: metabolism Petri nets (hunger/thirst/energy/temp/circadian)
+void World::tick_creature_metabolism() {
+    const int season = season_index(day);
+    const float season_temp = season == 3 ? 5.0f : season == 2 ? 15.0f : season == 0 ? 20.0f : 25.0f;
+    
     for (auto& w : wildlife) {
-        // Only move occasionally
+        if (w.type == WildlifeType::None) continue;
+        
+        // Circadian rhythm update (0..255, 0=midnight, 128=noon)
+        int hour = hour_of_day(*this);
+        w.circadian = static_cast<uint8_t>((hour * 256) / 24);
+        
+        // Body temperature regulation (homeostasis)
+        float ambient = temp_here(w.pos.x, w.pos.y) * 40.0f / 255.0f;
+        float temp_diff = ambient - w.body_temp;
+        // Metabolic heat production based on size/activity
+        float metabolic_heat = (w.type == WildlifeType::Bear) ? 3.0f : (w.type == WildlifeType::Wolf) ? 2.0f : 1.0f;
+        w.body_temp = static_cast<int8_t>(std::clamp<int>(w.body_temp + static_cast<int>(temp_diff * 0.1f + metabolic_heat * 0.05f), 30, 42));
+        
+        // Hunger increases with activity, decreases with eating
+        uint8_t base_hunger_rate = (w.type == WildlifeType::Bear) ? 3 : (w.type == WildlifeType::Wolf) ? 2 : 1;
+        // Circadian: nocturnal animals eat at night
+        bool is_nocturnal = (w.type == WildlifeType::Owl);
+        bool active_phase = is_nocturnal ? (hour >= 20 || hour < 6) : (hour >= 6 && hour < 20);
+        if (active_phase && w.state == 1) { // grazing/eating
+            w.hunger = std::max<uint8_t>(0, w.hunger - 5);
+        } else {
+            w.hunger = std::min<uint8_t>(100, w.hunger + base_hunger_rate);
+        }
+        
+        // Thirst
+        w.thirst = std::min<uint8_t>(100, w.thirst + 2);
+        if (is_water(at(w.pos.x, w.pos.y).tile)) {
+            w.thirst = std::max<uint8_t>(0, w.thirst - 20);
+        }
+        
+        // Energy: restored by rest/sleep, consumed by activity
+        if (w.state == 0) { // idle/resting
+            w.energy = std::min<uint8_t>(100, w.energy + 5);
+        } else if (w.state >= 2) { // fleeing/hunting
+            w.energy = std::max<uint8_t>(0, w.energy - 3);
+        }
+        
+        // Aging
+        w.age_ticks++;
+        if (w.age_ticks % 10000 == 0) { // roughly 1 game year per 10000 ticks
+            if (w.life_stage == 0 && w.age_ticks > 20000) w.life_stage = 1;
+            else if (w.life_stage == 1 && w.age_ticks > 50000) w.life_stage = 2;
+            else if (w.life_stage == 2 && w.age_ticks > 150000) w.life_stage = 3;
+        }
+        
+        // Starvation/dehydration damage
+        if (w.hunger > 90 || w.thirst > 90) {
+            w.energy = std::max<uint8_t>(0, w.energy - 2);
+        }
+    }
+}
+
+// Disease transmission on contact graph
+void World::spread_disease_contact(Wildlife& a, Wildlife& b) {
+    if (a.disease_level == 0 && b.disease_level == 0) return;
+    if (a.disease_level > 0 && b.disease_level == 0) {
+        // A infects B
+        uint8_t transmission = std::min<uint8_t>(50, a.disease_level / 2);
+        if (b.immunity_genes & a.disease_type) transmission /= 2; // immunity helps
+        b.disease_level = std::min<uint8_t>(100, b.disease_level + transmission);
+        b.disease_type = a.disease_type;
+        b.disease_timer = 5000 + (b.immunity_genes % 5000);
+        b.is_carrier = (b.disease_level < 30);
+    } else if (b.disease_level > 0 && a.disease_level == 0) {
+        // B infects A (symmetric)
+        uint8_t transmission = std::min<uint8_t>(50, b.disease_level / 2);
+        if (a.immunity_genes & b.disease_type) transmission /= 2;
+        a.disease_level = std::min<uint8_t>(100, a.disease_level + transmission);
+        a.disease_type = b.disease_type;
+        a.disease_timer = 5000 + (a.immunity_genes % 5000);
+        a.is_carrier = (a.disease_level < 30);
+    }
+}
+
+void World::tick_creature_disease() {
+    // Environmental disease pickup
+    for (auto& w : wildlife) {
+        if (w.type == WildlifeType::None) continue;
+        
+        // Disease progression
+        if (w.disease_level > 0) {
+            if (w.disease_timer > 0) w.disease_timer--;
+            
+            // Recovery chance based on immunity
+            uint8_t recovery = (w.immunity_genes % 100) < 10 ? 5 : 1;
+            w.disease_level = (w.disease_level > recovery) ? w.disease_level - recovery : 0;
+            if (w.disease_level == 0) {
+                w.disease_type = 0;
+                w.disease_timer = 0;
+                w.is_carrier = false;
+                // Gain immunity
+                w.immunity_genes |= (1u << (w.disease_type % 16));
+            }
+            
+            // Severe disease effects
+            if (w.disease_level > 80) {
+                w.energy = std::max<uint8_t>(0, w.energy - 2);
+                w.hunger = std::min<uint8_t>(100, w.hunger + 5);
+            }
+        }
+        
+        // Environmental exposure (water, rot, etc.)
+        if (w.disease_level == 0) {
+            Cell& c = at(w.pos.x, w.pos.y);
+            if (c.tile == Tile::Water && (c.corruption > 100 || humidity_here(w.pos.x, w.pos.y) > 200)) {
+                unsigned roll = ((day * 2654435761u) + static_cast<unsigned>(w.pos.x) * 31u + static_cast<unsigned>(w.pos.y) * 17u) % 1000;
+                if (roll < 5) {
+                    w.disease_level = 10;
+                    w.disease_type = 3; // bacterial from bad water
+                    w.disease_timer = 3000;
+                }
+            }
+        }
+    }
+    
+    // Contact transmission: check all pairs within 2 tiles
+    for (size_t i = 0; i < wildlife.size(); ++i) {
+        for (size_t j = i + 1; j < wildlife.size(); ++j) {
+            Wildlife& a = wildlife[i];
+            Wildlife& b = wildlife[j];
+            if (a.type == WildlifeType::None || b.type == WildlifeType::None) continue;
+            int dx = abs(int(a.pos.x) - int(b.pos.x));
+            int dy = abs(int(a.pos.y) - int(b.pos.y));
+            if (dx <= 2 && dy <= 2) {
+                spread_disease_contact(a, b);
+            }
+        }
+    }
+}
+
+// L-system aging, growth, reproduction
+void World::tick_creature_aging() {
+    for (size_t i = 0; i < wildlife.size(); ++i) {
+        Wildlife& w = wildlife[i];
+        if (w.type == WildlifeType::None) continue;
+        
+        // Life stage transitions
+        if (w.life_stage == 0 && w.age_ticks > 20000) { // infant -> juvenile
+            w.life_stage = 1;
+            w.social_rank = 10;
+        } else if (w.life_stage == 1 && w.age_ticks > 50000) { // juvenile -> adult
+            w.life_stage = 2;
+            w.social_rank = 50;
+            w.fertility = 80 + (w.immunity_genes % 20);
+        } else if (w.life_stage == 2 && w.age_ticks > 150000) { // adult -> senior
+            w.life_stage = 3;
+            w.fertility = std::max<uint8_t>(0, w.fertility - 20);
+        }
+        
+        // Pregnancy
+        if (w.gestation_timer > 0) {
+            w.gestation_timer--;
+            if (w.gestation_timer == 0) {
+                handle_creature_birth(i);
+            }
+        }
+        
+        // Senior mortality
+        if (w.life_stage == 3) {
+            unsigned roll = ((day * 2654435761u) + static_cast<unsigned>(w.pos.x) * 31u + static_cast<unsigned>(w.pos.y) * 17u) % 10000;
+            if (roll < 2) { // 0.02% per tick when senior
+                handle_creature_death(i, "old age");
+                continue;
+            }
+        }
+        
+        // Reproduction (adults, high fertility, low population)
+        if (w.life_stage == 2 && w.fertility > 60 && w.energy > 60 && w.hunger < 40) {
+            // Find mate nearby
+            for (size_t j = 0; j < wildlife.size(); ++j) {
+                if (i == j) continue;
+                Wildlife& mate = wildlife[j];
+                if (mate.type != w.type || mate.life_stage != 2) continue;
+                if (mate.fertility < 60 || mate.energy < 60 || mate.hunger > 40) continue;
+                int dx = abs(int(w.pos.x) - int(mate.pos.x));
+                int dy = abs(int(w.pos.y) - int(mate.pos.y));
+                if (dx <= 5 && dy <= 5) {
+                    unsigned roll = ((day * 2654435761u) + i * 31u + j * 17u) % 100;
+                    if (roll < 5) { // 5% chance when conditions met
+                        // Determine who gets pregnant (female proxy: lower index)
+                        if (i < j) {
+                            w.gestation_timer = 5000 + (w.immunity_genes % 2000);
+                        } else {
+                            mate.gestation_timer = 5000 + (mate.immunity_genes % 2000);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void World::handle_creature_birth(size_t mother_idx) {
+    if (mother_idx >= wildlife.size()) return;
+    Wildlife& mother = wildlife[mother_idx];
+    if (mother.type == WildlifeType::None) return;
+    
+    // Create offspring
+    Wildlife offspring;
+    offspring.type = mother.type;
+    offspring.pos = {static_cast<int16_t>(mother.pos.x + (mother.pos.x % 3) - 1), 
+                     static_cast<int16_t>(mother.pos.y + (mother.pos.y % 3) - 1)};
+    offspring.home = offspring.pos;
+    offspring.range = 10;
+    offspring.state = 1;
+    offspring.last_move = day * 10000;
+    offspring.age_ticks = 0;
+    offspring.life_stage = 0;
+    offspring.hunger = 20;
+    offspring.thirst = 20;
+    offspring.energy = 100;
+    offspring.body_temp = 37;
+    offspring.circadian = 0;
+    offspring.disease_level = 0;
+    offspring.disease_type = 0;
+    offspring.disease_timer = 0;
+    offspring.is_carrier = false;
+    offspring.social_rank = 0;
+    offspring.herd_id = mother.herd_id;
+    offspring.social_bonds = 0;
+    offspring.territory_radius = 0;
+    offspring.gestation_timer = 0;
+    offspring.fertility = 50;
+    // Inherit genes with mutation
+    offspring.immunity_genes = mother.immunity_genes ^ (static_cast<uint16_t>(day) * 13u);
+    offspring.social_genes = mother.social_genes ^ (static_cast<uint16_t>(day) * 7u);
+    // 1% mutation
+    unsigned mut = (day * 2654435761u + mother_idx * 31u) % 100;
+    if (mut < 1) offspring.immunity_genes ^= 0xFFFF;
+    if (mut < 1) offspring.social_genes ^= 0xFFFF;
+    
+    wildlife.push_back(offspring);
+}
+
+void World::handle_creature_death(size_t idx, const std::string& cause) {
+    if (idx >= wildlife.size()) return;
+    Wildlife& w = wildlife[idx];
+    // Remove from herd if any
+    if (w.herd_id >= 0 && w.herd_id < static_cast<int16_t>(herds.size())) {
+        Herd& h = herds[w.herd_id];
+        auto it = std::find(h.members.begin(), h.members.end(), idx);
+        if (it != h.members.end()) h.members.erase(it);
+        // Reassign alpha if needed
+        if (h.alpha_idx == static_cast<int16_t>(idx)) {
+            h.alpha_idx = h.members.empty() ? -1 : h.members[0];
+        }
+    }
+    // Remove from wildlife (swap with last to keep indices stable for other refs)
+    if (idx + 1 < wildlife.size()) {
+        wildlife[idx] = wildlife.back();
+        // Fix herd member indices
+        for (auto& h : herds) {
+            for (auto& m : h.members) {
+                if (m == wildlife.size() - 1) m = idx;
+            }
+            if (h.alpha_idx == static_cast<int16_t>(wildlife.size() - 1)) h.alpha_idx = static_cast<int16_t>(idx);
+        }
+    }
+    wildlife.pop_back();
+}
+
+// Herd/pack formation and social graph rewriting
+void World::form_herds() {
+    // Clear old herds
+    for (auto& h : herds) {
+        h.members.clear();
+        h.alpha_idx = -1;
+    }
+    
+    // Assign each creature to a herd based on proximity and type
+    std::vector<int16_t> herd_assignment(wildlife.size(), -1);
+    int16_t current_herd = 0;
+    
+    for (size_t i = 0; i < wildlife.size(); ++i) {
+        Wildlife& w = wildlife[i];
+        if (w.type == WildlifeType::None) continue;
+        // Solitary species: owls, fisher-cats, bears
+        if (w.type == WildlifeType::Owl || w.type == WildlifeType::FisherCat || w.type == WildlifeType::Bear) {
+            w.herd_id = -1;
+            continue;
+        }
+        // Social species: deer, rabbits, wolves
+        // Find existing herd of same type within range
+        bool assigned = false;
+        for (size_t h = 0; h < herds.size(); ++h) {
+            Herd& herd = herds[h];
+            if (herd.primary_type != w.type) continue;
+            // Check proximity to herd center
+            int dx = abs(int(w.pos.x) - herd.territory_center.x);
+            int dy = abs(int(w.pos.y) - herd.territory_center.y);
+            if (dx <= static_cast<int>(herd.territory_radius + 20) && dy <= static_cast<int>(herd.territory_radius + 20)) {
+                herd_assignment[i] = static_cast<int16_t>(h);
+                assigned = true;
+                break;
+            }
+        }
+        if (!assigned) {
+            // Create new herd
+            Herd new_herd;
+            new_herd.id = next_herd_id++;
+            new_herd.primary_type = w.type;
+            new_herd.members.push_back(i);
+            new_herd.territory_center = w.pos;
+            new_herd.territory_radius = (w.type == WildlifeType::Wolf) ? 50 : 20;
+            new_herd.alpha_idx = static_cast<int16_t>(i);
+            new_herd.formed_day = day;
+            new_herd.cohesion = 50;
+            herds.push_back(new_herd);
+            herd_assignment[i] = static_cast<int16_t>(herds.size() - 1);
+        }
+    }
+    
+    // Apply assignments and select alpha
+    for (auto& h : herds) h.members.clear();
+    for (size_t i = 0; i < wildlife.size(); ++i) {
+        if (herd_assignment[i] >= 0) {
+            int16_t h = herd_assignment[i];
+            herds[h].members.push_back(i);
+            wildlife[i].herd_id = h;
+        }
+    }
+    // Select alpha (highest social_rank)
+    for (auto& h : herds) {
+        if (h.members.empty()) continue;
+        h.alpha_idx = h.members[0];
+        for (size_t m : h.members) {
+            if (wildlife[m].social_rank > wildlife[h.alpha_idx].social_rank) {
+                h.alpha_idx = static_cast<int16_t>(m);
+            }
+        }
+        // Update territory center to alpha's position
+        if (h.alpha_idx >= 0) {
+            h.territory_center = wildlife[h.alpha_idx].pos;
+        }
+    }
+    
+    // Social graph rewriting: bonds form/break
+    for (auto& w : wildlife) {
+        if (w.type == WildlifeType::None) continue;
+        // Bonds decay over time
+        if (w.social_bonds > 0 && (day % 100 == 0)) {
+            w.social_bonds = std::max<uint8_t>(0, w.social_bonds - 1);
+        }
+        // Form bonds with nearby same-type creatures
+        for (size_t j = 0; j < wildlife.size(); ++j) {
+            if (j == static_cast<size_t>(&w - &wildlife[0])) continue;
+            Wildlife& other = wildlife[j];
+            if (other.type != w.type) continue;
+            int dx = abs(int(w.pos.x) - int(other.pos.x));
+            int dy = abs(int(w.pos.y) - int(other.pos.y));
+            if (dx <= 3 && dy <= 3) {
+                unsigned roll = ((day * 2654435761u) + (&w - &wildlife[0]) * 31u + j * 17u) % 100;
+                if (roll < 10 && w.social_bonds < 10) {
+                    w.social_bonds++;
+                    other.social_bonds++;
+                }
+            }
+        }
+    }
+}
+
+void World::tick_creature_social() {
+    form_herds();
+    
+    // Herd behavior: follow alpha, stay cohesive
+    for (auto& h : herds) {
+        if (h.members.empty() || h.alpha_idx < 0) continue;
+        Wildlife& alpha = wildlife[h.alpha_idx];
+        // Alpha patrols territory
+        int dx = (h.territory_center.x > alpha.pos.x) ? 1 : (h.territory_center.x < alpha.pos.x ? -1 : 0);
+        int dy = (h.territory_center.y > alpha.pos.y) ? 1 : (h.territory_center.y < alpha.pos.y ? -1 : 0);
+        int nx = alpha.pos.x + dx;
+        int ny = alpha.pos.y + dy;
+        if (in_bounds(nx, ny) && walkable(nx, ny)) {
+            alpha.pos = {int16_t(nx), int16_t(ny)};
+        }
+        // Members follow alpha
+        for (size_t m : h.members) {
+            if (m == static_cast<size_t>(h.alpha_idx)) continue;
+            Wildlife& m_w = wildlife[m];
+            int dx = (alpha.pos.x > m_w.pos.x) ? 1 : (alpha.pos.x < m_w.pos.x ? -1 : 0);
+            int dy = (alpha.pos.y > m_w.pos.y) ? 1 : (alpha.pos.y < m_w.pos.y ? -1 : 0);
+            // Add some noise for cohesion
+            int noise_dx = ((day * 13u + m * 7u) % 3) - 1;
+            int noise_dy = ((day * 17u + m * 11u) % 3) - 1;
+            dx = std::clamp(dx + noise_dx, -1, 1);
+            dy = std::clamp(dy + noise_dy, -1, 1);
+            int nx2 = m_w.pos.x + dx;
+            int ny2 = m_w.pos.y + dy;
+            if (in_bounds(nx2, ny2) && walkable(nx2, ny2)) {
+                m_w.pos = {int16_t(nx2), int16_t(ny2)};
+            }
+        }
+    }
+    
+    // Territorial disputes
+    for (size_t i = 0; i < herds.size(); ++i) {
+        for (size_t j = i + 1; j < herds.size(); ++j) {
+            Herd& a = herds[i];
+            Herd& b = herds[j];
+            if (a.primary_type != b.primary_type) continue;
+            int dx = abs(a.territory_center.x - b.territory_center.x);
+            int dy = abs(a.territory_center.y - b.territory_center.y);
+            if (dx <= static_cast<int>(a.territory_radius + b.territory_radius) && 
+                dy <= static_cast<int>(a.territory_radius + b.territory_radius)) {
+                // Dispute: lower cohesion loses territory
+                if (a.cohesion > b.cohesion) {
+                    int nx = b.territory_center.x + (b.territory_center.x > a.territory_center.x ? 5 : -5);
+                    b.territory_center = {static_cast<int16_t>(nx), b.territory_center.y};
+                    b.cohesion = std::max<uint8_t>(10, b.cohesion - 5);
+                    a.cohesion = std::min<uint8_t>(100, a.cohesion + 2);
+                } else {
+                    int nx = a.territory_center.x + (a.territory_center.x > b.territory_center.x ? 5 : -5);
+                    a.territory_center = {static_cast<int16_t>(nx), a.territory_center.y};
+                    a.cohesion = std::max<uint8_t>(10, a.cohesion - 5);
+                    b.cohesion = std::min<uint8_t>(100, b.cohesion + 2);
+                }
+            }
+        }
+    }
+}
+
+// Main wildlife tick (replaces tick_wildlife for biology phase)
+void World::tick_wildlife() {
+    // Original movement behavior
+    uint32_t now = day * 10000;
+    for (auto& w : wildlife) {
+        if (w.type == WildlifeType::None) continue;
         if (now - w.last_move < 2000 + (w.type == WildlifeType::Owl ? 5000 : 0)) continue;
         
         int dx = 0, dy = 0;
         switch (w.type) {
             case WildlifeType::Deer: {
-                // Deer: graze near home, flee from player/predators
                 if (w.state == 2) { // fleeing
                     dx = (w.pos.x > w.target_x) ? 1 : (w.pos.x < w.target_x ? -1 : 0);
                     dy = (w.pos.y > w.target_y) ? 1 : (w.pos.y < w.target_y ? -1 : 0);
                 } else {
-                    // Graze: random walk near home
                     static std::mt19937 rng(day * 99991);
                     std::uniform_int_distribution<int> dist(-1, 1);
                     dx = dist(rng);
                     dy = dist(rng);
-                    // Stay near home
                     if (abs(int(w.pos.x + dx) - w.home.x) > w.range) dx = 0;
                     if (abs(int(w.pos.y + dy) - w.home.y) > w.range) dy = 0;
                 }
                 break;
             }
             case WildlifeType::Owl: {
-                // Owl: nocturnal, perch in trees, hunt at night
                 int hour = hour_of_day(*this);
                 if (hour >= 20 || hour < 6) {
-                    w.state = 3; // hunting
-                    // Move to hunting ground
+                    w.state = 3;
                     dx = (w.pos.x > w.home.x) ? -1 : (w.pos.x < w.home.x ? 1 : 0);
                     dy = (w.pos.y > w.home.y) ? -1 : (w.pos.y < w.home.y ? 1 : 0);
                 } else {
-                    w.state = 4; // perching in tree
-                    // Stay in tree
+                    w.state = 4;
                 }
                 break;
             }
             case WildlifeType::FisherCat: {
-                // Fisher-cat: territorial, hunts small game
-                w.state = 3; // hunting
-                // Patrol territory
+                w.state = 3;
                 static std::mt19937 rng(day * 55555);
                 std::uniform_int_distribution<int> dist(-1, 1);
                 dx = dist(rng);
@@ -1904,45 +2374,58 @@ void World::tick_wildlife() {
                 if (abs(int(w.pos.y + dy) - w.home.y) > w.range) dy = 0;
                 break;
             }
+            case WildlifeType::Wolf: {
+                // Wolves follow pack behavior (handled in tick_creature_social)
+                break;
+            }
+            case WildlifeType::Rabbit: {
+                // Rabbits graze near burrows
+                static std::mt19937 rng(day * 77777);
+                std::uniform_int_distribution<int> dist(-1, 1);
+                dx = dist(rng);
+                dy = dist(rng);
+                if (abs(int(w.pos.x + dx) - w.home.x) > w.range) dx = 0;
+                if (abs(int(w.pos.y + dy) - w.home.y) > w.range) dy = 0;
+                break;
+            }
+            case WildlifeType::Bear: {
+                // Bears are solitary, large range
+                static std::mt19937 rng(day * 88888);
+                std::uniform_int_distribution<int> dist(-2, 2);
+                dx = dist(rng);
+                dy = dist(rng);
+                if (abs(int(w.pos.x + dx) - w.home.x) > w.range * 2) dx = 0;
+                if (abs(int(w.pos.y + dy) - w.home.y) > w.range * 2) dy = 0;
+                break;
+            }
             default: break;
         }
         
-        // Try to move
         int nx = w.pos.x + dx;
         int ny = w.pos.y + dy;
-        if (this->in_bounds(nx, ny) && this->walkable(nx, ny)) {
+        if (in_bounds(nx, ny) && walkable(nx, ny)) {
             w.pos = {int16_t(nx), int16_t(ny)};
-            w.last_move = day * 10000;
+            w.last_move = now;
         }
     }
+    
+    // New biology systems
+    tick_creature_metabolism();
+    tick_creature_disease();
+    tick_creature_aging();
+    tick_creature_social();
     
     // Remove wildlife that wandered too far
     wildlife.erase(std::remove_if(wildlife.begin(), wildlife.end(), 
         [this](const Wildlife& w) {
             return !this->in_bounds(w.pos.x, w.pos.y) || 
-                   (abs(w.pos.x - w.home.x) > w.range * 2 && abs(w.pos.y - w.home.y) > w.range * 2);
+                   (w.herd_id < 0 && abs(w.pos.x - w.home.x) > w.range * 2 && abs(w.pos.y - w.home.y) > w.range * 2);
         }), wildlife.end());
+    
+    // Clean up empty herds
+    herds.erase(std::remove_if(herds.begin(), herds.end(), 
+        [this](const Herd& h) { return h.members.empty(); }), herds.end());
 }
-
-void World::spawn_wildlife_near(WildlifeType type, int x, int y, int count) {
-    std::mt19937 rng(day * 12345 + 67890);
-    std::uniform_int_distribution<int> dist(-3, 3);
-    for (int i = 0; i < count; ++i) {
-        int nx = x + dist(rng);
-        int ny = y + dist(rng);
-        if (!in_bounds(nx, ny) || !walkable(nx, ny)) continue;
-        Wildlife w;
-        w.type = type;
-        w.pos = {int16_t(nx), int16_t(ny)};
-        w.home = {int16_t(nx), int16_t(ny)};
-        w.range = (type == WildlifeType::Owl) ? 20 : (type == WildlifeType::FisherCat ? 25 : 15);
-        w.state = (type == WildlifeType::Owl) ? 4 : (type == WildlifeType::FisherCat ? 3 : 1);
-        w.last_move = 0;
-        wildlife.push_back(w);
-    }
-}
-
-// ---- NPC daily schedules ----
 // Each slot covers [start_hour, end_hour). The villager walks to the anchor
 // when the slot becomes active and stays there until the next one. Hours are
 // game hours (6 AM .. ~30). Festival days override the morning/afternoon

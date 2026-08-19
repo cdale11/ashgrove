@@ -1187,6 +1187,57 @@ tools, and fire, integrated with the atmosphere and soil systems.
 
 ---
 
+## 40. Creature Biology (ROADMAP 2.8)
+
+Shipped 2026-08-19. A deterministic creature biology layer for wildlife,
+integrating metabolism Petri nets, disease contact graphs, aging L-systems,
+and social graph rewriting, all driven by the atmosphere and terrain systems.
+
+### State & data model
+- ✅ `Wildlife` gains metabolism Petri nets: `hunger`, `thirst`, `energy`,
+  `body_temp`, `circadian`, `age_ticks`, `life_stage` (infant/juvenile/adult/senior).
+- ✅ Disease contact graph: `disease_level`, `disease_type`, `disease_timer`,
+  `is_carrier`, `immunity_genes` — deterministic transmission on proximity.
+- ✅ Aging L-systems: life stages (infant→juvenile→adult→senior), reproduction
+  with gestation/birth, senior mortality, genetic inheritance with mutation.
+- ✅ Social graph rewriting: `herd_id`, `social_rank`, `social_bonds`,
+  `territory_radius`, `fertility`, `social_genes`; `Herd` struct with alpha,
+  territory, cohesion; bond formation/decay, territorial disputes.
+- ✅ Serialization: all new fields saved; old saves lazy-initialize biology fields.
+
+### Daily tick (deterministic per day)
+- ✅ **Metabolism Petri nets** (`tick_creature_metabolism`): circadian rhythm
+  drives activity windows; hunger/thirst/energy dynamics; body temperature
+  homeostasis vs ambient; seasonal activity patterns (nocturnal/diurnal).
+- ✅ **Disease contact graph** (`tick_creature_disease`): proximity-based
+  transmission (≤2 tiles); immunity genes reduce transmission; recovery with
+  permanent immunity; environmental exposure from bad water/corruption.
+- ✅ **Aging L-systems** (`tick_creature_aging`): deterministic life-stage
+  transitions; gestation/birth with genetic inheritance + 1% mutation;
+  senior mortality; reproduction gated by fertility/energy/hunger.
+- ✅ **Social graph rewriting** (`tick_creature_social`): herd/pack formation
+  by proximity/type; alpha selection by social_rank; territory establishment;
+  cohesion-driven following; bond formation/decay; territorial disputes.
+
+### Commands & API
+- ✅ `creature` / `wildlife` / `animal`: valley census or per-creature report
+  (hunger/thirst/energy/temp/disease/herd/rank/bonds/fertility/immunity).
+- ✅ `herd` / `pack` / `herds`: valley herd list or specific herd report
+  (members/cohesion/territory/alpha/formation day).
+- ✅ `disease` / `sickness` / `illness`: valley disease report (sick/carriers/
+  immune by species).
+- ✅ Intent rule verbs: `creature`/`wildlife`/`animal`, `herd`/`pack`/`herds`,
+  `disease`/`sickness`/`illness`.
+- ✅ `/state` integration ready (wildlife/herds already exposed).
+
+### Verification
+- ✅ Zero-warning build (`-Wall -Wextra -Wconversion -Wsign-conversion -Wshadow ...`).
+- ✅ Server boot → herds form over 3–5 days (deer/rabbit/wolf packs, solitary owls/bears).
+- ✅ `creature` census shows 6 species; `herd` lists packs with alpha/territory/cohesion.
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

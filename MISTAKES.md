@@ -227,3 +227,8 @@ pass, and ensure new `BuildingState` objects get appropriate defaults.
 **Lesson:** Default enum values can silently break physics when the enum order matches
 a "vulnerable" type. Always explicitly set material properties from semantic type,
 not implicit default.
+
+### M22 — Variable shadowing in handle_cmd new commands caused compiler errors
+**What happened:** The newly added `creature`/`herd`/`disease` commands used `for (auto& w : w.wildlife)` where the loop variable `w` shadowed the function parameter `World& w`. This caused the compiler to fail with "shadowed declaration" errors. The bug was introduced because the commands were added via a script that didn't properly rename the loop variable.
+**Fix:** Renamed all loop variables from `w` to `creature` in the new command blocks, and updated all member accesses accordingly.
+**Lesson:** When adding code to functions with parameters named `w`, `p`, etc., always use descriptive loop variable names (`creature`, `building`, `item`) to avoid shadowing. A global search for `for (auto& w : w.` would have caught this.

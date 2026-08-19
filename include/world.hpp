@@ -629,16 +629,45 @@ struct Cell {
 };
 
 // L6: Wildlife system
-enum class WildlifeType : uint8_t { None = 0, Deer, Owl, FisherCat };
+enum class WildlifeType : uint8_t { None = 0, Deer, Owl, FisherCat, Rabbit, Wolf, Bear };
 
 struct Wildlife {
     WildlifeType type = WildlifeType::None;
     Vec2 pos;
-    Vec2 home;           // home range center
-    uint8_t range = 10;  // home range radius
-    int16_t state = 0;   // 0=idle, 1=grazing, 2=fleeing, 3=hunting, 4=perching
+    Vec2 home;                    // home range center
+    uint8_t range = 10;           // home range radius
+    int16_t state = 0;            // 0=idle, 1=grazing, 2=fleeing, 3=hunting, 4=perching
     uint32_t last_move = 0;
     int16_t target_x = 0, target_y = 0;
+    
+    // ROADMAP 2.8 (8.4) — Creature biology: metabolism Petri nets
+    uint16_t age_ticks = 0;       // age in game ticks (1 tick = ~10s)
+    uint8_t life_stage = 0;       // 0=infant, 1=juvenile, 2=adult, 3=senior
+    uint8_t hunger = 0;           // 0=full, 100=starving
+    uint8_t thirst = 0;           // 0=hydrated, 100=dehydrated
+    uint8_t energy = 100;         // 0=exhausted, 100=energetic
+    int8_t body_temp = 37;        // body temp in Celsius (scaled)
+    uint8_t circadian = 0;        // 0..255 phase (0=midnight, 128=noon)
+    
+    // Disease on contact graph
+    uint8_t disease_level = 0;    // 0=healthy, 100=critical
+    uint8_t disease_type = 0;     // 0=none, 1=parasitic, 2=viral, 3=bacterial, 4=fungal
+    uint16_t disease_timer = 0;   // ticks until recovery/death
+    bool is_carrier = false;      // asymptomatic carrier
+    
+    // Social graph rewriting
+    uint8_t social_rank = 0;      // 0=omega, 1-254=rank, 255=alpha
+    int16_t herd_id = -1;         // -1=solitary, >=0=herd/pack id
+    uint8_t social_bonds = 0;     // number of strong bonds
+    uint16_t territory_radius = 0; // 0=none, >0=territorial
+    
+    // Reproduction
+    uint16_t gestation_timer = 0; // 0=not pregnant, >0=ticks until birth
+    uint8_t fertility = 100;      // 0..100
+    
+    // Genetics (simplified for contact-disease & social inheritance)
+    uint16_t immunity_genes = 0;  // 16-bit immunity mask
+    uint16_t social_genes = 0;    // 16-bit social behavior mask
 };
 
 static inline const char* wildlife_name(WildlifeType t) {
@@ -646,6 +675,9 @@ static inline const char* wildlife_name(WildlifeType t) {
         case WildlifeType::Deer: return "deer";
         case WildlifeType::Owl: return "owl";
         case WildlifeType::FisherCat: return "fisher-cat";
+        case WildlifeType::Rabbit: return "rabbit";
+        case WildlifeType::Wolf: return "wolf";
+        case WildlifeType::Bear: return "bear";
         default: return "creature";
     }
 }
@@ -655,6 +687,9 @@ static inline uint8_t wildlife_color(WildlifeType t) {
         case WildlifeType::Deer: return 2;      // brown
         case WildlifeType::Owl: return 6;       // gray
         case WildlifeType::FisherCat: return 1; // dark red
+        case WildlifeType::Rabbit: return 7;    // white
+        case WildlifeType::Wolf: return 6;      // gray
+        case WildlifeType::Bear: return 2;      // brown
         default: return 7;
     }
 }
@@ -790,6 +825,19 @@ struct World {
     std::unordered_map<uint32_t, Player> players;
     std::vector<NPC> npcs;
     std::vector<Wildlife> wildlife;
+    // ROADMAP 2.8 (8.4) — Creature biology: herds/packs for social graph
+    struct Herd {
+        int16_t id = -1;
+        WildlifeType primary_type = WildlifeType::None;
+        std::vector<size_t> members; // indices into wildlife vector
+        Vec2 territory_center;
+        uint16_t territory_radius = 0;
+        int16_t alpha_idx = -1; // index of alpha in wildlife
+        uint32_t formed_day = 0;
+        uint8_t cohesion = 50; // 0..100
+    };
+    std::vector<Herd> herds;
+    uint16_t next_herd_id = 1;
     std::vector<Bldg> buildings;
     std::unordered_map<std::string, InteriorRoom> interiors;
     std::unordered_map<std::string, BuildingState> building_states;
@@ -1038,6 +1086,15 @@ struct World {
     void init_wildlife();                    // Spawn initial wildlife
     void tick_wildlife();                    // Update wildlife behavior (call in advance_day)
     void spawn_wildlife_near(WildlifeType type, int x, int y, int count); // Spawn specific wildlife
+    // ROADMAP 2.8 (8.4) — Creature biology extensions
+    void tick_creature_metabolism();         // Petri-net metabolism (hunger/thirst/energy/temp/circadian)
+    void tick_creature_disease();            // Disease transmission on contact graph
+    void tick_creature_aging();              // L-system aging, growth, reproduction
+    void tick_creature_social();             // Herd/pack formation, social graph rewriting
+    void form_herds();                       // Form/update herds/packs from proximity
+    void spread_disease_contact(Wildlife& a, Wildlife& b); // Contact transmission
+    void handle_creature_birth(size_t mother_idx); // Birth event
+    void handle_creature_death(size_t idx, const std::string& cause); // Death event
 
     // Phase 6: Horror & Narrative
     void tick_sanity(Player& p);        // daily sanity drift (call in advance_day)

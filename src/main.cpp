@@ -1974,7 +1974,7 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
         "sleep", "rest", "bed", "save", "load", "newgame", "plots", "deeds",
         "basement", "horror", "sanity", "dsl", "explore", "map", "travel",
         "region", "fasttravel", "buy plot", "place barn", "place coop", "weather",
-        "inspect", "toolrepair", "fire", "structural"
+        "inspect", "toolrepair", "fire", "structural", "creature", "herd", "disease"
     };
     std::vector<std::pair<int, std::string>> scores;
     for (const auto& cmd : all_commands) {
@@ -4168,6 +4168,109 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("Avg fire risk: " + std::to_string(total_buildings ? total_fire_risk / total_buildings : 0) + "/100");
         say("Buildings burning: " + std::to_string(burning));
         say("Cells burning: " + std::to_string(burning_cells));
+        return out;
+    }
+
+
+    // ---------- creature (wildlife report) ----------
+    if (cmd == "creature") {
+        std::string target = lower_trim(arg);
+        if (target.empty()) {
+            int counts[7] = {0};
+            for (auto& w : w.wildlife) {
+                if (w.type != WildlifeType::None) counts[static_cast<int>(w.type)]++;
+            }
+            say("=== Valley Wildlife Census ===");
+            say("Deer: " + std::to_string(counts[1]) + "  Rabbits: " + std::to_string(counts[4]) + "  Owls: " + std::to_string(counts[2]) + "  Fisher-cats: " + std::to_string(counts[3]));
+            say("Wolves: " + std::to_string(counts[5]) + "  Bears: " + std::to_string(counts[6]));
+            int herd_count = 0, total_members = 0;
+            for (auto& h : w.herds) {
+                if (!h.members.empty()) { herd_count++; total_members += h.members.size(); }
+            }
+            say("Herds/Packs: " + std::to_string(herd_count) + " (" + std::to_string(total_members) + " members)");
+            int sick = 0, carriers = 0;
+            for (auto& w : w.wildlife) {
+                if (w.disease_level > 0) { if (w.is_carrier) carriers++; else sick++; }
+            }
+            say("Sick: " + std::to_string(sick) + "  Carriers: " + std::to_string(carriers));
+            return out;
+        }
+        WildlifeType t = WildlifeType::None;
+        if (target == "deer") t = WildlifeType::Deer;
+        else if (target == "rabbit") t = WildlifeType::Rabbit;
+        else if (target == "owl") t = WildlifeType::Owl;
+        else if (target == "fisher-cat") t = WildlifeType::FisherCat;
+        else if (target == "wolf") t = WildlifeType::Wolf;
+        else if (target == "bear") t = WildlifeType::Bear;
+        if (t == WildlifeType::None) { say("Unknown creature. Try: deer, rabbit, owl, fisher-cat, wolf, bear"); return out; }
+        for (auto& w : w.wildlife) {
+            if (w.type == t) {
+                const char* stage_name = w.life_stage == 0 ? "infant" : w.life_stage == 1 ? "juvenile" : w.life_stage == 2 ? "adult" : "senior";
+                say("=== " + std::string(wildlife_name(t)) + " Report ===");
+                say("Age: " + std::to_string(w.age_ticks) + " ticks (" + stage_name + ")");
+                say("Hunger: " + std::to_string(w.hunger) + "/100  Thirst: " + std::to_string(w.thirst) + "/100  Energy: " + std::to_string(w.energy) + "/100");
+                say("Body temp: " + std::to_string(w.body_temp) + " C  Circadian: " + std::to_string(w.circadian));
+                say("Disease: " + (w.disease_level > 0 ? std::to_string(w.disease_level) + "/100 (type " + std::to_string(w.disease_type) + ")" : "healthy") + (w.is_carrier ? " [carrier]" : ""));
+                say("Herd: " + std::string(w.herd_id >= 0 ? std::to_string(w.herd_id) : "solitary") + "  Rank: " + std::to_string(w.social_rank) + "  Bonds: " + std::to_string(w.social_bonds));
+                say("Fertility: " + std::to_string(w.fertility) + "/100  Immunity: 0x" + std::to_string(w.immunity_genes));
+                return out;
+            }
+        }
+        say("No " + target + " found.");
+        return out;
+    }
+
+    // ---------- herd (herd/pack details) ----------
+    if (cmd == "herd") {
+        int herd_id = -1;
+        if (!arg.empty()) herd_id = std::stoi(arg);
+        if (herd_id >= 0 && herd_id < static_cast<int>(w.herds.size())) {
+            World::Herd& h = w.herds[herd_id];
+            if (h.members.empty()) { say("Herd " + std::to_string(herd_id) + " is empty."); return out; }
+            say("=== Herd/Pack " + std::to_string(herd_id) + " (" + wildlife_name(h.primary_type) + ") ===");
+            say("Members: " + std::to_string(h.members.size()) + "  Cohesion: " + std::to_string(h.cohesion) + "/100");
+            say("Territory: (" + std::to_string(h.territory_center.x) + "," + std::to_string(h.territory_center.y) + ") radius " + std::to_string(h.territory_radius));
+            if (h.alpha_idx >= 0) {
+                Wildlife& a = w.wildlife[h.alpha_idx];
+                say("Alpha: " + std::string(wildlife_name(a.type)) + " at (" + std::to_string(a.pos.x) + "," + std::to_string(a.pos.y) + ") rank " + std::to_string(a.social_rank));
+            }
+            say("Formed day " + std::to_string(h.formed_day) + "  Cohesion: " + std::to_string(h.cohesion));
+            return out;
+        }
+        say("=== Valley Herds/Packs ===");
+        for (size_t i = 0; i < w.herds.size(); ++i) {
+            World::Herd& h = w.herds[i];
+            if (h.members.empty()) continue;
+            say("Herd " + std::to_string(i) + ": " + wildlife_name(h.primary_type) + "  " + std::to_string(h.members.size()) + " members  cohesion " + std::to_string(h.cohesion) + "/100");
+        }
+        return out;
+    }
+
+    // ---------- disease (wildlife disease status) ----------
+    if (cmd == "disease") {
+        int sick = 0, carriers = 0, immune = 0;
+        for (auto& creature : w.wildlife) {
+            if (creature.disease_level > 0) {
+                if (creature.is_carrier) carriers++;
+                else sick++;
+            }
+            if (creature.immunity_genes != 0) immune++;
+        }
+        say("=== Valley Disease Report ===");
+        say("Sick: " + std::to_string(sick) + "  Asymptomatic carriers: " + std::to_string(carriers) + "  Immune: " + std::to_string(immune));
+        int type_sick[7] = {0}, type_carriers[7] = {0};
+        for (auto& creature : w.wildlife) {
+            if (creature.disease_level > 0) {
+                if (creature.is_carrier) type_carriers[static_cast<int>(creature.type)]++;
+                else type_sick[static_cast<int>(creature.type)]++;
+            }
+        }
+        say("Deer: " + std::to_string(type_sick[1]) + " sick, " + std::to_string(type_carriers[1]) + " carriers");
+        say("Rabbits: " + std::to_string(type_sick[4]) + " sick, " + std::to_string(type_carriers[4]) + " carriers");
+        say("Owls: " + std::to_string(type_sick[2]) + " sick, " + std::to_string(type_carriers[2]) + " carriers");
+        say("Fisher-cats: " + std::to_string(type_sick[3]) + " sick, " + std::to_string(type_carriers[3]) + " carriers");
+        say("Wolves: " + std::to_string(type_sick[5]) + " sick, " + std::to_string(type_carriers[5]) + " carriers");
+        say("Bears: " + std::to_string(type_sick[6]) + " sick, " + std::to_string(type_carriers[6]) + " carriers");
         return out;
     }
 
