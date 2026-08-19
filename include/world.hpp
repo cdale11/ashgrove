@@ -506,6 +506,37 @@ struct PestAgent {
     bool is_predator() const { return kind >= 128; }
 };
 
+// ROADMAP 2.5 (8.1e) — Tree individual physiology & forest ecology.
+// One TreeState per tree cell (cells with `is_tree(c.obj.type)`); everything
+// below replaces the old "hp grows by +1 on a random day" model.
+struct TreeState {
+    uint16_t age = 0;            // days since germination
+    float height = 0.5f;         // meters (tracked per-tree, replaces hardcoded type constants)
+    float biomass = 0.05f;       // kg dry biomass
+    float carbon = 0.0f;         // kg C stored (~0.47 * biomass)
+    float water = 128.0f;        // internal water reserve 0..255
+    float root_depth = 0.3f;     // meters (grown from alleles, used for windthrow resistance)
+    float canopy_area = 1.0f;    // m^2 (leaf area driver for photosynthesis)
+    uint8_t mycorrhiza = 0;      // 0..255 mycorrhizal association (nutrient/water symbiosis)
+    bool old_growth = false;     // age + size threshold met (legacy value, high wood yield)
+    bool player_managed = false; // player-planted: reduced wild seeding, excluded from succession
+    // Intraspecific evolution (ROADMAP 2.3 allele architecture reused for trees).
+    std::array<int8_t, 16> alleles{};  // growth_rate, wood_density, shade_tol, drought_tol,
+                                       // seed_mass, root_depth, branching, phenology, yield,
+                                       // quality, disease_res, pest_res, cold_tol, heat_tol,
+                                       // nutrient_use, fire_tol
+    uint8_t homozygosity = 255;  // fraction of homozygous loci × 255 (reference = pure)
+};
+
+// ROADMAP 2.5 (8.1e) — dispersing seed agents (wind dispersal + soil seed bank).
+struct SeedAgent {
+    uint8_t species = 0;         // index into the tree species table
+    int16_t x = 0, y = 0;        // current cell
+    uint8_t vigor = 100;         // parent fitness 0..255 → germination chance
+    int16_t age = 0;             // days since release (banked seeds accumulate age)
+    std::array<int8_t, 16> alleles{};  // parent genome (breeder's equation inheritance)
+};
+
 struct Crop {
     Item crop = Item::None;   // Parsnip / Potato / Cauliflower
     uint8_t stage = 0;        // 0..3 (sprite index)
@@ -542,6 +573,12 @@ struct Cell {
     Tile tile = Tile::Grass;
     FarmObj obj;
     Crop crop;
+    // ROADMAP 2.5 (8.1e) — Tree individual state (only meaningful on tree cells).
+    TreeState tree;
+    // Soil seed bank (seeds resting in the dirt, species encoded in `tree`?? no —
+    // bank lives on the cell itself so it survives the tree being chopped).
+    uint8_t seed_bank = 0;           // 0..255 viable wild seeds in the soil
+    uint8_t seed_bank_species = 0;   // dominant species index waiting to germinate
     uint8_t snow_compaction = 0; // 0=fluffy, 128=packed, 255=ice (winter only)
     uint8_t forest_state = 0; // L4: bits 0-2 canopy_density(0-7), bits 3-4 undergrowth_type(0-3: 0=none,1=fern,2=berry,3=mushroom), bit5=has_nurse_log, bit6=recent_windthrow, bit7=player_managed
     // L9: Snow tracks
@@ -742,6 +779,18 @@ struct World {
     std::vector<PestAgent> pests;      // free-roaming pest agents on the farm
     std::vector<PestAgent> predators;  // beneficial agents (ladybugs / lacewings)
     float pest_bias = 1.0f;            // severity multiplier (default neutral)
+
+    // ROADMAP 2.5 (8.1e) — dispersing seed agents (wind-carried / banked).
+    std::vector<SeedAgent> seed_agents;
+    // Forest-wide aggregate report (computed by the daily ecology tick for the
+    // `ecology` command and NatureMind's per-chunk sync).
+    uint32_t forest_tree_count = 0;
+    uint32_t forest_old_growth_count = 0;
+    float forest_carbon_stock = 0.0f;    // total kg C across all tree cells
+    float forest_mean_height = 0.0f;     // mean height (m) across tree cells
+    float forest_succession_index = 0.0f; // 0 = pioneer field .. 1 = climax forest
+    uint16_t forest_seed_agent_count = 0;
+    uint8_t forest_mean_mycorrhiza = 0;  // mean mycorrhizal association 0..255
 
     // Farmhouse upgrade level (1=starter, 2=cottage, 3=house, 4=manor)
     uint8_t farmhouse_level = 1;

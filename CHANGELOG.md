@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Forest Ecology & Tree Evolution (ROADMAP 2.5, 2026-08-19)
+- Per-tree `TreeState` on cells (age, height, biomass, carbon, water, root depth,
+  canopy area, mycorrhiza, old-growth, player-managed, 16-allele genome) +
+  `seed_bank`/`seed_bank_species`; World gains `seed_agents` + forest aggregates;
+  14-species trait table; legacy-save backfill for pre-2.5 trees.
+- Deterministic daily `tick_forest_ecology`: LAI 8-neighbour light environment with
+  canopy-gap brightening; carbon/water physiology (gpp/resp/npp, allometry, hp proxy);
+  allele drift + directional selection; mycorrhiza coevolution + network diffusion;
+  old-growth threshold; wind-dispersed seed agents (storm range 3) settling into soil
+  banks; seed-bank germination (pioneers need gaps) + succession; disturbance legacy
+  decay (windthrow 14d, nurse logs ~30d).
+- Player feedback: `ecology`/`foreststatus` report; `planttree <species>` consumes a
+  sapling for a player-managed TreeState (excluded from wild seeding); chop clears
+  TreeState (old-growth yields +2 hardwood, +6 logs, nurse log); hoe clears seed bank;
+  windthrow storms use real physiology; NatureMind `sync_from_world()` grounds chunk
+  aggregates in real trees. Rule verbs `ecology`/`foreststatus` in the intent fast path.
+
+### Fixed — adaptation-poisoning crash (2026-08-19)
+- The runtime intent LoRA emits strings/objects into numeric adaptation fields
+  (`"intensity": "none"`), which threw `nlohmann type_error.302` in
+  `World::apply_adaptations` and aborted the server at the first consolidation.
+  `apply_adaptations` type-guards every read; `parse_llm_response` merges only
+  type-compatible values; the poisoned `data/adaptations.json` was reset to defaults.
+
+### Fixed — forest carbon-economy calibration (2026-08-19)
+- gpp 0.06×canopy vs resp 0.012×biomass put the break-even at ~13 kg biomass, so every
+  legacy tree ran a carbon deficit, shrank, and never reproduced. Recalibrated to gpp
+  0.25×canopy, resp 0.010×biomass (break-even ~0.55×max; dense stands self-thin via the
+  light field, gaps/edges grow); germination rolls are now per-cell deterministic.
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily

@@ -54,6 +54,12 @@ class NatureMind {
   // Called once per in-game day (at 04:00, after TownConsciousness consolidation).
   void tick(uint32_t current_day);
 
+  // ROADMAP 2.5 (8.1e) — overwrite the per-chunk aggregates (carbon stock,
+  // succession stage, species composition) from the actual per-tree individual
+  // state so the aggregate cognition tracks the simulated trees. Call right
+  // before tick().
+  void sync_from_world();
+
   // Disturbance events (fire, windthrow, flood, player clear-cut).
   // Returns true if disturbance created lasting legacy.
   bool apply_disturbance(DisturbanceType type,

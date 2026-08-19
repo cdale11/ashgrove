@@ -104,6 +104,7 @@ std::optional<Intent> IntentEngine::parse_rule(const std::string& raw) {
     if (one_of(c, {"spray"})) { set("spray"); intent.parameters["target"] = arg; return intent; }
     if (one_of(c, {"release", "releasepredators"})) { set("release"); intent.parameters["thing"] = arg; return intent; }
     if (one_of(c, {"companion", "companions"})) { set("companion"); return intent; }
+    if (one_of(c, {"ecology", "foreststatus"})) { set("ecology"); return intent; }
 
     // Social
     if (one_of(c, {"talk", "speak", "chat", "converse"})) { set("talk"); intent.parameters["npc"] = arg; return intent; }

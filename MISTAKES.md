@@ -156,3 +156,48 @@ well under the decode batch. A bare `llama_decode` of an over-long batch is a pr
 abort — never assume it returns an error you can catch. Cap prompts centrally in
 `LlamaWrapper` (2000 tokens) AND budget the prompt builder (memory ≤1500 chars/section,
 events ≤3500 chars). Check `/tmp/server.log` for `GGML_ASSERT` when the server dies.
+
+### M16 — Unguarded JSON→float conversion crashed the server on poisoned adaptation data
+**What happened:** The runtime LoRA (M4) emits strings/objects into numeric adaptation
+fields (`"intensity": "none"`, `{"maybe":"maybe"}`). `World::apply_adaptations` did
+`horror_intensity = h["intensity"]` — implicit `from_json<float>` on a string threw
+`nlohmann type_error.302` ("type must be number, but is string") and aborted the process at
+the FIRST consolidation after load. The data/adaptations.json had been progressively poisoned
+across many consolidations, so any server restart that reached an hour-28 consolidation
+crashed. The gdb backtrace pinned it to `apply_adaptations` → `from_json<float>`.
+**Lesson:** Every `json` → scalar read on LLM-produced or persisted data must be
+type-guarded (`is_number()` etc.). Also prevent re-poisoning at the write side:
+`parse_llm_response` now merges a proposed adaptation value only when its JSON type matches
+the existing one. And the poisoned `data/adaptations.json` was reset to clean defaults —
+sanitize corrupted state files, don't just fix the reader.
+
+### M17 — Forest carbon economy broke even at 13 kg, so no tree ever reproduced
+**What happened:** `gpp = canopy * 0.06` vs `resp = biomass * 0.012` puts npp = 0 at
+biomass ~13 kg. Every legacy tree (backfilled biomass tens–hundreds of kg) ran a chronic
+carbon deficit, shrank, and never satisfied the seed condition `npp > 0 && biomass > 0.3*max`.
+The /ecology report showed carbon stock falling and zero seed agents. Recalibrated to
+gpp 0.25×canopy / resp 0.010×biomass (break-even ~0.55×max; dense stands self-thin via the
+light field, gaps/edges grow) — verified: mature trees mast, seeds drift, banks form,
+germination adds trees.
+**Lesson:** Calibrate ecological balance equations against a realistic state, not just
+dimensionally. Before declaring a growth model done, compute its equilibrium point and check
+it against the intended mature state (here: big healthy trees should roughly break even and
+only stress-limited trees should senesce).
+
+### M18 — Day-seeded RNG roll made seed-bank germination all-or-nothing per day
+**What happened:** The germination roll was `(day * 2654435761u >> 16) % 1000` with no cell
+index, so on any given day every eligible cell used the same roll → either every banked cell
+germinated or none did (0% most days, then a burst). Fixed to mix the cell coordinates into
+the hash.
+**Lesson:** Any per-cell stochastic decision seeded only by global state (day) is a correlated
+roll across the whole map. Always mix per-cell identity into the hash for spatial processes.
+
+### M19 — Server boots at hour 28 can crash in llama decode (rare, intermittent)
+**What happened:** If the save's clock (`time` in save.json) lands inside the 04:00
+consolidation window (day_seconds 734–766), consolidation fires seconds after boot — racing
+llama init — and the first decode occasionally dies silently (no GGML_ASSERT message; gdb
+reproduces only sometimes because boot timing shifts). Normal boots (any other hour) and
+normal-play consolidations are stable; this only triggers on that exact boot clock.
+**Lesson:** Boot-time LLM use is a different risk profile than steady-state. If it recurs,
+defer the first consolidation until the model has finished init (e.g., gate on an "LLM ready"
+flag) rather than relying on clock position. Recorded as a hardening item in ROADMAP.

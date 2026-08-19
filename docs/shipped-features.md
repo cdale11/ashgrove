@@ -981,6 +981,84 @@ report → spray → release → predator control).
 
 ---
 
+## 37. Forest Ecology & Tree Evolution (ROADMAP 2.5)
+
+Shipped 2026-08-19. All 8 roadmap sub-steps implemented as a cell-based model
+(TreeState per tree cell, not the full individual-based vision — see ROADMAP note).
+
+### State & data model
+- ✅ `Cell` gains `tree` (`TreeState`: age, height, biomass, carbon, water,
+  root_depth, canopy_area, mycorrhiza, old_growth, player_managed, 16-allele genome,
+  homozygosity) and `seed_bank` / `seed_bank_species`
+- ✅ `World` gains `seed_agents` + forest aggregates (`forest_tree_count`,
+  `forest_old_growth_count`, `forest_carbon_stock`, `forest_mean_height`,
+  `forest_succession_index`, `forest_seed_agent_count`, `forest_mean_mycorrhiza`);
+  all serialized (sparse cell keys `t_*`, `seed_bank`, world-level `seed_agents`)
+- ✅ 14-species table (`kTreeSpecies`: tree/pine/oak/maple/birch/cedar/redwood/teak/
+  mahogany/rubber/walnut/hickory/chestnut/deodar) with max height/biomass, pioneer,
+  shade/drought tolerance, seed yield, maturity & old-growth age, wood grade
+- ✅ Legacy saves backfilled: pre-2.5 trees (age 0, hp ≥ 5) get biomass/age/height/
+  roots/canopy scaled from their hp
+
+### Daily tick (`tick_forest_ecology`, deterministic per day)
+- ✅ (2) Light environment: seasonal irradiance × LAI 8-neighbour shade
+  (0.35 floor + exponential falloff), canopy-gap brightening
+- ✅ (1) Carbon/water physiology: gpp = light·water·temp·nutrient·canopy, resp =
+  biomass·temperature, npp drives growth / senescence; water uptake (roots +
+  mycorrhiza + drought tolerance) vs transpiration; soil NPK nutrient factor;
+  species allometry maps biomass → height/canopy/root depth; hp proxy derived
+  from biomass for legacy chop/windthrow logic
+- ✅ (5) Intraspecific evolution: per-day allele drift + homozygosity recompute,
+  directional selection pushes stress-tolerance alleles up under chronic stress
+- ✅ (6) Mycorrhiza: develops toward soil microbiome, trees feed microbiome back,
+  network diffusion borrows from healthy neighbors
+- ✅ (7) Old-growth: age ≥ old_growth_days AND biomass ≥ 60% max → flag + canopy 7
+- ✅ (3) Seed production: mature, non-managed, healthy wild trees yield seeds/day
+  (fitness-seeded vigor, 1% per-locus gamete mutation); wind-dispersed agents drift
+  1 tile/day (3 on storm days), settle into the soil bank at age 3 (cap 255/cell,
+  200 agents total, dominant species wins)
+- ✅ (4) Germination + succession: seed bank germinates on open grass/dirt
+  (5%/day in gaps, 1% closed), pioneers need canopy gaps, player-managed cells
+  excluded; per-cell deterministic rolls (not all-or-nothing per day)
+- ✅ (7) Disturbance legacy decay: windthrow clears after 14 days, nurse logs ~30
+
+### Player feedback
+- ✅ `ecology` / `foreststatus` — forest report (tree/old-growth counts, mean height,
+  carbon stock, succession index, drifting seed agents, mycorrhizal network)
+- ✅ `planttree <species>` — consumes the matching sapling, plants a fresh
+  player-managed TreeState (excluded from wild seeding); clears the cell seed bank
+- ✅ Chop (axe) — clears the TreeState; old-growth chop grants +2 hardwood, +6 logs,
+  marks windthrow + nurse log; hoe clears the seed bank
+- ✅ Windthrow storm block uses real physiology (height/root depth/canopy/wood-density
+  allele) instead of the old hardcoded constants
+- ✅ NatureMind `sync_from_world()` grounds each forest chunk's carbon stock,
+  succession stage, and species composition in the actual tree cells before its tick
+
+### Reliability fixes landed alongside
+- ✅ **Adaptation-poisoning crash**: the runtime intent LoRA emits strings/objects
+  into numeric adaptation fields (`"intensity": "none"` etc.), which then threw
+  `nlohmann type_error.302` in `World::apply_adaptations` and aborted the server at
+  the first consolidation. `apply_adaptations` now type-guards every read, and
+  `parse_llm_response` merges proposed values only when the JSON types are compatible.
+  The poisoned `data/adaptations.json` was reset to clean defaults. Verified: server
+  survives a full consolidation (LLM inference + apply_adaptations) and keeps running
+  across days.
+- ✅ **Carbon-economy calibration**: gpp 0.06×canopy vs resp 0.012×biomass put the
+  break-even point at ~13 kg biomass, so every legacy tree ran a carbon deficit and
+  never reproduced. Recalibrated to gpp 0.25×canopy, resp 0.010×biomass (break-even
+  ~0.55×max biomass; dense stands self-thin via the light field, gaps/edges grow).
+  Verified end-to-end: mature trees mast, seed agents drift, soil banks form,
+  germination adds trees (958→959 over a season).
+
+### Known limitation (deferred)
+- If the game boots with the save clock already inside the 04:00 consolidation window
+  (day_seconds 734–766), a consolidation can fire during llama boot init and the first
+  decode occasionally dies silently (rare, intermittent, only on that exact boot
+  clock). Boot at any other hour is unaffected; normal-play consolidations are stable.
+  Tracked as a hardening item.
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.
@@ -1059,7 +1137,7 @@ Core: `help`, `status`/`stats`, `inventory`/`inv`, `time`, `look`/`l`,
 
 Farming/tools: `hoe`/`till`, `plant`, `water`, `harvest`, `fertilize`,
 `axe`/`chop`, `pick`/`mine`, `scythe`/`cut`, `planttree`/`forest`, `tap`,
-`shake`.
+`shake`, `ecology`/`foreststatus`.
 
 World: `fish`, `forage`, `search`, `shop`, `buy`, `sell`, `craft`, `place`.
 

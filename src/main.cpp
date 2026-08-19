@@ -348,6 +348,360 @@ static void tick_pest_disease(World& w, bool rain) {
     }
 }
 
+// ===== ROADMAP 2.5 (8.1e) — Forest Ecology & Tree Evolution =====
+// Per-tree individual physiology (carbon/water, L-System morphology), a light
+// environment driven by canopy shadow, wind-dispersed seed agents + soil seed
+// banks, succession & community assembly, intraspecific evolution (breeder's
+// equation on the 2.3 allele architecture), mycorrhizal networks, disturbance
+// legacy & old-growth, and player feedback. Fully deterministic per day.
+
+// Ecological traits per tree species. species index == array index; cells store
+// this index in seed_bank_species and SeedAgent::species.
+struct TreeSpecies {
+    ObjType type;
+    const char* name;
+    float max_height;      // m
+    float max_biomass;     // kg dry biomass
+    bool pioneer;          // colonizes canopy gaps; shade-intolerant
+    float shade_tol;       // 0..1 (1 = thrives in the understory)
+    float drought_tol;     // 0..1 (1 = thrives in dry soil)
+    float seed_yield;      // seeds/day when mature & healthy (wild trees)
+    int maturity_days;     // age to reach sexual maturity
+    int old_growth_days;   // age threshold for old-growth status
+    uint8_t wood_grade;    // 0=soft, 1=hard, 2=premium (log value scaling)
+};
+static const TreeSpecies kTreeSpecies[] = {
+    {ObjType::Tree,        "tree",      18.0f, 300.0f,  false, 0.40f, 0.35f, 2.0f,  100, 300, 1},
+    {ObjType::Pine,        "pine",      22.0f, 200.0f,  true,  0.20f, 0.55f, 3.0f,   60, 250, 0},
+    {ObjType::Oak,         "oak",       25.0f, 800.0f,  false, 0.50f, 0.40f, 2.0f,  120, 400, 2},
+    {ObjType::Maple,       "maple",     22.0f, 600.0f,  false, 0.60f, 0.30f, 2.0f,  100, 350, 2},
+    {ObjType::Birch,       "birch",     18.0f, 250.0f,  true,  0.15f, 0.40f, 4.0f,   50, 200, 0},
+    {ObjType::Cedar,       "cedar",     24.0f, 400.0f,  true,  0.30f, 0.60f, 3.0f,   70, 300, 1},
+    {ObjType::Redwood,     "redwood",   40.0f, 2000.0f, false, 0.30f, 0.20f, 1.0f,  200, 800, 2},
+    {ObjType::Teak,        "teak",      30.0f, 700.0f,  false, 0.40f, 0.50f, 1.0f,  150, 500, 2},
+    {ObjType::Mahogany,    "mahogany",  32.0f, 750.0f,  false, 0.50f, 0.30f, 1.0f,  150, 500, 2},
+    {ObjType::RubberTree,  "rubber",    25.0f, 350.0f,  false, 0.40f, 0.35f, 2.0f,   90, 300, 1},
+    {ObjType::WalnutTree,  "walnut",    20.0f, 500.0f,  false, 0.50f, 0.40f, 2.0f,  100, 350, 2},
+    {ObjType::HickoryTree, "hickory",   22.0f, 550.0f,  false, 0.50f, 0.50f, 2.0f,  100, 350, 2},
+    {ObjType::ChestnutTree,"chestnut",  24.0f, 600.0f,  false, 0.50f, 0.40f, 2.0f,  100, 350, 2},
+    {ObjType::Deodar,      "deodar",    30.0f, 500.0f,  false, 0.35f, 0.50f, 2.0f,  120, 400, 1},
+};
+static constexpr size_t kNumTreeSpecies = sizeof(kTreeSpecies) / sizeof(kTreeSpecies[0]);
+
+// Species index for a tree ObjType (-1 if not a tree).
+static int tree_species_index(ObjType t) {
+    for (size_t i = 0; i < kNumTreeSpecies; ++i)
+        if (kTreeSpecies[i].type == t) return static_cast<int>(i);
+    return -1;
+}
+
+// Allele -> trait factor (0 = reference; allele /64 mapped to ~0.5..2.0 range).
+static float trait_factor(int8_t allele) {
+    return std::max(0.2f, (static_cast<float>(allele) + 64.0f) / 64.0f);
+}
+
+// Daily forest ecology step (all 8 roadmap sub-steps). Runs inside advance_day.
+static void tick_forest_ecology(World& w, bool rain) {
+    const int season = season_index(w.day);
+    const float seasonal_light = season == 3 ? 0.45f : season == 2 ? 0.70f : 1.0f;
+    const float temp_factor = season == 3 ? 0.40f : season == 2 ? 0.75f : season == 0 ? 0.90f : 1.10f;
+    const int weather_today = w.weather_of_day_adapted(w.day);
+    const bool storm = weather_today == 3;
+
+    // ---- (2) Light environment: seasonal irradiance shaded by neighboring canopy.
+    // LAI proxy = 8-neighbor tree heights; canopy gaps brighten the floor.
+    std::vector<float> light(w.cells.size(), 1.0f);
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            const Cell& c = w.at(x, y);
+            if (!is_tree(c.obj.type)) continue;
+            float lai = 0.0f;
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = x + dx, ny = y + dy;
+                    if (!w.in_bounds(nx, ny)) continue;
+                    const Cell& n = w.at(nx, ny);
+                    if (is_tree(n.obj.type))
+                        lai += std::min(n.tree.height, 8.0f) / 8.0f;
+                }
+            float gap = (c.forest_state != 0 && forest_canopy(c.forest_state) < 3) ? 0.30f : 0.0f;
+            float shade = 0.35f + 0.65f * std::exp(-0.5f * lai);
+            light[static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x)] =
+                std::min(1.0f, seasonal_light * shade + gap);
+        }
+
+    // ---- (1)/(5)/(6) Physiology, evolution, mycorrhiza on each tree cell.
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!is_tree(c.obj.type)) continue;
+            const int sidx = tree_species_index(c.obj.type);
+            if (sidx < 0) continue;
+            const TreeSpecies& sp = kTreeSpecies[static_cast<size_t>(sidx)];
+            TreeState& t = c.tree;
+            size_t idx = static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x);
+
+            // Legacy save compatibility: pre-2.5 trees have hp but no TreeState.
+            if (t.age == 0 && c.obj.hp >= 5) {
+                float frac = static_cast<float>(c.obj.hp) / 255.0f;
+                t.biomass = std::max(0.05f, sp.max_biomass * frac * 0.9f);
+                t.age = static_cast<uint16_t>(static_cast<float>(sp.old_growth_days) * frac * 0.8f);
+                t.height = std::min(sp.max_height,
+                                    0.5f + sp.max_height * std::pow(t.biomass / sp.max_biomass, 1.0f / 3.0f));
+                t.root_depth = std::min(3.0f, 0.3f + t.biomass * 0.004f);
+                t.canopy_area = std::min(sp.max_biomass / 8.0f, 2.0f + t.biomass * 0.05f);
+                t.carbon = t.biomass * 0.47f;
+                t.player_managed = c.forest_state != 0 && forest_player_managed(c.forest_state);
+            }
+
+            t.age++;
+            float growth_f = trait_factor(t.alleles[0]);
+            float shade_f  = trait_factor(t.alleles[2]);
+            float drought_f = trait_factor(t.alleles[3]);
+            float root_f   = trait_factor(t.alleles[5]);
+            float nutr_f   = trait_factor(t.alleles[14]);
+            float cold_f   = trait_factor(t.alleles[12]);
+            float heat_f   = trait_factor(t.alleles[13]);
+
+            // Light satisfaction: pioneers need full sun; climax tolerates shade.
+            float light_needed = sp.pioneer ? 0.70f : std::max(0.10f, 1.0f - sp.shade_tol * shade_f);
+            float light_factor = std::min(1.0f, light[idx] / std::max(0.05f, light_needed));
+
+            // Water balance: uptake from soil saturation (2.2) boosted by roots +
+            // mycorrhiza + drought tolerance; loss from transpiration.
+            float uptake = (static_cast<float>(c.saturation) / 255.0f) *
+                           (0.7f + root_f * 0.4f) * (0.7f + sp.drought_tol * drought_f) *
+                           (0.8f + static_cast<float>(t.mycorrhiza) / 255.0f * 0.6f);
+            float transp = std::min(10.0f, t.canopy_area * 0.05f * temp_factor);
+            float wnew = t.water + uptake * 45.0f - transp * 8.0f;
+            if (rain) wnew += 25.0f;
+            t.water = std::max(0.0f, std::min(255.0f, wnew));
+            float water_factor = t.water < 40.0f ? std::max(0.15f, t.water / 40.0f) : 1.0f;
+
+            // Temperature stress (cold winters, hot summers).
+            float temp_stress = season == 3 ? std::max(0.30f, cold_f * 0.5f)
+                                : season == 1 ? std::max(0.40f, heat_f * 0.6f) : 1.0f;
+
+            // Nutrient factor from soil chemistry (2.1).
+            float n_avail = (static_cast<float>(c.nitrogen) / 255.0f * 0.5f +
+                             static_cast<float>(c.phosphorus) / 255.0f * 0.3f +
+                             static_cast<float>(c.potassium) / 255.0f * 0.2f) * nutr_f;
+            float nutr_factor = 0.60f + n_avail * 0.60f;
+
+            // Carbon economy: gross primary production vs respiration. The
+            // coefficients are calibrated so a healthy mature tree (B ~ 0.5-0.6
+            // max) roughly breaks even and grows in gaps/edges, while dense
+            // canopies (low light_factor) drive mild self-thinning. A smaller
+            // gpp coefficient put the break-even point at B~13 kg, so every
+            // legacy tree ran a carbon deficit, shrank, and never reproduced.
+            float gpp = light_factor * water_factor * temp_stress * nutr_factor * t.canopy_area * 0.25f;
+            float resp = t.biomass * 0.010f * std::max(0.4f, temp_stress);
+            float npp = gpp - resp;
+            t.carbon = std::max(0.0f, t.biomass * 0.47f);
+
+            // Growth allocation (species allometry + growth allele).
+            float grow = std::max(0.0f, npp) * (0.4f + growth_f * 0.4f);
+            if (grow > 0.0f) {
+                t.biomass = std::min(sp.max_biomass, t.biomass + grow);
+                t.height = std::min(sp.max_height,
+                                    0.5f + sp.max_height * std::pow(t.biomass / sp.max_biomass, 1.0f / 3.0f));
+                t.canopy_area = std::min(sp.max_biomass / 8.0f, 2.0f + t.biomass * 0.05f);
+                t.root_depth = std::min(3.0f, 0.3f + t.biomass * 0.004f * root_f);
+            } else if (npp < -0.05f) {
+                // Chronic carbon deficit → senescence (biomass shrinks toward death).
+                t.biomass = std::max(0.05f, t.biomass + npp * 0.5f);
+                t.height = std::max(0.2f, t.height - 0.05f);
+            }
+
+            // Map physiology onto the legacy hp proxy (drives chop/windthrow logic).
+            c.obj.hp = static_cast<uint8_t>(std::min(255, std::max(1,
+                static_cast<int>(std::round(t.biomass / sp.max_biomass * 255.0f)))));
+
+            // ---- (5) Intraspecific evolution: drift + directional selection.
+            {
+                std::mt19937 rng_t(w.day * 7919u + static_cast<uint32_t>(idx) * 131u);
+                for (auto& a : t.alleles) a = drift_allele(a, rng_t, 1);
+                t.homozygosity = compute_homozygosity(t.alleles);
+                // Selection differential: chronic stress pushes the relevant
+                // tolerance allele up (breeder's equation response).
+                if (water_factor < 0.5f && t.alleles[3] < 40) t.alleles[3]++;
+                if (light_factor < 0.5f && t.alleles[2] < 40) t.alleles[2]++;
+            }
+
+            // ---- (6) Mycorrhiza: develops from soil microbiome; coevolution loop.
+            {
+                float target_myc = std::min(255.0f, static_cast<float>(c.microbiome) * 1.1f);
+                t.mycorrhiza = static_cast<uint8_t>(std::max(0, std::min(255,
+                    static_cast<int>(static_cast<float>(t.mycorrhiza) +
+                                     (target_myc - static_cast<float>(t.mycorrhiza)) * 0.02f))));
+                // Trees feed the soil microbiome back (fungi spread).
+                if (t.mycorrhiza > 60 && c.microbiome < 255)
+                    c.microbiome = static_cast<uint8_t>(std::min(255, static_cast<int>(c.microbiome) + 1));
+            }
+
+            // ---- (7) Old-growth threshold.
+            if (!t.old_growth && t.age >= static_cast<uint16_t>(sp.old_growth_days) &&
+                t.biomass >= sp.max_biomass * 0.6f) {
+                t.old_growth = true;
+                if (c.forest_state != 0) forest_set_canopy(c.forest_state, 7);
+            }
+
+            // ---- (3) Seed production from mature wild trees.
+            if (t.age >= static_cast<uint16_t>(sp.maturity_days) &&
+                t.biomass > sp.max_biomass * 0.3f && npp > 0.0f &&
+                !t.player_managed && w.seed_agents.size() < 200) {
+                float yield = sp.seed_yield * light_factor * water_factor *
+                              (t.old_growth ? 1.5f : 1.0f);
+                int seeds = static_cast<int>(yield) > 0 ? static_cast<int>(yield) : 0;
+                float fitness = light_factor * water_factor * nutr_factor;
+                for (int i = 0; i < seeds; ++i) {
+                    SeedAgent sa;
+                    sa.species = static_cast<uint8_t>(sidx);
+                    sa.x = static_cast<int16_t>(x);
+                    sa.y = static_cast<int16_t>(y);
+                    sa.age = 0;
+                    sa.vigor = static_cast<uint8_t>(std::max(0, std::min(255,
+                        static_cast<int>(60.0f + fitness * 190.0f))));
+                    sa.alleles = t.alleles;
+                    // 1% per-locus mutation on the gamete.
+                    std::mt19937 rng_s(w.day * 104729u + static_cast<uint32_t>(idx) * 17u +
+                                       static_cast<unsigned>(i) * 101u);
+                    std::uniform_int_distribution<int> locus(0, 15);
+                    sa.alleles[static_cast<size_t>(locus(rng_s))] =
+                        drift_allele(sa.alleles[static_cast<size_t>(locus(rng_s))], rng_s, 2);
+                    w.seed_agents.push_back(sa);
+                }
+            }
+        }
+
+    // ---- (3b) Mycorrhizal network diffusion: stressed trees borrow from healthy
+    // neighbors (second pass so all trees have current mycorrhiza values).
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (!is_tree(c.obj.type)) continue;
+            TreeState& t = c.tree;
+            if (t.mycorrhiza >= 200) continue;
+            uint8_t best = 0;
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+                    int nx = x + dx, ny = y + dy;
+                    if (!w.in_bounds(nx, ny)) continue;
+                    const Cell& n = w.at(nx, ny);
+                    if (is_tree(n.obj.type)) best = std::max(best, n.tree.mycorrhiza);
+                }
+            if (best > t.mycorrhiza + 4) {
+                t.mycorrhiza = static_cast<uint8_t>(std::min(255,
+                    static_cast<int>(t.mycorrhiza) + ((static_cast<int>(best) - static_cast<int>(t.mycorrhiza)) * 2) / 10 + 1));
+            }
+        }
+
+    // ---- (3b) Seed dispersal (wind drift) → settle into the soil seed bank.
+    {
+        std::vector<SeedAgent> survivors;
+        for (const SeedAgent& sa : w.seed_agents) {
+            SeedAgent a = sa;
+            a.age++;
+            std::mt19937 rng2(w.day * 31u + static_cast<unsigned>(a.x) * 7u +
+                              static_cast<unsigned>(a.y) * 13u + static_cast<unsigned>(a.age));
+            std::uniform_int_distribution<int> dir(0, 7);
+            int d = dir(rng2);
+            int dx = (d % 3) - 1, dy = (d / 3) - 1;
+            int dist = storm ? 3 : 1;
+            int nx = std::max(0, std::min(MAP_W - 1, static_cast<int>(a.x) + dx * dist));
+            int ny = std::max(0, std::min(MAP_H - 1, static_cast<int>(a.y) + dy * dist));
+            a.x = static_cast<int16_t>(nx);
+            a.y = static_cast<int16_t>(ny);
+            // Airborne vigor decays; banked seeds accumulate age (dormancy).
+            if (a.age < 3 && a.vigor > 5) a.vigor = static_cast<uint8_t>(a.vigor - 5);
+            Cell& dest = w.at(nx, ny);
+            if (a.age >= 3) {
+                // Settle into the soil bank (cap per cell).
+                if (dest.seed_bank < 255) {
+                    int add = std::max(1, std::min(4, static_cast<int>(a.vigor) / 85 + 1));
+                    dest.seed_bank = static_cast<uint8_t>(std::min(255,
+                        static_cast<int>(dest.seed_bank) + add));
+                    dest.seed_bank_species = a.species;   // dominant species wins
+                }
+                continue;  // seed consumed into the bank
+            }
+            survivors.push_back(a);
+        }
+        w.seed_agents = survivors;
+        w.forest_seed_agent_count = static_cast<uint16_t>(w.seed_agents.size());
+    }
+
+    // ---- (4) Seed bank germination + succession / community assembly.
+    // Germination needs open soil; pioneers only in canopy gaps. Player-managed
+    // (cultivated) cells never germinate wild trees.
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            Cell& c = w.at(x, y);
+            if (c.seed_bank <= 0) continue;
+            if (c.obj.type != ObjType::None || c.crop.is_crop()) continue;
+            if (c.tile != Tile::Grass && c.tile != Tile::GrassVar && c.tile != Tile::Dirt) continue;
+            if (c.forest_state != 0 && forest_player_managed(c.forest_state)) continue;
+            const TreeSpecies& sp = kTreeSpecies[static_cast<size_t>(c.seed_bank_species)];
+            bool gap = (c.forest_state == 0) ||
+                       (forest_canopy(c.forest_state) < 2) ||
+                       forest_recent_windthrow(c.forest_state);
+            if (!gap && sp.pioneer) continue;  // pioneers need open sky
+            float base = gap ? 0.05f : 0.01f;
+            if (sp.pioneer) base *= gap ? 1.0f : 0.1f;
+            // Per-cell deterministic roll (mix cell index in), so a fraction of
+            // the bank germinates each day rather than all-or-nothing per day.
+            unsigned roll = ((w.day * 2654435761u) ^ ((static_cast<unsigned>(x) * 7u +
+                                                       static_cast<unsigned>(y) * 13u) << 8)) % 1000u;
+            if (static_cast<float>(roll) < base * 1000.0f) {
+                int type_idx = static_cast<int>(c.seed_bank_species);
+                c.obj = {kTreeSpecies[static_cast<size_t>(type_idx)].type, 1, 0};
+                c.tree = TreeState{};
+                c.tree.age = 0;
+                c.tree.height = 0.2f;
+                c.tree.biomass = 0.02f;
+                c.tree.homozygosity = 255;
+                if (c.forest_state != 0) forest_set_canopy(c.forest_state, 1);
+                int remaining = static_cast<int>(c.seed_bank) - 5;
+                c.seed_bank = static_cast<uint8_t>(remaining > 0 ? remaining : 0);
+            }
+        }
+
+    // ---- (7) Disturbance legacy decay: windthrow marks clear after ~2 weeks,
+    // nurse logs after ~30 days.
+    if (w.day % 14 == 0)
+        for (int y = 0; y < MAP_H; ++y)
+            for (int x = 0; x < MAP_W; ++x) {
+                Cell& c = w.at(x, y);
+                if (c.forest_state != 0 && forest_recent_windthrow(c.forest_state))
+                    forest_set_windthrow(c.forest_state, false);
+            }
+
+    // ---- Aggregate report (for the `ecology` command + NatureMind sync).
+    uint32_t n = 0, og = 0;
+    float carbon = 0.0f, hsum = 0.0f, my = 0.0f, succ = 0.0f;
+    for (int y = 0; y < MAP_H; ++y)
+        for (int x = 0; x < MAP_W; ++x) {
+            const Cell& c = w.at(x, y);
+            if (!is_tree(c.obj.type)) continue;
+            const int sidx = tree_species_index(c.obj.type);
+            if (sidx < 0) continue;
+            const TreeSpecies& sp = kTreeSpecies[static_cast<size_t>(sidx)];
+            n++;
+            carbon += c.tree.biomass * 0.47f;
+            hsum += c.tree.height;
+            my += static_cast<float>(c.tree.mycorrhiza);
+            succ += sp.pioneer ? 0.25f : (c.tree.biomass / sp.max_biomass);
+            if (c.tree.old_growth) og++;
+        }
+    w.forest_tree_count = n;
+    w.forest_old_growth_count = og;
+    w.forest_carbon_stock = carbon;
+    w.forest_mean_height = n > 0 ? hsum / static_cast<float>(n) : 0.0f;
+    w.forest_succession_index = n > 0 ? succ / static_cast<float>(n) : 0.0f;
+    w.forest_mean_mycorrhiza = n > 0 ? static_cast<uint8_t>(my / static_cast<float>(n)) : 0;
+}
+
 // Advance to the next day: crops that were watered grow, rain waters everything,
 // all farmers get their energy back. Saves immediately.
 static void advance_day(World& w) {
@@ -461,6 +815,7 @@ static void advance_day(World& w) {
         }
     }
     tick_pest_disease(w, rain);   // ROADMAP 2.4 (8.1d) — pests, spores, predators
+    tick_forest_ecology(w, rain); // ROADMAP 2.5 (8.1e) — tree physiology, seeds, succession
     // sprinklers auto-water adjacent crops overnight
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
@@ -706,21 +1061,29 @@ static void advance_day(World& w) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
                 if (is_tree(c.obj.type) && c.obj.hp > 50) {
-                    // Tree properties based on type
+                    // Tree properties: ROADMAP 2.5 — use the tree's own physiology
+                    // (from tick_forest_ecology) when present; fall back to type
+                    // defaults for legacy trees that predate per-tree state.
                     float wood_density = 0.6f; // g/cm3 default
                     float root_depth = 1.0f;   // meters default
                     float canopy_area = 10.0f; // m2 default
                     float height = 15.0f;      // meters default
-                    
-                    switch (c.obj.type) {
-                        case ObjType::Pine: wood_density = 0.45f; root_depth = 0.8f; canopy_area = 8.0f; height = 20.0f; break;
-                        case ObjType::Oak: wood_density = 0.75f; root_depth = 1.5f; canopy_area = 15.0f; height = 25.0f; break;
-                        case ObjType::Maple: wood_density = 0.65f; root_depth = 1.2f; canopy_area = 12.0f; height = 22.0f; break;
-                        case ObjType::Birch: wood_density = 0.60f; root_depth = 1.0f; canopy_area = 10.0f; height = 18.0f; break;
-                        case ObjType::Cedar: wood_density = 0.50f; root_depth = 1.3f; canopy_area = 11.0f; height = 24.0f; break;
-                        case ObjType::Redwood: wood_density = 0.40f; root_depth = 2.0f; canopy_area = 20.0f; height = 40.0f; break;
-                        case ObjType::Deodar: wood_density = 0.55f; root_depth = 1.4f; canopy_area = 14.0f; height = 30.0f; break;
-                        default: break; // generic tree
+                    if (c.tree.age > 0) {
+                        height = c.tree.height;
+                        root_depth = c.tree.root_depth;
+                        canopy_area = c.tree.canopy_area;
+                        wood_density = 0.45f + trait_factor(c.tree.alleles[1]) * 0.2f;
+                    } else {
+                        switch (c.obj.type) {
+                            case ObjType::Pine: wood_density = 0.45f; root_depth = 0.8f; canopy_area = 8.0f; height = 20.0f; break;
+                            case ObjType::Oak: wood_density = 0.75f; root_depth = 1.5f; canopy_area = 15.0f; height = 25.0f; break;
+                            case ObjType::Maple: wood_density = 0.65f; root_depth = 1.2f; canopy_area = 12.0f; height = 22.0f; break;
+                            case ObjType::Birch: wood_density = 0.60f; root_depth = 1.0f; canopy_area = 10.0f; height = 18.0f; break;
+                            case ObjType::Cedar: wood_density = 0.50f; root_depth = 1.3f; canopy_area = 11.0f; height = 24.0f; break;
+                            case ObjType::Redwood: wood_density = 0.40f; root_depth = 2.0f; canopy_area = 20.0f; height = 40.0f; break;
+                            case ObjType::Deodar: wood_density = 0.55f; root_depth = 1.4f; canopy_area = 14.0f; height = 30.0f; break;
+                            default: break; // generic tree
+                        }
                     }
                     
                     // Wind force on tree (simplified)
@@ -748,6 +1111,7 @@ static void advance_day(World& w) {
                     if (r < uproot_prob) {
                         // Uprooted: becomes nurse log + canopy gap
                         c.obj = {ObjType::Stump, 1, 0};
+                        c.tree = TreeState{};  // individual physiology is gone
                         if (c.tile == Tile::Grass || c.tile == Tile::GrassVar) c.obj.type = ObjType::LeafLitter;
                         // Create canopy gap → light pulse → undergrowth surge
                         if (c.forest_state != 0) {
@@ -760,6 +1124,9 @@ static void advance_day(World& w) {
                     } else if (r < uproot_prob + snap_prob) {
                         // Snapped: trunk remains as snag
                         c.obj.hp = std::max<uint8_t>(c.obj.hp / 2, 20);
+                        // ROADMAP 2.5 — partial canopy loss cuts the tree's leaf area.
+                        c.tree.canopy_area = std::max(1.0f, c.tree.canopy_area * 0.5f);
+                        c.tree.biomass *= 0.8f;
                         // Partial canopy loss
                         if (c.forest_state != 0) {
                             forest_set_canopy(c.forest_state, std::max<uint8_t>(forest_canopy(c.forest_state) - 1, 0));
@@ -767,6 +1134,7 @@ static void advance_day(World& w) {
                     } else if (r < uproot_prob + snap_prob + lean_prob) {
                         // Leaned: permanent bend, reduced growth
                         c.obj.hp = std::max<uint8_t>(static_cast<uint8_t>(c.obj.hp * 0.8f), static_cast<uint8_t>(30));
+                        c.tree.height *= 0.85f;  // permanent lean shortens effective height
                         // Mark as leaned (could add a flag to forest_state)
                         if (c.forest_state != 0) forest_set_windthrow(c.forest_state, true);
                     }
@@ -878,34 +1246,19 @@ if (season == 3) { // Winter
         }
         }
 
-    // Tree growth, sap production, and natural regrowth
-    // Trees grow slowly (chance to grow from sapling to full tree)
-    // Mature trees produce sap/resin/rubber daily (if tapped)
-    // Stumps can regrow into trees over time
-    // Weeds and tall grass regrow naturally
+    // Natural regrowth: weeds, tall grass, flowers, and stump coppicing.
+    // Tree growth itself is handled by tick_forest_ecology (ROADMAP 2.5); sap
+    // tappers are collected manually via the `tap` command.
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
             Cell& c = w.at(x, y);
-            if (is_tree(c.obj.type)) {
-                // Tree sap production: mature trees (hp > 50) produce sap daily
-                if (c.obj.hp > 50 && c.obj.hp < 255) {
-                    // Check if tree has been tapped (ore = 1 means tapped)
-                    if (c.obj.ore == 1) {
-                        c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
-                    }
-                }
-                // Tree growth: small chance to grow (hp increases)
-                if (c.obj.hp < 255) {
-                    int growth_chance = (c.obj.hp < 20) ? 5 : (c.obj.hp < 50) ? 3 : 1;
-                    if (static_cast<unsigned>((static_cast<int>(w.day) * 7 + x * 13 + y * 19) % 100) < static_cast<unsigned>(growth_chance)) {
-                        c.obj.hp = std::min<uint8_t>(c.obj.hp + 1, 255);
-                    }
-                }
-            }
-            // Stump regrowth: 2% chance per day to become a sapling (hp=1)
-            else if (c.obj.type == ObjType::Stump) {
+            // Stump regrowth: 2% chance per day to coppice into a sapling (hp=1)
+            if (c.obj.type == ObjType::Stump) {
                 if ((static_cast<int>(w.day) * 11 + x * 17 + y * 23) % 100 < 2) {
                     c.obj = {ObjType::Tree, 1, 0}; // regrow as generic tree
+                    c.tree = TreeState{};          // fresh sapling physiology
+                    c.tree.height = 0.2f;
+                    c.tree.biomass = 0.02f;
                 }
             }
             // Weed regrowth: on grass/dirt tiles, small chance to spawn weed
@@ -1134,6 +1487,9 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             t == Tile::Sand || t == Tile::Tilled) {
             c.tile = Tile::Tilled;
             c.crop = Crop{};
+            // ROADMAP 2.5 — tilling cultivates the soil: dormant wild seeds are destroyed.
+            c.seed_bank = 0;
+            c.seed_bank_species = 0;
             return "";
         }
         return "Can't hoe here";
@@ -1184,7 +1540,10 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
         if (!spend(def.energy)) return "Exhausted";
         if (--c.obj.hp > 0) return "";
         ObjType was = c.obj.type;
+        bool was_old_growth = c.tree.old_growth;   // ROADMAP 2.5 — legacy value
+        bool was_player_managed = c.tree.player_managed;
         c.obj = FarmObj{};
+        c.tree = TreeState{};                       // clear individual physiology
         if (was == ObjType::Stump) {
             add_item(p, Item::Wood, 2);
             return "+2 wood";
@@ -1207,7 +1566,19 @@ static std::string act_tool(World& w, Player& p, int tx, int ty) {
             add_item(p, Item::DeodarResin, 1);
             log_amount = 6;
         }
-        add_item(p, log, static_cast<uint16_t>(log_amount));
+        // ROADMAP 2.5 — old-growth trees: legacy timber + disturbance legacy.
+        // Felling a giant opens a canopy gap (windthrow + nurse log) that the
+        // ecology tick turns into a pioneer surge.
+        if (was_old_growth) {
+            add_item(p, Item::Hardwood, 2);
+            log_amount += 6;
+            if (c.forest_state == 0) c.forest_state = 1;
+            forest_set_windthrow(c.forest_state, true);
+            forest_set_nurse_log(c.forest_state, true);
+            forest_set_canopy(c.forest_state, 1);
+        }
+        if (was_player_managed && c.forest_state != 0)
+            forest_set_player_managed(c.forest_state, false);
         // Sapling drop: mature trees (hp > 100) have 20% chance to drop a sapling
         // Use the tree's hp before it became a stump (stored in was hp, but we need to track it)
         // The tree's hp was in c.obj.hp before we changed it to stump
@@ -1738,6 +2109,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  spray [all]    clear pests/blight on crops ahead, or the whole farm");
         say("  release [ladybugs|lacewings] [n]  release beneficial insects");
         say("  companion      show companion-planting effects");
+        say("  ecology        forest & tree ecology report (2.5)");
         say("  repair <bldg>  fix a building at Carpenter Shop");
         say("  upgrade farmhouse  expand: cottage/house/manor");
         say("  interact       use furniture inside buildings (alias: use)");
@@ -1985,6 +2357,21 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         say("  Hops are an aphid magnet — keep them apart (crops near hops: " +
             std::to_string(hops_adj) + ").");
         say("  " + std::to_string(crops) + " crop" + (crops == 1 ? "" : "s") + " on the farm.");
+        return out;
+    }
+    if (cmd == "ecology" || cmd == "foreststatus") {
+        say("=== Ashgrove Ecology ===");
+        say("  " + std::to_string(w.forest_tree_count) + " tree" +
+            (w.forest_tree_count == 1 ? "" : "s") + " (" +
+            std::to_string(w.forest_old_growth_count) + " old-growth), mean height " +
+            std::to_string(static_cast<int>(std::round(w.forest_mean_height))) + " m");
+        say("  Carbon stock: " + std::to_string(static_cast<int>(w.forest_carbon_stock)) +
+            " kg C | succession index: " +
+            std::to_string(static_cast<int>(w.forest_succession_index * 100.0f)) + "/100");
+        say("  Seed dispersal: " + std::to_string(w.forest_seed_agent_count) +
+            " agent" + (w.forest_seed_agent_count == 1 ? "" : "s") +
+            " drifting | mycorrhizal network: " +
+            std::to_string(static_cast<int>(w.forest_mean_mycorrhiza)) + "/255");
         return out;
     }
     if (cmd == "inventory" || cmd == "inv") {
@@ -2934,6 +3321,20 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         p.energy -= 2;
         consume_item(p, sapling, 1);
         c.obj = {tree_type, 1, 0}; // hp=1 (sapling), ore=0 (not tapped)
+        // ROADMAP 2.5 — player-planted saplings get fresh physiology + are marked
+        // managed (excluded from wild seeding / succession) for the forest ecology.
+        c.tree = TreeState{};
+        c.tree.height = 0.2f;
+        c.tree.biomass = 0.02f;
+        c.tree.homozygosity = 255;
+        c.tree.player_managed = true;
+        if (c.forest_state == 0) {
+            c.forest_state = 1;  // seedling canopy
+            forest_set_player_managed(c.forest_state, true);
+        } else {
+            forest_set_player_managed(c.forest_state, true);
+        }
+        c.seed_bank = 0;  // planted sapling replaces any dormant wild seeds
         say("Planted a " + std::string(item_def(sapling).name) + ". It will grow over time.");
         say("Mature trees can be tapped for sap/resin/rubber/syrup. Chop with axe for logs.");
         return out;
@@ -5780,6 +6181,7 @@ resp["weather"] = world.weather_of_day_adapted(world.day);
                     last_sync_consolidation_day = world.day;
                     town_consciousness.consolidate();
                     // Phase 7.9: Nature Mind consolidation (runs after Town Consciousness)
+                    nature_mind.sync_from_world();   // ROADMAP 2.5 — ground chunks in real trees
                     nature_mind.tick(world.day);
                     // Phase 7.9: Village Mind consolidation (aggregate NPC mood)
                     village_mind.tick(world.day);

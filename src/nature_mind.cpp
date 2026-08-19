@@ -97,6 +97,90 @@ NatureMind::NatureMind(World* world)
 }
 
 
+// ROADMAP 2.5 (8.1e) — ground the aggregate forest model in the individual
+// tree physiology the world simulates daily (tick_forest_ecology).
+// For each 16x16 chunk: recompute carbon stock, succession stage and species
+// composition from the actual tree cells; chunks with no trees keep their
+// existing (grassland) values.
+namespace {
+// Aggregate species label for a tree ObjType (mirrors main.cpp's species table).
+const char* forest_species_name(ObjType t) {
+  switch (t) {
+    case ObjType::Tree: return "oak";
+    case ObjType::Pine: return "pine";
+    case ObjType::Oak: return "oak";
+    case ObjType::Maple: return "maple";
+    case ObjType::Birch: return "birch";
+    case ObjType::Cedar: return "cedar";
+    case ObjType::Redwood: return "oak";
+    case ObjType::Teak: return "maple";
+    case ObjType::Mahogany: return "maple";
+    case ObjType::RubberTree: return "cedar";
+    case ObjType::WalnutTree: return "oak";
+    case ObjType::HickoryTree: return "oak";
+    case ObjType::ChestnutTree: return "oak";
+    case ObjType::Deodar: return "cedar";
+    default: return "oak";
+  }
+}
+// pioneer species that open succession
+const char* forest_species_guild(ObjType t) {
+  return (t == ObjType::Pine || t == ObjType::Birch || t == ObjType::Cedar) ? "pioneer" : "climax";
+}
+}  // namespace
+
+void NatureMind::sync_from_world() {
+  if (!world_) return;
+  const int chunk_w = 16;
+  const int chunk_h = 16;
+  const int n_chunks_x = (MAP_W + chunk_w - 1) / chunk_w;
+  const int n_chunks_y = (MAP_H + chunk_h - 1) / chunk_h;
+
+  std::vector<float> sum_carbon(static_cast<size_t>(n_chunks_x * n_chunks_y), 0.0f);
+  std::vector<float> sum_succ(static_cast<size_t>(n_chunks_x * n_chunks_y), 0.0f);
+  std::vector<int>   count(static_cast<size_t>(n_chunks_x * n_chunks_y), 0);
+  std::map<std::string, std::map<std::string, float>> species_accum;  // chunk -> name -> biomass
+
+  for (int y = 0; y < MAP_H; ++y) {
+    for (int x = 0; x < MAP_W; ++x) {
+      const Cell& c = world_->at(x, y);
+      if (!is_tree(c.obj.type)) continue;
+      int chunk_id = (y / chunk_h) * n_chunks_x + (x / chunk_w);
+      std::string name = forest_species_name(c.obj.type);
+      sum_carbon[static_cast<size_t>(chunk_id)] += c.tree.biomass * 0.47f;      // kg C
+      float frac = c.tree.biomass;
+      sum_succ[static_cast<size_t>(chunk_id)] +=
+          std::string(forest_species_guild(c.obj.type)) == "pioneer" ? 0.25f * (frac > 0.0f ? 1.0f : 0.0f)
+                                                                     : frac;
+      count[static_cast<size_t>(chunk_id)]++;
+      species_accum[std::to_string(chunk_id)][name] += frac;
+    }
+  }
+
+  for (int cy = 0; cy < n_chunks_y; ++cy) {
+    for (int cx = 0; cx < n_chunks_x; ++cx) {
+      int chunk_id = cy * n_chunks_x + cx;
+      if (count[static_cast<size_t>(chunk_id)] == 0) continue;
+      ForestChunk& chunk = chunks_[static_cast<size_t>(chunk_id)];
+      // Calibration: a fully-forested 16x16 chunk (~2.56 ha) of mature oaks
+      // (~2 t C) reads ~50 Mg C/ha, matching the constructor's nominal range.
+      chunk.carbon_stock = sum_carbon[static_cast<size_t>(chunk_id)] * 0.025f;
+      float n = static_cast<float>(count[static_cast<size_t>(chunk_id)]);
+      chunk.succession_stage = sum_succ[static_cast<size_t>(chunk_id)] / n;
+      chunk.succession_stage = chunk.succession_stage < 0.0f ? 0.0f : (chunk.succession_stage > 1.0f ? 1.0f : chunk.succession_stage);
+      // Normalize species composition (biomass fractions).
+      chunk.species_comp.clear();
+      float total = 0.0f;
+      for (const auto& kv : species_accum[std::to_string(chunk_id)]) total += kv.second;
+      if (total > 0.0f) {
+        for (const auto& kv : species_accum[std::to_string(chunk_id)])
+          chunk.species_comp[kv.first] = kv.second / total;
+      }
+    }
+  }
+}
+
+
 void NatureMind::tick(uint32_t /*current_day*/) {
   if (!world_) return;
 

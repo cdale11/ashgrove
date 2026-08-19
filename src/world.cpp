@@ -2191,12 +2191,17 @@ std::string serialize_world(const World& w) {
         for (int x = 0; x < MAP_W; ++x) {
             const Cell& c = w.at(x, y);
             if (c.obj.type == ObjType::None && !c.crop.is_crop() &&
-                c.tile == Tile::Grass) continue;
+                c.tile == Tile::Grass && c.seed_bank == 0) continue;
             json cj{{"x", x}, {"y", y}, {"tile", static_cast<int>(c.tile)},
                     {"obj", static_cast<int>(c.obj.type)}, {"hp", c.obj.hp}, {"ore", c.obj.ore},
                     {"hp2", c.obj.hp2}, {"hp3", c.obj.hp3},
                     {"snow_compaction", c.snow_compaction}, {"forest_state", c.forest_state},
                     {"track_age", c.track_age}, {"track_type", c.track_type}, {"track_dir", c.track_dir}};
+            // ROADMAP 2.5 (8.1e) — soil seed bank (species index + viability)
+            if (c.seed_bank > 0) {
+                cj["seed_bank"] = c.seed_bank;
+                cj["seed_bank_species"] = c.seed_bank_species;
+            }
             // ROADMAP 2.1/2.2 — Soil Chemistry + Water Table
             cj["nitrogen"] = c.nitrogen;
             cj["phosphorus"] = c.phosphorus;
@@ -2231,6 +2236,23 @@ std::string serialize_world(const World& w) {
                 // ROADMAP 2.4 (8.1d) — Pest/Disease state
                 cj["pest_level"] = c.crop.pest_level;
                 cj["disease_level"] = c.crop.disease_level;
+            }
+            // ROADMAP 2.5 (8.1e) — Tree individual physiology (tree cells only)
+            if (c.obj.type != ObjType::None && is_tree(c.obj.type)) {
+                cj["t_age"] = c.tree.age;
+                cj["t_height"] = c.tree.height;
+                cj["t_biomass"] = c.tree.biomass;
+                cj["t_carbon"] = c.tree.carbon;
+                cj["t_water"] = c.tree.water;
+                cj["t_root_depth"] = c.tree.root_depth;
+                cj["t_canopy_area"] = c.tree.canopy_area;
+                cj["t_mycorrhiza"] = c.tree.mycorrhiza;
+                cj["t_old_growth"] = c.tree.old_growth;
+                cj["t_player_managed"] = c.tree.player_managed;
+                cj["t_homozygosity"] = c.tree.homozygosity;
+                json talleles = json::array();
+                for (int8_t a : c.tree.alleles) talleles.push_back(a);
+                cj["t_alleles"] = talleles;
             }
             j["cells"].push_back(cj);
         }
@@ -2270,6 +2292,19 @@ std::string serialize_world(const World& w) {
             predators.push_back({{"kind", a.kind}, {"x", a.x}, {"y", a.y}, {"hp", a.hp}, {"age", a.age}});
         j["predators"] = predators;
         j["pest_bias"] = w.pest_bias;
+    }
+    // ROADMAP 2.5 (8.1e) — dispersing seed agents (wind-carried / banked)
+    {
+        json sa = json::array();
+        for (auto& a : w.seed_agents) {
+            json aj{{"species", a.species}, {"x", a.x}, {"y", a.y},
+                    {"vigor", a.vigor}, {"age", a.age}};
+            json alleles = json::array();
+            for (int8_t al : a.alleles) alleles.push_back(al);
+            aj["alleles"] = alleles;
+            sa.push_back(aj);
+        }
+        j["seed_agents"] = sa;
     }
     return j.dump();
 }
@@ -2411,6 +2446,28 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 c.crop.pest_level = static_cast<uint8_t>(cj.value("pest_level", 0));
                 c.crop.disease_level = static_cast<uint8_t>(cj.value("disease_level", 0));
             }
+            // ROADMAP 2.5 (8.1e) — soil seed bank
+            c.seed_bank = static_cast<uint8_t>(cj.value("seed_bank", 0));
+            c.seed_bank_species = static_cast<uint8_t>(cj.value("seed_bank_species", 0));
+            // ROADMAP 2.5 (8.1e) — Tree individual physiology
+            if (c.obj.type != ObjType::None && is_tree(c.obj.type)) {
+                c.tree.age = static_cast<uint16_t>(cj.value("t_age", 0));
+                c.tree.height = cj.value("t_height", 0.5f);
+                c.tree.biomass = cj.value("t_biomass", 0.05f);
+                c.tree.carbon = cj.value("t_carbon", 0.0f);
+                c.tree.water = cj.value("t_water", 128.0f);
+                c.tree.root_depth = cj.value("t_root_depth", 0.3f);
+                c.tree.canopy_area = cj.value("t_canopy_area", 1.0f);
+                c.tree.mycorrhiza = static_cast<uint8_t>(cj.value("t_mycorrhiza", 0));
+                c.tree.old_growth = cj.value("t_old_growth", false);
+                c.tree.player_managed = cj.value("t_player_managed", false);
+                c.tree.homozygosity = static_cast<uint8_t>(cj.value("t_homozygosity", 255));
+                if (cj.contains("t_alleles")) {
+                    for (size_t i = 0; i < c.tree.alleles.size() && i < cj["t_alleles"].size(); ++i) {
+                        c.tree.alleles[i] = static_cast<int8_t>(cj["t_alleles"][i]);
+                    }
+                }
+            }
         }
         // Deserialize building states
         if (j.contains("building_states")) {
@@ -2462,6 +2519,22 @@ bool deserialize_world(World& w, const std::string& json_str) {
             w.predators.push_back(a);
         }
         w.pest_bias = j.value("pest_bias", 1.0f);
+        // ROADMAP 2.5 (8.1e) — dispersing seed agents
+        w.seed_agents.clear();
+        for (auto& aj : j.value("seed_agents", json::array())) {
+            SeedAgent a;
+            a.species = static_cast<uint8_t>(aj.value("species", 0));
+            a.x = static_cast<int16_t>(aj.value("x", 0));
+            a.y = static_cast<int16_t>(aj.value("y", 0));
+            a.vigor = static_cast<uint8_t>(aj.value("vigor", 100));
+            a.age = static_cast<int16_t>(aj.value("age", 0));
+            if (aj.contains("alleles")) {
+                for (size_t i = 0; i < a.alleles.size() && i < aj["alleles"].size(); ++i) {
+                    a.alleles[i] = static_cast<int8_t>(aj["alleles"][i]);
+                }
+            }
+            w.seed_agents.push_back(a);
+        }
         return true;
     } catch (const std::exception& e) {
         std::cerr << "save load failed: " << e.what() << "\n";
@@ -2752,32 +2825,36 @@ void World::update_market_prices() {
 // Copies the model's proposed adaptations into typed scalars the game reads.
 // Missing keys keep their current (default) value so a partial JSON is safe.
 void World::apply_adaptations(const json& adaptations) {
+    // Every read below is type-guarded: the runtime LoRA (an intent parser) can
+    // emit garbage into adaptation sections (see M4 / MISTAKES.md), so a section
+    // value may be a string/object instead of a number. An unchecked conversion
+    // threw nlohmann type_error.302 and aborted the whole server at startup.
     if (adaptations.contains("weather") && adaptations["weather"].is_object()) {
         const json& w = adaptations["weather"];
-        if (w.contains("pressure_bias")) weather_pressure_bias = w["pressure_bias"];
-        if (w.contains("humidity_drift")) weather_humidity_drift = w["humidity_drift"];
-        if (w.contains("storm_chance")) weather_storm_chance = w["storm_chance"];
-        if (w.contains("fog_intensity")) weather_fog_intensity = w["fog_intensity"];
-        if (w.contains("temperature_bias")) weather_temperature_bias = w["temperature_bias"];
+        if (w.contains("pressure_bias") && w["pressure_bias"].is_number()) weather_pressure_bias = w["pressure_bias"];
+        if (w.contains("humidity_drift") && w["humidity_drift"].is_number()) weather_humidity_drift = w["humidity_drift"];
+        if (w.contains("storm_chance") && w["storm_chance"].is_number()) weather_storm_chance = w["storm_chance"];
+        if (w.contains("fog_intensity") && w["fog_intensity"].is_number()) weather_fog_intensity = w["fog_intensity"];
+        if (w.contains("temperature_bias") && w["temperature_bias"].is_number()) weather_temperature_bias = w["temperature_bias"];
     }
     if (adaptations.contains("economy") && adaptations["economy"].is_object()) {
         const json& e = adaptations["economy"];
-        if (e.contains("price_elasticity")) economy_price_elasticity = e["price_elasticity"];
-        if (e.contains("market_volatility")) economy_market_volatility = e["market_volatility"];
+        if (e.contains("price_elasticity") && e["price_elasticity"].is_number()) economy_price_elasticity = e["price_elasticity"];
+        if (e.contains("market_volatility") && e["market_volatility"].is_number()) economy_market_volatility = e["market_volatility"];
         if (e.contains("demand_shift") && e["demand_shift"].is_object()) economy_demand_shift = e["demand_shift"];
         if (e.contains("shop_price_mod") && e["shop_price_mod"].is_object()) economy_shop_price_mod = e["shop_price_mod"];
     }
     if (adaptations.contains("horror") && adaptations["horror"].is_object()) {
         const json& h = adaptations["horror"];
-        if (h.contains("intensity")) horror_intensity = h["intensity"];
-        if (h.contains("sanity_drain_multiplier")) horror_sanity_drain_multiplier = h["sanity_drain_multiplier"];
-        if (h.contains("night_event_weight")) horror_night_event_weight = h["night_event_weight"];
-        if (h.contains("phantom_sighting_chance")) horror_phantom_sighting_chance = h["phantom_sighting_chance"];
+        if (h.contains("intensity") && h["intensity"].is_number()) horror_intensity = h["intensity"];
+        if (h.contains("sanity_drain_multiplier") && h["sanity_drain_multiplier"].is_number()) horror_sanity_drain_multiplier = h["sanity_drain_multiplier"];
+        if (h.contains("night_event_weight") && h["night_event_weight"].is_number()) horror_night_event_weight = h["night_event_weight"];
+        if (h.contains("phantom_sighting_chance") && h["phantom_sighting_chance"].is_number()) horror_phantom_sighting_chance = h["phantom_sighting_chance"];
     }
     if (adaptations.contains("performance") && adaptations["performance"].is_object()) {
         const json& p = adaptations["performance"];
-        if (p.contains("npc_decision_interval_ticks")) perf_npc_decision_interval_ticks = p["npc_decision_interval_ticks"];
-        if (p.contains("weather_update_interval_ticks")) perf_weather_update_interval_ticks = p["weather_update_interval_ticks"];
+        if (p.contains("npc_decision_interval_ticks") && p["npc_decision_interval_ticks"].is_number()) perf_npc_decision_interval_ticks = p["npc_decision_interval_ticks"];
+        if (p.contains("weather_update_interval_ticks") && p["weather_update_interval_ticks"].is_number()) perf_weather_update_interval_ticks = p["weather_update_interval_ticks"];
     }
 }
 

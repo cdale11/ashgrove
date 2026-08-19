@@ -309,6 +309,24 @@ std::string TownConsciousness::build_consolidation_prompt() const {
     return oss.str();
 }
 
+// Merge a proposed adaptation section into the current one, but only when the
+// JSON types are compatible. The runtime model is an intent LoRA (see
+// MISTAKES.md M4) and emits strings/objects into numeric adaptation fields;
+// accepting them poisoned data/adaptations.json and crashed the server.
+static void merge_adaptation_section(json& target, const json& proposed) {
+    for (auto& [key, val] : proposed.items()) {
+        if (!target.contains(key)) { target[key] = val; continue; }
+        const json& cur = target[key];
+        if ((cur.is_number() && val.is_number()) ||
+            (cur.is_object() && val.is_object()) ||
+            (cur.is_string() && val.is_string()) ||
+            (cur.is_boolean() && val.is_boolean())) {
+            target[key] = val;
+        }
+        // Mismatched types: keep the existing (trusted) value.
+    }
+}
+
 void TownConsciousness::parse_llm_response(const std::string& response) {
     try {
         // Extract JSON from response (might have extra text) - find the outermost valid JSON object
@@ -344,49 +362,16 @@ void TownConsciousness::parse_llm_response(const std::string& response) {
             json j = json::parse(json_str);
             
             std::lock_guard<std::mutex> lock(adapt_mutex_);
-            // Parse each section with damping
-            if (j.contains("procgen")) {
-                for (auto& [key, val] : j["procgen"].items()) {
-                    if (current_adaptations_.procgen.contains(key)) {
-                        current_adaptations_.procgen[key] = val;
-                    }
-                }
-            }
-            if (j.contains("npc")) {
-                for (auto& [key, val] : j["npc"].items()) {
-                    if (current_adaptations_.npc.contains(key)) {
-                        current_adaptations_.npc[key] = val;
-                    }
-                }
-            }
-            if (j.contains("economy")) {
-                for (auto& [key, val] : j["economy"].items()) {
-                    if (current_adaptations_.economy.contains(key)) {
-                        current_adaptations_.economy[key] = val;
-                    }
-                }
-            }
-            if (j.contains("weather")) {
-                for (auto& [key, val] : j["weather"].items()) {
-                    if (current_adaptations_.weather.contains(key)) {
-                        current_adaptations_.weather[key] = val;
-                    }
-                }
-            }
-            if (j.contains("horror")) {
-                for (auto& [key, val] : j["horror"].items()) {
-                    if (current_adaptations_.horror.contains(key)) {
-                        current_adaptations_.horror[key] = val;
-                    }
-                }
-            }
-            if (j.contains("performance")) {
-                for (auto& [key, val] : j["performance"].items()) {
-                    if (current_adaptations_.performance.contains(key)) {
-                        current_adaptations_.performance[key] = val;
-                    }
-                }
-            }
+            // Parse each section with damping. Each merge is type-guarded: the
+            // runtime model is an intent LoRA and may emit strings/objects into
+            // numeric adaptation fields (M4). Merging blindly poisoned
+            // data/adaptations.json and crashed apply_adaptations at startup.
+            merge_adaptation_section(current_adaptations_.procgen, j.value("procgen", json::object()));
+            merge_adaptation_section(current_adaptations_.npc, j.value("npc", json::object()));
+            merge_adaptation_section(current_adaptations_.economy, j.value("economy", json::object()));
+            merge_adaptation_section(current_adaptations_.weather, j.value("weather", json::object()));
+            merge_adaptation_section(current_adaptations_.horror, j.value("horror", json::object()));
+            merge_adaptation_section(current_adaptations_.performance, j.value("performance", json::object()));
         } catch (const std::exception& e) {
             std::cerr << "[TownConsciousness] Failed to parse LLM response JSON: " << e.what() << std::endl;
             std::cerr << "[TownConsciousness] Response was: " << json_str.substr(0, 200) << "..." << std::endl;
