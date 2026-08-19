@@ -201,3 +201,18 @@ normal-play consolidations are stable; this only triggers on that exact boot clo
 **Lesson:** Boot-time LLM use is a different risk profile than steady-state. If it recurs,
 defer the first consolidation until the model has finished init (e.g., gate on an "LLM ready"
 flag) rather than relying on clock position. Recorded as a hardening item in ROADMAP.
+
+### M20 — init_atmosphere assigned defaults then tick_atmosphere treated them as "yesterday's cloud"
+**What happened:** `init_atmosphere()` assigned `atmos_temp=100`, `atmos_humidity=110`,
+`atmos_cloud=0` when vectors were missing. Then it called `tick_atmosphere()` which
+checked `fresh = (vectors.size() != ATMO_N)` — now false! — so `prev_valid = true`
+and the semi-Lagrangian cloud advection sampled the just-assigned zeros as "yesterday's
+cloud," but the temperature/humidity fields were also the defaults, causing the first
+day's condensation to behave incorrectly. The clouds never built up because the default
+values (100/110) were physically inconsistent with the condensation logic.
+**Fix:** `init_atmosphere()` now clears the vectors instead of assigning defaults, so
+`fresh=true` in `tick_atmosphere()` and the first day's fields are computed purely from
+the spectral fields and pressure systems.
+**Lesson:** Lazy-init helpers that pre-fill arrays must ensure the downstream logic's
+"freshness" check sees the state as uninitialized. Either clear the arrays, or use a
+separate sentinel (e.g., `atmos_day == 0`) to gate the first tick.

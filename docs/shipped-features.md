@@ -1059,6 +1059,81 @@ Shipped 2026-08-19. All 8 roadmap sub-steps implemented as a cell-based model
 
 ---
 
+## 38. Atmospheric Physics (ROADMAP 2.6)
+
+Shipped 2026-08-19. A deterministic 32×24 synoptic atmosphere grid laid over the
+128×96 map (each cell covers 4×4 tiles). The grid is rebuilt every in-game day in
+`World::tick_atmosphere()` from FFT-shaped spectral fields, travelling pressure
+systems, geostrophic wind, and a cloud/precipitation cellular automaton.
+
+### State & data model
+- ✅ `World` gains `atmos_temp`, `atmos_humidity`, `atmos_cloud`, `atmos_precip`,
+  `atmos_pressure`, `atmos_wind_u`, `atmos_wind_v` (compact uint8/int8 arrays,
+  7×768 ≈ 5 KB serialized). `atmos_day` tracks the last updated day.
+- ✅ Lazy initialization: old saves without atmosphere data rebuild the current
+  day's fields on first query via `init_atmosphere()`.
+- ✅ Serialization: fields omitted entirely for pre-2.6 saves; new saves include
+  all 7 arrays + `atmos_day`.
+
+### Daily tick (`tick_atmosphere`, deterministic per day)
+- ✅ Spectral (FFT) fields: radix-2 FFT (power-of-two 32, columns padded to 32)
+  shapes white noise into large-scale synoptic pressure/temperature/humidity
+  anomalies (low-pass, quarter-band). Runs once per day on 32×24 grid.
+- ✅ Travelling pressure systems: a low-pressure center and a high-pressure
+  center drift along deterministic oscillating tracks; a meandering cold-front
+  band trails from the low (L-system branch wiggle), creating the steepest
+  pressure gradients → strongest winds + rain (storm-front dynamics).
+- ✅ Geostrophic wind: wind flows along isobars (low on the left, NH); derived
+  from the pressure gradient plus a seasonal trade wind component.
+- ✅ Cloud/precip CA: semi-Lagrangian advection of yesterday's cloud field by
+  the wind; condensation from humidity and wind convergence (orographic proxy);
+  precip fallout (drizzle at cloud>90, rain at cloud>120, driving rain ×1.6 where
+  wind>45). Cloud persistence 0.9/day.
+- ✅ Town Consciousness bias injection: `weather_temperature_bias`,
+  `weather_humidity_drift`, `weather_storm_chance` shift seasonal baselines and
+  condensation thresholds.
+
+### Per-tile microclimates
+- ✅ `temp_here(x,y)`: ice −45, snow −15, water −8, north highlands (y<24) −10,
+  forest −4, built-up +6.
+- ✅ `humidity_here(x,y)`: water +14, forest +8 (transpiration), sand −18,
+  ice/snow −10, built-up −6.
+- ✅ `wind_here(x,y)`: speed 0–100 from stored components.
+- ✅ `wind_vec_here(x,y)`: east/north components for seed dispersal bias.
+- ✅ `weather_at(x,y)`: 0 sunny, 1 rain, 2 fog, 3 storm (derived from
+  precip/cloud/humidity/wind).
+
+### Consumer migration (global `rain`/`severe_storm` → per-tile)
+- ✅ Crop watering: `cell.crop.watered = rain_here(x,y) > 5` (was global).
+- ✅ Forest ecology: tree water from `rain_here`, `temp_stress` modulated by
+  `temp_here`, seed dispersal distance + direction biased by `wind_here`/
+  `wind_vec_here`.
+- ✅ Water-table recharge: `recharge_rate` scaled by `rain_here/255`, storms ×2.
+- ✅ Pest/disease: recovery/infection/spread rates gated by `rain_here(x,y) > 5`.
+- ✅ Well/pond recharge: only where `rain_here > 5`.
+- ✅ Rain leaching (N/P/K): per-cell `leach_factor` = 0.04 storm, 0.02 rain.
+- ✅ Severe storm crop damage: only where `weather_at == 3`.
+- ✅ Windthrow: `wind_speed = 20 + wind_here×0.3` (20–50 m/s), local soil
+  saturation from recent rain.
+- ✅ Fishing/foraging: local `rain_here` at player position determines catch
+  chance and yields.
+
+### Commands & API
+- ✅ `/weather` (alias `forecast`): regional synopsis (storm/rain/fog/clear
+  counts, pressure range), 32×24 ASCII map (! storm, ~ rain, = fog, . clear),
+  local conditions at player (weather, temp °C, wind/100).
+- ✅ Intent rule verbs: `weather`, `forecast` → action "weather" → `handle_cmd`.
+- ✅ `/state` exposes `atmos` summary: regional counts, temp min/max, per-player
+  `weather_local`.
+
+### Verification
+- ✅ Zero-warning build (`-Wall -Wextra -Wconversion -Wsign-conversion -Wshadow ...`).
+- ✅ Server boot + lazy atmos init from old save → clouds build over 3–5 days,
+  then rain/fog/storms appear in the regional map.
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

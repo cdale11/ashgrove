@@ -188,7 +188,7 @@ static float companion_pest_mod(const World& w, int x, int y) {
 
 // Daily pest/disease step: spore CA (fungus), pest-agent feeding + reproduction along
 // the crop-adjacency transmission graph, and predator hunting. Fully deterministic per day.
-static void tick_pest_disease(World& w, bool rain) {
+static void tick_pest_disease(World& w) {
     std::mt19937 rng(w.day * 104729u + 1234u);
     std::uniform_int_distribution<int> pct(0, 99);
     const int season = season_index(w.day);
@@ -204,9 +204,9 @@ static void tick_pest_disease(World& w, bool rain) {
             if (!c.crop.is_crop()) continue;
             size_t idx = static_cast<size_t>(y) * MAP_W + static_cast<size_t>(x);
             // Dry sunny days help recovery; rain slows it.
-            if (c.crop.disease_level > 0) delta[idx] -= rain ? 4 : 12;
+            if (c.crop.disease_level > 0) delta[idx] -= w.rain_here(x, y) > 5 ? 4 : 12;
             // New infection: weather + wounded tissue, reduced by companions/resistance.
-            float inf = 1.5f + (rain ? 5.0f : 0.0f) +
+            float inf = 1.5f + (w.rain_here(x, y) > 5 ? 5.0f : 0.0f) +
                         (static_cast<float>(c.crop.pest_level) / 255.0f) * 4.0f;
             inf *= companion_pest_mod(w, x, y);
             inf *= (1.0f - genetic_resistance(c.crop, kAlleleDiseaseRes) * 0.7f);
@@ -218,7 +218,7 @@ static void tick_pest_disease(World& w, bool rain) {
         for (int x = 0; x < MAP_W; ++x) {
             Cell& c = w.at(x, y);
             if (c.crop.disease_level == 0) continue;
-            int amount = static_cast<int>(c.crop.disease_level) * (rain ? 40 : 22) / 255;
+            int amount = static_cast<int>(c.crop.disease_level) * (w.rain_here(x, y) > 5 ? 40 : 22) / 255;
             if (amount <= 0) continue;
             for (int d = 0; d < 4; ++d) {
                 int nx = x + dx4[d], ny = y + dy4[d];
@@ -401,12 +401,10 @@ static float trait_factor(int8_t allele) {
 }
 
 // Daily forest ecology step (all 8 roadmap sub-steps). Runs inside advance_day.
-static void tick_forest_ecology(World& w, bool rain) {
+static void tick_forest_ecology(World& w) {
     const int season = season_index(w.day);
     const float seasonal_light = season == 3 ? 0.45f : season == 2 ? 0.70f : 1.0f;
     const float temp_factor = season == 3 ? 0.40f : season == 2 ? 0.75f : season == 0 ? 0.90f : 1.10f;
-    const int weather_today = w.weather_of_day_adapted(w.day);
-    const bool storm = weather_today == 3;
 
     // ---- (2) Light environment: seasonal irradiance shaded by neighboring canopy.
     // LAI proxy = 8-neighbor tree heights; canopy gaps brighten the floor.
@@ -474,13 +472,17 @@ static void tick_forest_ecology(World& w, bool rain) {
                            (0.8f + static_cast<float>(t.mycorrhiza) / 255.0f * 0.6f);
             float transp = std::min(10.0f, t.canopy_area * 0.05f * temp_factor);
             float wnew = t.water + uptake * 45.0f - transp * 8.0f;
-            if (rain) wnew += 25.0f;
+            // ROADMAP 2.6 (8.2): precipitation is local — trees drink their own tile.
+            wnew += static_cast<float>(w.rain_here(x, y)) * 0.10f;
             t.water = std::max(0.0f, std::min(255.0f, wnew));
             float water_factor = t.water < 40.0f ? std::max(0.15f, t.water / 40.0f) : 1.0f;
 
-            // Temperature stress (cold winters, hot summers).
+            // Temperature stress (cold winters, hot summers), modulated by the
+            // per-tile microclimate: valley floors are warmer, the northern
+            // highlands colder.
             float temp_stress = season == 3 ? std::max(0.30f, cold_f * 0.5f)
                                 : season == 1 ? std::max(0.40f, heat_f * 0.6f) : 1.0f;
+            temp_stress *= (0.70f + 0.55f * (static_cast<float>(w.temp_here(x, y)) / 255.0f));
 
             // Nutrient factor from soil chemistry (2.1).
             float n_avail = (static_cast<float>(c.nitrogen) / 255.0f * 0.5f +
@@ -607,8 +609,16 @@ static void tick_forest_ecology(World& w, bool rain) {
                               static_cast<unsigned>(a.y) * 13u + static_cast<unsigned>(a.age));
             std::uniform_int_distribution<int> dir(0, 7);
             int d = dir(rng2);
-            int dx = (d % 3) - 1, dy = (d / 3) - 1;
-            int dist = storm ? 3 : 1;
+            // ROADMAP 2.6 (8.2): the wind biases where seeds drift; storms and
+            // strong gusts carry them further downwind.
+            int wu = 0, wv = 0;
+            w.wind_vec_here(a.x, a.y, wu, wv);
+            const int bx = (wu > 10) ? 1 : (wu < -10) ? -1 : 0;
+            const int by = (wv > 10) ? 1 : (wv < -10) ? -1 : 0;
+            int dx = (d % 3) - 1 + bx;
+            int dy = (d / 3) - 1 + by;
+            const bool stormy = (w.weather_at(a.x, a.y) == 3 || w.wind_here(a.x, a.y) > 30);
+            const int dist = stormy ? 3 : 1;
             int nx = std::max(0, std::min(MAP_W - 1, static_cast<int>(a.x) + dx * dist));
             int ny = std::max(0, std::min(MAP_H - 1, static_cast<int>(a.y) + dy * dist));
             a.x = static_cast<int16_t>(nx);
@@ -707,6 +717,7 @@ static void tick_forest_ecology(World& w, bool rain) {
 static void advance_day(World& w) {
     w.day++;
     w.day_seconds = 0;
+    w.init_atmosphere();   // ROADMAP 2.6 (8.2): rebuild the synoptic grid for the new day
     int todays_weather = w.weather_of_day_adapted(w.day);
     bool rain = (todays_weather == 1 || todays_weather == 3);
     bool severe_storm = (todays_weather == 3);
@@ -811,11 +822,17 @@ static void advance_day(World& w) {
                     }
                 }
             }
-            cell.crop.watered = rain;   // overnight rain waters every plot
+            // ROADMAP 2.6 (8.2): overnight rain waters plots locally, not globally.
+            {
+                const size_t idx = static_cast<size_t>(&cell - &w.cells[0]);
+                const int cx = static_cast<int>(idx % MAP_W);
+                const int cy = static_cast<int>(idx / MAP_W);
+                cell.crop.watered = w.rain_here(cx, cy) > 5;
+            }
         }
     }
-    tick_pest_disease(w, rain);   // ROADMAP 2.4 (8.1d) — pests, spores, predators
-    tick_forest_ecology(w, rain); // ROADMAP 2.5 (8.1e) — tree physiology, seeds, succession
+    tick_pest_disease(w);   // ROADMAP 2.4 (8.1d) — pests, spores, predators
+    tick_forest_ecology(w); // ROADMAP 2.5 (8.1e) — tree physiology, seeds, succession
     // sprinklers auto-water adjacent crops overnight
     for (int y = 0; y < MAP_H; ++y)
         for (int x = 0; x < MAP_W; ++x) {
@@ -853,7 +870,10 @@ static void advance_day(World& w) {
                 cell.crop.last_harvest_season = static_cast<int8_t>(season);
                 // Fruit is ready to harvest (stage 3)
                 cell.crop.stage = 3;
-                cell.crop.watered = rain;
+                // ROADMAP 2.6 (8.2): fruit trees drink from their own microclimate
+                const size_t fidx = static_cast<size_t>(&cell - &w.cells[0]);
+                cell.crop.watered = w.rain_here(static_cast<int>(fidx % MAP_W),
+                                                static_cast<int>(fidx / MAP_W)) > 5;
             }
         }
     }
@@ -895,12 +915,14 @@ static void advance_day(World& w) {
                     continue;
                 }
 
-                // Recharge from rain
+                // Recharge from rain (ROADMAP 2.6 8.2: local precipitation, not a global flag)
                 float recharge = 0.0f;
-                if (rain) {
+                const float rain_amt = static_cast<float>(w.rain_here(x, y));
+                if (rain_amt > 5.0f) {
                     float recharge_rate = c.recharge_capacity / 255.0f * 0.05f; // up to 5% per rain day
-                    if (severe_storm) recharge_rate *= 2.0f;
-                    recharge = recharge_rate * (1.0f - c.saturation / 255.0f); // less recharge if already saturated
+                    if (w.weather_at(x, y) == 3) recharge_rate *= 2.0f;
+                    recharge = recharge_rate * (rain_amt / 255.0f) *
+                               (1.0f - c.saturation / 255.0f); // less recharge if already saturated
                 }
 
                 // Lateral flow (Darcy CA): water moves from shallow to deep water table
@@ -952,8 +974,8 @@ static void advance_day(World& w) {
                 // Shallow water table = higher saturation in root zone
                 float capillary_factor = 1.0f - (c.water_table_depth / 255.0f); // 1 at surface, 0 at 2.55m
                 float target_saturation = std::clamp(50.0f + capillary_factor * 200.0f, 0.0f, 255.0f);
-                // Rain directly increases surface saturation
-                if (rain) target_saturation = std::min(255.0f, target_saturation + (severe_storm ? 40.0f : 20.0f));
+                // Rain directly increases surface saturation (8.2: local rainfall)
+                if (w.rain_here(x, y) > 5) target_saturation = std::min(255.0f, target_saturation + (w.weather_at(x, y) == 3 ? 40.0f : 20.0f));
                 // Evapotranspiration (simplified): crops reduce saturation
                 // (handled in crop growth section via uptake)
 
@@ -993,8 +1015,8 @@ static void advance_day(World& w) {
                         }
                         water_level = std::max<uint8_t>(0, water_level - 5); // well level drops with use
                     } else if (water_level < 100) {
-                        // Well recovers slowly when not pumped (rain/recharge)
-                        if (rain) water_level = std::min<uint8_t>(100, water_level + 10);
+                        // Well recovers slowly when not pumped (rain/recharge; 8.2: local rain)
+                        if (w.rain_here(x, y) > 5) water_level = std::min<uint8_t>(100, water_level + 10);
                     }
                     // Well drying check
                     if (water_level == 0) {
@@ -1039,12 +1061,15 @@ static void advance_day(World& w) {
         }
     }
 
-    // Severe storm effects
-    if (severe_storm) {
+    // Severe storm effects (ROADMAP 2.6 8.2: storms are local — per-cell weather)
+    {
         // 1. Crop damage: 10-30% flattened (recoverable), 5% destroyed
         for (auto& cell : w.cells) {
-            if (cell.crop.is_crop() && cell.crop.days_left > 0) {
-                unsigned roll = ((w.day * 2654435761u) >> 16) % 100;
+            const size_t cidx = static_cast<size_t>(&cell - &w.cells[0]);
+            const int cx = static_cast<int>(cidx % MAP_W);
+            const int cy = static_cast<int>(cidx / MAP_W);
+            if (w.weather_at(cx, cy) == 3 && cell.crop.is_crop() && cell.crop.days_left > 0) {
+                unsigned roll = ((w.day * 2654435761u) + static_cast<unsigned>(cx) * 31u + static_cast<unsigned>(cy) * 17u) % 100;
                 if (roll < 5) {
                     cell.crop = {}; // destroyed
                 } else if (roll < 35) {
@@ -1054,12 +1079,13 @@ static void advance_day(World& w) {
             }
         }
         // 2. Tree windthrow: sophisticated per-tree mechanics (L7)
-        // Wind speed during severe storm: 30-50 m/s
+        // Wind speed scales with the local wind field (severe storms: 20-50 m/s)
         // Soil saturation from recent rain increases uprooting chance
         bool recent_rain = (w.weather_of_day_adapted(w.day - 1) == 1 || w.weather_of_day_adapted(w.day - 2) == 1);
         for (int y = 0; y < MAP_H; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
+                if (w.weather_at(x, y) != 3) continue;
                 if (is_tree(c.obj.type) && c.obj.hp > 50) {
                     // Tree properties: ROADMAP 2.5 — use the tree's own physiology
                     // (from tick_forest_ecology) when present; fall back to type
@@ -1086,8 +1112,8 @@ static void advance_day(World& w) {
                         }
                     }
                     
-                    // Wind force on tree (simplified)
-                    float wind_speed = 40.0f; // m/s during severe storm
+                    // Wind force on tree (simplified) — speed from the local wind field
+                    float wind_speed = 20.0f + static_cast<float>(w.wind_here(x, y)) * 0.3f; // m/s
                     float wind_force = 0.5f * 1.225f * wind_speed * wind_speed * canopy_area; // N
                     
                     // Soil resistance (increases with root depth and wood density, decreases with saturation)
@@ -1322,10 +1348,11 @@ if (season == 3) { // Winter
         }
     }
 
-    // L8: Well/Pond rain recharge
-    if (rain) {
+    // L8: Well/Pond rain recharge (8.2: local precipitation)
+    {
         for (int y = 0; y < MAP_H; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
+                if (w.rain_here(x, y) <= 5) continue;
                 Cell& c = w.at(x, y);
                 if (c.obj.type == ObjType::Well) {
                     // Wells recharge 15-25% per rainy day
@@ -1365,12 +1392,13 @@ if (season == 3) { // Winter
 
     // ROADMAP 2.1 (8.1a) — Rain leaching CA: nutrients move downward with water percolation.
     // Nitrogen (mobile) leaches most; Phosphorus (immobile) leaches least; Potassium intermediate.
-    // Rain intensity scales leaching; severe storms cause 2x leaching.
-    if (rain || severe_storm) {
-        float leach_factor = severe_storm ? 0.04f : 0.02f; // 2-4% per rain event
+    // Rain intensity scales leaching; severe storms cause 2x leaching. (8.2: local rain)
+    {
         for (int y = 1; y < MAP_H - 1; ++y) {
             for (int x = 0; x < MAP_W; ++x) {
                 Cell& c = w.at(x, y);
+                if (w.rain_here(x, y) <= 5) continue;
+                float leach_factor = w.weather_at(x, y) == 3 ? 0.04f : 0.02f; // 2-4% per rain event
                 // Skip water, rock, built surfaces
                 if (c.tile == Tile::Water || c.tile == Tile::WaterNorth || c.tile == Tile::WaterSouth ||
                     c.tile == Tile::WaterEast || c.tile == Tile::WaterWest ||
@@ -1920,7 +1948,7 @@ static std::vector<std::string> suggest_commands(const std::string& input, int m
         "gift", "give", "hearts", "friends", "festival", "fest",
         "sleep", "rest", "bed", "save", "load", "newgame", "plots", "deeds",
         "basement", "horror", "sanity", "dsl", "explore", "map", "travel",
-        "region", "fasttravel", "buy plot", "place barn", "place coop"
+        "region", "fasttravel", "buy plot", "place barn", "place coop", "weather"
     };
     std::vector<std::pair<int, std::string>> scores;
     for (const auto& cmd : all_commands) {
@@ -2395,6 +2423,51 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         return out;
     }
     if (cmd == "time") { say(clock_str(w)); return out; }
+    if (cmd == "weather" || cmd == "forecast") {
+        // ROADMAP 2.6 (8.2): regional synopsis from the atmosphere grid.
+        w.init_atmosphere();
+        say("━━━━ VALLEY WEATHER OFFICE ━━━━");
+        say("  " + std::string(season_name(season_index(w.day))) + " " +
+            std::to_string(season_day(w.day)) + " · Day " + std::to_string(w.day));
+        int n_storm = 0, n_rain = 0, n_fog = 0, n_clear = 0, pmin = 127, pmax = -127, tsum = 0;
+        for (int ay = 0; ay < World::ATMO_H; ++ay)
+            for (int ax = 0; ax < World::ATMO_W; ++ax) {
+                const int wx = ax * World::ATMO_CELL + 2, wy = ay * World::ATMO_CELL + 2;
+                const int wd = w.weather_at(wx, wy);
+                if (wd == 3) ++n_storm;
+                else if (wd == 1) ++n_rain;
+                else if (wd == 2) ++n_fog;
+                else ++n_clear;
+                const int pr = static_cast<int>(w.atmos_pressure[static_cast<size_t>(ay * World::ATMO_W + ax)]);
+                pmin = std::min(pmin, pr);
+                pmax = std::max(pmax, pr);
+                tsum += w.temp_here(wx, wy);
+            }
+        const int wet = static_cast<int>(std::lround(
+            100.0f * static_cast<float>(n_storm + n_rain) / static_cast<float>(World::ATMO_N)));
+        say("  Regional: " + std::to_string(n_storm) + " stormy, " + std::to_string(n_rain) +
+            " rainy, " + std::to_string(n_fog) + " foggy, " + std::to_string(n_clear) +
+            " clear cells (" + std::to_string(wet) + "% wet)");
+        say("  Pressure deviation " + std::to_string(pmin) + ".." + std::to_string(pmax) + " hPa");
+        std::string map = "  [";
+        for (int ay = 0; ay < World::ATMO_H; ++ay) {
+            for (int ax = 0; ax < World::ATMO_W; ++ax) {
+                const int wx = ax * World::ATMO_CELL + 2, wy = ay * World::ATMO_CELL + 2;
+                const int wd = w.weather_at(wx, wy);
+                map += (wd == 3) ? "!" : (wd == 1) ? "~" : (wd == 2) ? "=" : ".";
+            }
+            if (ay + 1 < World::ATMO_H) map += "\n   ";
+        }
+        map += "]";
+        say(map);
+        const int lw = w.weather_at(p.pos.x, p.pos.y);
+        const char* lname = lw == 3 ? "severe storm" : lw == 1 ? "rain" : lw == 2 ? "fog" : "clear skies";
+        const int lc = static_cast<int>(std::lround(static_cast<float>(w.temp_here(p.pos.x, p.pos.y)) * 40.0f / 255.0f));
+        say("  Here (" + std::to_string(p.pos.x) + "," + std::to_string(p.pos.y) + "): " + lname +
+            ", " + std::to_string(lc) + " C, wind " + std::to_string(w.wind_here(p.pos.x, p.pos.y)) + "/100");
+        say("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        return out;
+    }
     if (cmd == "shop") {
         bool winter = season_index(w.day) == 3;
         say("Pierre's Seed Shop  (" + std::string(season_name(season_index(w.day))) + " prices):");
@@ -3449,7 +3522,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             {{"Perch",90,6,21},{"Squid",100,18,2},{"Sturgeon",150,6,21},{"Ice Pip",200,6,21},{"Glacierfish",260,6,21}},
         };
         int hour = hour_of_day(w);
-        bool rainy = w.weather_of_day_adapted(w.day) == 1;
+        bool rainy = w.rain_here(p.pos.x, p.pos.y) > 5;  // 8.2: local conditions
         int roll = rand() % 100;
         int catch_chance = rainy ? 65 : 55;
         if (roll < catch_chance) {
@@ -3492,7 +3565,7 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
         };
         Cell& c = w.at(p.pos);
         if (is_water_any(c.tile) || c.tile == Tile::Tilled) { say("Nothing grows here."); return out; }
-        bool rainy = w.weather_of_day_adapted(w.day) == 1;
+        bool rainy = w.rain_here(p.pos.x, p.pos.y) > 5;  // 8.2: local conditions
         bool in_wood = std::string(region_at(w, p.pos.x, p.pos.y)) == "Whisper Wood";
         
         // L4: Forest state affects forage yields
@@ -5178,6 +5251,7 @@ int main(int argc, char** argv) {
         else std::cout << "New world generated\n";
         init_npcs(world);
         world.init_wildlife();
+        world.init_atmosphere();   // ROADMAP 2.6 (8.2): lazily build the synoptic grid
     }
 
     // ---- locate or download a GGUF model for the local LLM ----
@@ -5423,6 +5497,35 @@ svr.Get("/state", [&](const httplib::Request&, httplib::Response& res) {
             resp["season"] = season_name(season_index(world.day));
             resp["season_i"] = season_index(world.day);
 resp["weather"] = world.weather_of_day_adapted(world.day);
+            // ROADMAP 2.6 (8.2): atmosphere grid summary + per-player local weather
+            world.init_atmosphere();
+            {
+                json at = json::object();
+                int n_storm = 0, n_rain = 0, n_fog = 0, n_clear = 0, tmin = 255, tmax = 0;
+                for (int ay = 0; ay < World::ATMO_H; ++ay)
+                    for (int ax = 0; ax < World::ATMO_W; ++ax) {
+                        const int wx = ax * World::ATMO_CELL + 2;
+                        const int wy = ay * World::ATMO_CELL + 2;
+                        const int wd = world.weather_at(wx, wy);
+                        if (wd == 3) ++n_storm;
+                        else if (wd == 1) ++n_rain;
+                        else if (wd == 2) ++n_fog;
+                        else ++n_clear;
+                        tmin = std::min(tmin, world.temp_here(wx, wy));
+                        tmax = std::max(tmax, world.temp_here(wx, wy));
+                    }
+                at["day"] = world.atmos_day;
+                at["storm_cells"] = n_storm;
+                at["rain_cells"] = n_rain;
+                at["fog_cells"] = n_fog;
+                at["clear_cells"] = n_clear;
+                at["temp_min"] = tmin;
+                at["temp_max"] = tmax;
+                at["weather_local"] = json::object();
+                for (auto& [id, p] : world.players)
+                    at["weather_local"][std::to_string(id)] = world.weather_at(p.pos.x, p.pos.y);
+                resp["atmos"] = at;
+            }
             resp["festival"] = is_festival_day(world.day) ? "Egg Festival" : "";
             resp["cells"] = cells;
             json npc_list = json::array();

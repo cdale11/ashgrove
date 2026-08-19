@@ -37,6 +37,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.25×canopy, resp 0.010×biomass (break-even ~0.55×max; dense stands self-thin via the
   light field, gaps/edges grow); germination rolls are now per-cell deterministic.
 
+### Added — Atmospheric Physics (ROADMAP 2.6, 2026-08-19)
+- 32×24 deterministic synoptic atmosphere grid over the 128×96 map (4×4 tiles per cell):
+  `atmos_temp/humidity/cloud/precip/pressure/wind_u/wind_v` (compact uint8/int8, ~5 KB
+  serialized); lazy init for old saves.
+- Daily `tick_atmosphere`: FFT spectral fields (radix-2, padded 32) for pressure/temp/
+  humidity anomalies; travelling low/high pressure systems on deterministic tracks; a
+  meandering cold-front band (L-system branch wiggle) trailing from the low; geostrophic
+  wind from the pressure gradient + seasonal trade wind; semi-Lagrangian cloud advection
+  + condensation from humidity + wind convergence; precip fallout (drizzle/rain/driving
+  rain/storms); Town Consciousness `weather_*` scalars inject bias.
+- Per-tile microclimates: `temp_here` (ice/snow cold, water cool, forest shade, buildings
+  warm, north highlands cold), `humidity_here` (water/forest +, sand/ice −, built-up −),
+  `wind_here` (speed 0–100), `wind_vec_here` (components), `weather_at` (0 sun, 1 rain,
+  2 fog, 3 storm).
+- Consumer migration: crop watering, forest ecology rain/wind/seed dispersal, water-table
+  recharge, pest/disease humidity, well/pond recharge, rain leaching, storm crop damage/
+  windthrow (local wind speed), fishing/foraging local weather — all now read per-tile
+  queries instead of the global `rain`/`severe_storm` flags.
+- Commands: `/weather` (alias `forecast`) with regional synopsis, 32×24 ASCII map, local
+  conditions; intent rule verbs `weather`/`forecast`; `/state` exposes `atmos` summary
+  (regional counts, temp min/max, per-player `weather_local`).
+- Intent regression 26/30 held (same 4 known param-only failures).
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily

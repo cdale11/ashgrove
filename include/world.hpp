@@ -957,6 +957,37 @@ struct World {
     int   perf_npc_decision_interval_ticks = 5;  // NPC think cadence
     int   perf_weather_update_interval_ticks = 20; // weather recheck cadence
 
+    // ROADMAP 2.6 (8.2) — Atmospheric physics: a coarse synoptic grid laid over
+    // the map (each atmosphere cell covers ATMO_CELL x ATMO_CELL tiles). The grid
+    // is rebuilt deterministically every day in tick_atmosphere() from FFT-shaped
+    // spectral fields, traveling pressure systems, wind advection of the cloud
+    // field, and condensation/precipitation, plus NatureMind climate bias. Fields
+    // are compact (0-255 / signed deltas) to keep the save small; per-tile
+    // queries (weather_at / rain_here / temp_here / humidity_here / wind_here)
+    // blend the coarse cell with terrain microclimates.
+    static constexpr int ATMO_W = 32;           // grid width (atmosphere cells)
+    static constexpr int ATMO_H = 24;           // grid height (atmosphere cells)
+    static constexpr int ATMO_CELL = 4;         // map tiles per atmosphere cell
+    static constexpr int ATMO_N = ATMO_W * ATMO_H;
+    std::vector<uint8_t> atmos_temp;            // 0-255 (~0..40 C, *6.375)
+    std::vector<uint8_t> atmos_humidity;        // 0-255 relative humidity
+    std::vector<uint8_t> atmos_cloud;           // 0-255 cloud cover
+    std::vector<uint8_t> atmos_precip;          // 0-255 rain depth fallen this day
+    std::vector<int8_t>  atmos_pressure;        // pressure deviation -128..127 hPa
+    std::vector<int8_t>  atmos_wind_u;          // eastward wind -64..63 (m/s*10)
+    std::vector<int8_t>  atmos_wind_v;          // northward wind -64..63 (m/s*10)
+    uint32_t atmos_day = 0;                     // day the stored fields describe
+
+    void init_atmosphere();                     // build today's fields if missing (old saves)
+    void tick_atmosphere(uint32_t wday);        // deterministic daily synoptic update
+    int  atmos_index(int x, int y) const;       // map tile -> atmosphere cell
+    int  weather_at(int x, int y) const;        // 0 sunny, 1 rain, 2 fog, 3 storm
+    int  rain_here(int x, int y) const;         // 0-255 rain depth this day at tile
+    int  temp_here(int x, int y) const;         // 0-255 temperature at tile (microclimate)
+    int  humidity_here(int x, int y) const;     // 0-255 humidity at tile (microclimate)
+    int  wind_here(int x, int y) const;         // 0-100 wind speed at tile
+    void wind_vec_here(int x, int y, int& u, int& v) const; // wind components at tile
+
     // Quest/Job methods
     void generate_daily_quests(Player& p);
     void update_market_prices();

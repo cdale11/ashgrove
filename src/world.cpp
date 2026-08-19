@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cctype>
+#include <complex>
 #include <deque>
 #include <sstream>
 #include <iostream>
@@ -13,6 +14,107 @@ using json = nlohmann::json;
 static float noise(int x, int y, float scale) {
     return std::sin(static_cast<float>(x + y) * scale) * std::cos(static_cast<float>(x - y) * scale * 0.7f) * 0.5f + 0.5f;
 }
+
+// ---- ROADMAP 2.6 (8.2) — spectral field synthesis for the atmosphere ----
+namespace atmos {
+// Iterative radix-2 complex FFT (Cooley-Tukey, in place). `size` must be a
+// power of two; `inverse` applies the 1/N normalization. Runs once per day on a
+// 32-wide grid, so the cost is negligible even on the i3-4160.
+void fft_radix2(std::vector<std::complex<float>>& a, bool inverse) {
+    const int n = static_cast<int>(a.size());
+    for (int i = 1, j = 0; i < n; ++i) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) std::swap(a[static_cast<size_t>(i)], a[static_cast<size_t>(j)]);
+    }
+    for (int len = 2; len <= n; len <<= 1) {
+        const float ang = 2.0f * 3.14159265358979323846f /
+                          static_cast<float>(len) * (inverse ? 1.0f : -1.0f);
+        const std::complex<float> wlen(std::cos(ang), std::sin(ang));
+        for (int i = 0; i < n; i += len) {
+            std::complex<float> w(1.0f, 0.0f);
+            for (int k = 0; k < len / 2; ++k) {
+                std::complex<float> u = a[static_cast<size_t>(i) + static_cast<size_t>(k)];
+                std::complex<float> v = a[static_cast<size_t>(i) + static_cast<size_t>(k) +
+                                          static_cast<size_t>(len / 2)] * w;
+                a[static_cast<size_t>(i) + static_cast<size_t>(k)] = u + v;
+                a[static_cast<size_t>(i) + static_cast<size_t>(k) + static_cast<size_t>(len / 2)] = u - v;
+                w *= wlen;
+            }
+        }
+    }
+    if (inverse)
+        for (auto& c : a) c /= static_cast<float>(n);
+}
+
+// Smooth synoptic field: seeded white noise, forward FFT, low-pass (keep only
+// the lowest quarter of frequencies in each axis), inverse FFT, normalize so
+// the largest excursion is ~±strength. The result is gentle large-scale
+// structure (synoptic weather patterns) with no per-cell speckle.
+std::vector<float> spectral_field(uint32_t seed, int w, int h, float strength) {
+    static const int FP = 32;  // padded FFT size (power of two)
+    std::mt19937 rng(seed);
+    std::normal_distribution<float> nd(0.0f, 1.0f);
+    std::vector<std::complex<float>> rows(static_cast<size_t>(h) * static_cast<size_t>(FP));
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            rows[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)] = nd(rng);
+    for (int y = 0; y < h; ++y) {
+        std::vector<std::complex<float>> buf(rows.begin() + static_cast<long>(y) * FP,
+                                             rows.begin() + static_cast<long>(y) * FP + FP);
+        fft_radix2(buf, false);
+        for (int k = 0; k < FP; ++k) {
+            const int kk = k <= FP / 2 ? k : FP - k;
+            if (kk > FP / 4) buf[static_cast<size_t>(k)] = 0.0f;
+        }
+        fft_radix2(buf, true);
+        std::copy(buf.begin(), buf.begin() + w, rows.begin() + static_cast<long>(y) * FP);
+    }
+    std::vector<std::complex<float>> cols(static_cast<size_t>(FP) * static_cast<size_t>(FP));
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            cols[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)] =
+                rows[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)];
+    for (int x = 0; x < w; ++x) {
+        std::vector<std::complex<float>> buf;
+        buf.reserve(FP);
+        for (int y = 0; y < FP; ++y)
+            buf.push_back(cols[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)]);
+        fft_radix2(buf, false);
+        for (int k = 0; k < FP; ++k) {
+            const int kk = k <= FP / 2 ? k : FP - k;
+            if (kk > FP / 4) buf[static_cast<size_t>(k)] = 0.0f;
+        }
+        fft_radix2(buf, true);
+        for (int y = 0; y < FP; ++y)
+            cols[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)] = buf[static_cast<size_t>(y)];
+    }
+    std::vector<float> out(static_cast<size_t>(w) * static_cast<size_t>(h));
+    float mx = 0.0f;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float v = cols[static_cast<size_t>(y) * static_cast<size_t>(FP) + static_cast<size_t>(x)].real();
+            out[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = v;
+            mx = std::max(mx, std::abs(v));
+        }
+    const float scale = mx > 0.0001f ? strength / mx : 1.0f;
+    for (auto& v : out) v *= scale;
+    return out;
+}
+
+// Wrap a grid coordinate into [0,n).
+inline int wrap(int v, int n) {
+    int r = v % n;
+    return r < 0 ? r + n : r;
+}
+
+// Wrap a fractional grid coordinate into [0,n).
+inline float wrapf(float v, int n) {
+    float r = std::fmod(v, static_cast<float>(n));
+    return r < 0 ? r + static_cast<float>(n) : r;
+}
+}  // namespace atmos
 
 static bool is_water(Tile t) {
     return t == Tile::Water || t == Tile::WaterNorth || t == Tile::WaterSouth ||
@@ -2306,6 +2408,18 @@ std::string serialize_world(const World& w) {
         }
         j["seed_agents"] = sa;
     }
+    // ROADMAP 2.6 (8.2) — atmosphere grid (compact arrays; omitted entirely if
+    // the world predates the atmosphere system, so old saves load unchanged).
+    if (w.atmos_temp.size() == World::ATMO_N) {
+        j["atmos_day"] = w.atmos_day;
+        j["atmos_temp"] = w.atmos_temp;
+        j["atmos_humidity"] = w.atmos_humidity;
+        j["atmos_cloud"] = w.atmos_cloud;
+        j["atmos_precip"] = w.atmos_precip;
+        j["atmos_pressure"] = w.atmos_pressure;
+        j["atmos_wind_u"] = w.atmos_wind_u;
+        j["atmos_wind_v"] = w.atmos_wind_v;
+    }
     return j.dump();
 }
 
@@ -2534,6 +2648,28 @@ bool deserialize_world(World& w, const std::string& json_str) {
                 }
             }
             w.seed_agents.push_back(a);
+        }
+        // ROADMAP 2.6 (8.2) — atmosphere grid (optional; old saves have none and
+        // will lazily build today's fields on the first tick / query).
+        if (j.contains("atmos_day")) {
+            auto read_vec = [&j](const char* key, size_t n, auto& dst) {
+                dst.clear();
+                dst.reserve(n);
+                if (!j.contains(key)) return;
+                for (const auto& v : j[key]) {
+                    if (dst.size() >= n) break;
+                    dst.push_back(static_cast<typename std::remove_reference<decltype(dst)>::type::value_type>(
+                        v.template get<typename std::remove_reference<decltype(dst)>::type::value_type>()));
+                }
+            };
+            read_vec("atmos_temp", World::ATMO_N, w.atmos_temp);
+            read_vec("atmos_humidity", World::ATMO_N, w.atmos_humidity);
+            read_vec("atmos_cloud", World::ATMO_N, w.atmos_cloud);
+            read_vec("atmos_precip", World::ATMO_N, w.atmos_precip);
+            read_vec("atmos_pressure", World::ATMO_N, w.atmos_pressure);
+            read_vec("atmos_wind_u", World::ATMO_N, w.atmos_wind_u);
+            read_vec("atmos_wind_v", World::ATMO_N, w.atmos_wind_v);
+            w.atmos_day = static_cast<uint32_t>(j.value("atmos_day", w.day));
         }
         return true;
     } catch (const std::exception& e) {
@@ -2884,6 +3020,240 @@ int World::weather_of_day_adapted(uint32_t wday) const {
     if (fog_thresh > 0 && m < static_cast<unsigned>(fog_thresh)) return 2;
     if (m < static_cast<unsigned>(rain_thresh)) return 1;
     return 0;
+}
+
+// ---- ROADMAP 2.6 (8.2) — Atmosphere grid: deterministic daily synoptic update.
+
+int World::atmos_index(int x, int y) const {
+    const int cx = std::max(0, std::min(ATMO_W - 1, x / ATMO_CELL));
+    const int cy = std::max(0, std::min(ATMO_H - 1, y / ATMO_CELL));
+    return cy * ATMO_W + cx;
+}
+
+void World::init_atmosphere() {
+    const bool missing = atmos_temp.size() != ATMO_N || atmos_humidity.size() != ATMO_N ||
+                         atmos_cloud.size() != ATMO_N || atmos_precip.size() != ATMO_N ||
+                         atmos_pressure.size() != ATMO_N || atmos_wind_u.size() != ATMO_N ||
+                         atmos_wind_v.size() != ATMO_N;
+    if (missing) {
+        atmos_temp.clear(); atmos_humidity.clear(); atmos_cloud.clear(); atmos_precip.clear();
+        atmos_pressure.clear(); atmos_wind_u.clear(); atmos_wind_v.clear();
+    }
+    if (missing || atmos_day != day) tick_atmosphere(day);
+}
+
+// Builds the day's synoptic fields. Fully deterministic (seeded from wday), so
+// a saved game replays identical weather. Steps:
+//   1. Spectral (FFT-shaped) fields for pressure/temperature/humidity anomalies.
+//   2. Traveling low/high pressure systems plus a meandering cold-front band.
+//   3. Geostrophic wind along the isobars plus a seasonal trade wind.
+//   4. Semi-Lagrangian advection of yesterday's cloud field, condensation from
+//      humidity and wind convergence, then precipitation fallout (driving rain +
+//      strong wind => storms). Town Consciousness climate bias enters via the
+//      seasonal baselines, the humidity drift, and the storm-chance boost.
+void World::tick_atmosphere(uint32_t wday) {
+    const bool fresh = atmos_temp.size() != ATMO_N || atmos_humidity.size() != ATMO_N ||
+                       atmos_cloud.size() != ATMO_N || atmos_precip.size() != ATMO_N ||
+                       atmos_pressure.size() != ATMO_N || atmos_wind_u.size() != ATMO_N ||
+                       atmos_wind_v.size() != ATMO_N;
+    if (fresh) {
+        atmos_temp.assign(ATMO_N, 0);
+        atmos_humidity.assign(ATMO_N, 0);
+        atmos_cloud.assign(ATMO_N, 0);
+        atmos_precip.assign(ATMO_N, 0);
+        atmos_pressure.assign(ATMO_N, 0);
+        atmos_wind_u.assign(ATMO_N, 0);
+        atmos_wind_v.assign(ATMO_N, 0);
+    }
+    const int season = season_index(wday);
+    const int base_temp = season == 3 ? 45 : season == 2 ? 95 : season == 0 ? 118 : 145;
+    const int base_hum  = season == 3 ? 120 : season == 2 ? 145 : season == 0 ? 160 : 175;
+    const float bias_temp = weather_temperature_bias * 6.375f;
+    const float bias_hum  = weather_humidity_drift * 55.0f;
+    const float bias_storm = weather_storm_chance;
+
+    const uint32_t seed = wday * 104729u + 0xA7A7u;
+    std::vector<float> pfield = atmos::spectral_field(seed, ATMO_W, ATMO_H, 55.0f);
+    std::vector<float> tfield = atmos::spectral_field(seed + 101u, ATMO_W, ATMO_H, 24.0f);
+    std::vector<float> hfield = atmos::spectral_field(seed + 202u, ATMO_W, ATMO_H, 38.0f);
+
+    // Travelling systems: continuous tracks (deterministic per day).
+    const float low_cx = atmos::wrapf(static_cast<float>(wday) * 2.2f, ATMO_W);
+    const float low_cy = 12.0f + 9.0f * std::sin(static_cast<float>(wday) * 0.13f + 1.1f);
+    const float low_str = 48.0f + 30.0f * std::sin(static_cast<float>(wday) * 0.31f);
+    const float hi_cx = atmos::wrapf(static_cast<float>(wday) * -1.7f + 8.0f, ATMO_W);
+    const float hi_cy = 8.0f + 9.0f * std::sin(static_cast<float>(wday) * 0.17f + 3.0f);
+    const float hi_str = 34.0f + 14.0f * std::sin(static_cast<float>(wday) * 0.23f);
+    const float sigma = 3.5f;
+    const float front_ang = 0.6f + 0.8f * std::sin(static_cast<float>(wday) * 0.09f);
+
+    std::vector<float> press(ATMO_N, 0.0f);
+    for (int y = 0; y < ATMO_H; ++y)
+        for (int x = 0; x < ATMO_W; ++x) {
+            const size_t i = static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x);
+            float p = pfield[i];
+            float dx = static_cast<float>(x) - low_cx, dy = static_cast<float>(y) - low_cy;
+            p -= low_str * std::exp(-(dx * dx + dy * dy) / (2.0f * sigma * sigma));
+            dx = static_cast<float>(x) - hi_cx; dy = static_cast<float>(y) - hi_cy;
+            p += hi_str * std::exp(-(dx * dx + dy * dy) / (2.0f * sigma * sigma));
+            press[i] = p;
+        }
+    // Cold-front band: a meandering line of enhanced pressure drop trailing from
+    // the low center. Where it crosses the map, the pressure gradient is steepest,
+    // giving the strongest winds and rain (storm-front dynamics).
+    for (float s = 1.0f; s < 11.0f; s += 1.0f) {
+        float bx = low_cx + std::cos(front_ang) * s;
+        float by = low_cy + std::sin(front_ang) * s;
+        const float wig = 1.4f * std::sin(s * 0.85f + static_cast<float>(wday) * 0.05f);
+        bx -= std::sin(front_ang) * wig;
+        by += std::cos(front_ang) * wig;
+        for (int y = 0; y < ATMO_H; ++y)
+            for (int x = 0; x < ATMO_W; ++x) {
+                const size_t i = static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x);
+                const float dx = static_cast<float>(x) - bx, dy = static_cast<float>(y) - by;
+                const float d2 = dx * dx + dy * dy;
+                if (d2 < 3.0f) press[i] -= 14.0f * (1.0f - d2 / 3.0f);
+            }
+    }
+
+    // Geostrophic wind: flow along the isobars (low pressure on the left).
+    for (int y = 0; y < ATMO_H; ++y)
+        for (int x = 0; x < ATMO_W; ++x) {
+            const size_t i = static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x);
+            const int xp = atmos::wrap(x + 1, ATMO_W), xm = atmos::wrap(x - 1, ATMO_W);
+            const int yp = atmos::wrap(y + 1, ATMO_H), ym = atmos::wrap(y - 1, ATMO_H);
+            const float dpdx = (press[static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(xp)] -
+                                press[static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(xm)]) * 0.5f;
+            const float dpdy = (press[static_cast<size_t>(yp) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x)] -
+                                press[static_cast<size_t>(ym) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x)]) * 0.5f;
+            float u = -dpdy * 0.9f;   // eastward
+            float v =  dpdx * 0.9f;   // northward
+            u += (season == 3) ? -3.0f : (season == 1) ? 2.5f : 1.0f;  // trade wind
+            atmos_wind_u[i] = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(u * 2.2f)), -63, 63));
+            atmos_wind_v[i] = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(v * 2.2f)), -63, 63));
+        }
+
+    // Temperature / humidity fields (microclimate handled by the per-tile queries).
+    for (int y = 0; y < ATMO_H; ++y)
+        for (int x = 0; x < ATMO_W; ++x) {
+            const size_t i = static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x);
+            const float t = static_cast<float>(base_temp) + bias_temp + tfield[i] + press[i] * 0.06f;
+            const float h = static_cast<float>(base_hum) + bias_hum + hfield[i] - press[i] * 0.22f;
+            atmos_temp[i]     = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(t)), 0, 255));
+            atmos_humidity[i] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(h)), 0, 255));
+            atmos_pressure[i] = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(press[i])), -127, 127));
+        }
+
+    // Cloud CA: advect yesterday's cloud by the wind, condense where humidity and
+    // wind convergence are high, drain what precipitates.
+    const bool prev_valid = !fresh && atmos_day != 0;
+    std::vector<float> cloud(ATMO_N, 0.0f);
+    for (int y = 0; y < ATMO_H; ++y)
+        for (int x = 0; x < ATMO_W; ++x) {
+            const size_t i = static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x);
+            // Convergence proxy (negative divergence) from the stored wind field.
+            const int xp = atmos::wrap(x + 1, ATMO_W), xm = atmos::wrap(x - 1, ATMO_W);
+            const int yp = atmos::wrap(y + 1, ATMO_H), ym = atmos::wrap(y - 1, ATMO_H);
+            const int du = static_cast<int>(atmos_wind_u[static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(xp)]) -
+                           static_cast<int>(atmos_wind_u[static_cast<size_t>(y) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(xm)]);
+            const int dv = static_cast<int>(atmos_wind_v[static_cast<size_t>(yp) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x)]) -
+                           static_cast<int>(atmos_wind_v[static_cast<size_t>(ym) * static_cast<size_t>(ATMO_W) + static_cast<size_t>(x)]);
+            const float conv = std::max(0.0f, -static_cast<float>(du + dv));
+            float prev = 0.0f;
+            if (prev_valid) {
+                const float su = static_cast<float>(atmos_wind_u[i]) * 0.02f;
+                const float sv = static_cast<float>(atmos_wind_v[i]) * 0.02f;
+                const float sx = static_cast<float>(x) - su;
+                const float sy = static_cast<float>(y) - sv;
+                const int x0 = static_cast<int>(std::floor(sx));
+                const int y0 = static_cast<int>(std::floor(sy));
+                const float fx = sx - static_cast<float>(x0);
+                const float fy = sy - static_cast<float>(y0);
+                const int x1 = atmos::wrap(x0 + 1, ATMO_W);
+                const int y1 = atmos::wrap(y0 + 1, ATMO_H);
+                const auto& C = atmos_cloud;
+                const auto bil = [&](int xx, int yy) -> float {
+                    return static_cast<float>(C[static_cast<size_t>(atmos::wrap(yy, ATMO_H)) *
+                                                static_cast<size_t>(ATMO_W) +
+                                                static_cast<size_t>(atmos::wrap(xx, ATMO_W))]);
+                };
+                prev = bil(x0, y0) * (1.0f - fx) * (1.0f - fy) +
+                       bil(x1, y0) * fx * (1.0f - fy) +
+                       bil(x0, y1) * (1.0f - fx) * fy +
+                       bil(x1, y1) * fx * fy;
+            }
+            const float hum = static_cast<float>(atmos_humidity[i]) / 255.0f;
+            const float cond = std::max(0.0f, (hum - 0.30f) * 220.0f) + conv * 2.0f + bias_storm * 80.0f;
+            float cl = prev * 0.90f + cond;
+            cl = std::clamp(cl, 0.0f, 255.0f);
+            float fall = 0.0f;
+            if (cl > 120.0f) {
+                fall = (cl - 120.0f) * 0.40f;
+            } else if (cl > 90.0f && hum > 0.50f) {
+                fall = 10.0f;  // drizzle under heavy overcast
+            }
+            // Driving rain where the wind is strong: storms.
+            const float wspd = std::hypot(static_cast<float>(atmos_wind_u[i]), static_cast<float>(atmos_wind_v[i]));
+            if (wspd > 45.0f) fall *= 1.6f;
+            cloud[i] = std::max(0.0f, cl - fall);
+            atmos_cloud[i]   = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(cloud[i])), 0, 255));
+            atmos_precip[i]  = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(fall)), 0, 255));
+        }
+    atmos_day = wday;
+}
+
+int World::weather_at(int x, int y) const {
+    const int i = atmos_index(x, y);
+    const uint8_t p  = atmos_precip[static_cast<size_t>(i)];
+    const uint8_t cl = atmos_cloud[static_cast<size_t>(i)];
+    const int wind = wind_here(x, y);
+    const int hum  = humidity_here(x, y);
+    if (p > 150 && wind > 40) return 3;              // severe storm
+    if (p > 90) return 1;                            // rain
+    if (p > 50) return 1;                            // drizzle
+    if (cl > 100 && hum > 130 && wind < 30) return 2; // fog
+    return 0;                                        // clear
+}
+
+int World::rain_here(int x, int y) const {
+    return static_cast<int>(atmos_precip[static_cast<size_t>(atmos_index(x, y))]);
+}
+
+int World::temp_here(int x, int y) const {
+    int t = static_cast<int>(atmos_temp[static_cast<size_t>(atmos_index(x, y))]);
+    const Cell& c = at(x, y);
+    if (c.tile == Tile::Ice) t -= 45;
+    else if (c.tile == Tile::Snow) t -= 15;
+    if (is_water(c.tile)) t -= 8;
+    if (y < 24) t -= 10;                              // northern highlands
+    if (y > 72) t += 6;                               // southern lowlands
+    if (is_tree(c.obj.type)) t -= 4;                  // canopy shade
+    if (c.tile == Tile::Cobble || c.tile == Tile::Bridge) t += 6;  // built-up warmth
+    return std::clamp(t, 0, 255);
+}
+
+int World::humidity_here(int x, int y) const {
+    int h = static_cast<int>(atmos_humidity[static_cast<size_t>(atmos_index(x, y))]);
+    const Cell& c = at(x, y);
+    if (is_water(c.tile)) h += 14;
+    if (is_tree(c.obj.type)) h += 8;                  // transpiration
+    if (c.tile == Tile::Sand) h -= 18;
+    if (c.tile == Tile::Ice || c.tile == Tile::Snow) h -= 10;
+    if (c.tile == Tile::Cobble || c.tile == Tile::Bridge) h -= 6;
+    return std::clamp(h, 0, 255);
+}
+
+int World::wind_here(int x, int y) const {
+    const int i = atmos_index(x, y);
+    const float spd = std::hypot(static_cast<float>(atmos_wind_u[static_cast<size_t>(i)]),
+                                 static_cast<float>(atmos_wind_v[static_cast<size_t>(i)]));
+    return std::clamp(static_cast<int>(std::lround(spd)), 0, 100);
+}
+
+void World::wind_vec_here(int x, int y, int& u, int& v) const {
+    const int i = atmos_index(x, y);
+    u = static_cast<int>(atmos_wind_u[static_cast<size_t>(i)]);
+    v = static_cast<int>(atmos_wind_v[static_cast<size_t>(i)]);
 }
 
 void World::add_job_board_entries() {
