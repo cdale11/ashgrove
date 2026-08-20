@@ -1286,6 +1286,54 @@ soil degradation — all driven by the atmosphere, hydrology, and creature syste
 
 ---
 
+## 42. Hidden State Persistence (ROADMAP 2.10)
+
+Shipped 2026-08-19. All cognitive hidden state — per-agent `CognitiveCore` state and the
+six aggregate minds — is serialized to disk daily, restored on boot, and discarded on
+`newgame`. State survives server restarts, so narrative/emotional continuity (and horror
+cycle escalation) persists across sessions.
+
+### Per-agent cognitive cores (`CognitiveCore`)
+- ✅ `CognitiveCore::save(dir)` / `CognitiveCore::load(dir)` write/read one JSON file per
+  agent at `data/npc_cognitive_state/` (file name = escaped agent id, e.g.
+  `npc:Mayor.json`), restoring drives, memories, social graph, goals, causal traces,
+  valence/arousal and self-model (self-esteem/competence/autonomy).
+- ✅ `CognitiveRegistry::get(agent_id)` returns a `CognitiveCore*` (added for the
+  save-on-advance-day path).
+- ✅ Applied to the **7 important NPCs** (Mayor, Witch, Traveler, Doctor, Teacher,
+  Carpenter, Farmer) and the **5 talkable villagers** (Leah, Abigail, Elliot, Robin,
+  Evelyn).
+
+### Aggregate minds (file `load`/`save` + JSON)
+- ✅ `VillageMind`: collective fear/joy/trust/anxiety, schedule_bias, market_volatility,
+  horror_night_event_weight, horror_intensity, memory ring (`data/village_mind.json`).
+- ✅ `EconomyMind`: inflation_rate, trade_route_health, price_elasticity,
+  market_volatility, demand_shift, commodity_volatility, price_history,
+  recent_events (`data/economy_mind.json`).
+- ✅ `CultureMind`: cultural_cohesion, collective fear/joy, schedule_bias,
+  dialogue_topic_weight, shared beliefs/fears, practice_frequency
+  (`data/culture_mind.json`).
+- ✅ `ValleyMind`: horror_intensity/sanity_drain/fog/phantom pushed values,
+  last_tick_day, memory ring (`data/valley_mind.json`).
+- ⚠️ `NatureMind`: `save`/`load` exist and write `data/nature_mind.json`, but
+  `from_json` is a minimal stub returning `false` — chunk aggregates are **not** restored
+  (they are rebuilt from world state each boot). Known limitation.
+
+### Game loop integration (`src/main.cpp`)
+- ✅ **Save**: in `advance_day`, cognitive cores are saved under `g_mutex`; the five
+  aggregate minds are saved outside the lock, just before `save_world`.
+- ✅ **Load**: at startup, all 12 cores load from `data/npc_cognitive_state/` and the five
+  aggregate minds load from their JSON files immediately after construction.
+- ✅ **`newgame`**: removes `data/npc_cognitive_state/` and all five `data/*_mind.json`
+  files so a fresh world starts with clean cognition (existing save is still backed up).
+
+### Verification
+- ✅ Zero-warning build.
+- ✅ Boot with existing cognitive files → cores/minds restored; `newgame` clears them.
+- ✅ Intent regression 26/30 held (same 4 known param-only failures).
+
+---
+
 ## 33. Cognitive Depth (ROADMAP 1.7)
 
 Shipped 2026-08-18. Verified end-to-end against the running server.

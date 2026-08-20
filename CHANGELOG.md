@@ -100,6 +100,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commands: `terrain`/`flood`/`erosion`/`succession`/`soil` + intent verbs.
 - Intent regression 26/30 held (same 4 known param-only failures).
 
+### Added — Hidden State Persistence (ROADMAP 2.10, 2026-08-19)
+- Per-agent `CognitiveCore` save/load to `data/npc_cognitive_state/` for the 7
+  important NPCs and 5 villagers (drives, memories, social graph, goals, causal traces,
+  self-model); `CognitiveRegistry::get()` lookup added.
+- Aggregate minds gain JSON serialization + file load/save: VillageMind
+  (`data/village_mind.json`), EconomyMind (`data/economy_mind.json`), CultureMind
+  (`data/culture_mind.json`), ValleyMind (`data/valley_mind.json`), NatureMind
+  (`data/nature_mind.json` — `from_json` stub, not restored).
+- `advance_day` saves cores (under `g_mutex`) + aggregate minds (outside lock) before
+  `save_world`; boot restores all cognitive state after construction.
+- `newgame` discards all cognitive state (`data/npc_cognitive_state` + `data/*_mind.json`).
+- Intent regression 26/30 held (same 4 known param-only failures).
+
 ### Added — Pest / Disease / Predators (ROADMAP 2.4, 2026-08-19)
 - Pest agents (aphids/caterpillars/locusts) + disease spore CA + crop-adjacency
   transmission graph; `Crop` gains `pest_level`/`disease_level`; deterministic daily

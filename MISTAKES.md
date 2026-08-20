@@ -237,3 +237,24 @@ not implicit default.
 **What happened:** The `tick_terrain_ecology` function referenced member variables like `elevation`, `flood_depth`, `saturation`, `structure` without the `c.` prefix, causing "was not declared in this scope" errors. The function iterates with `for (auto& c : cells)` but the body used bare names.
 **Fix:** Added `c.` prefix to all member accesses in the terrain ecology tick loops.
 **Lesson:** When iterating with a named loop variable (`auto& c`), always use the prefix for member access. A grep for bare member names inside loop bodies would catch this.
+
+### M24 — Loop variable shadowing `VillageMemoryRecord rec` vs `rec_json` in from_json
+**What happened:** The `from_json` deserializers in `valley_mind.cpp` and `village_mind.cpp`
+used `for (const auto& rec_json : j["memory"])` but declared a local `VillageMemoryRecord rec;`
+— a shadowing collision (member `rec` naming) that surfaced as compile errors during the 2.10
+serialization work.
+**Fix:** Kept the loop variable as `rec_json` and the local record as `rec`, ensuring distinct
+names; member accesses use `rec.day` etc.
+**Lesson:** When deserializing a collection of records, the loop iterator and the local record
+instance must not shadow each other; prefer distinct descriptive names (`rec_json` vs `rec`).
+
+### M25 — 2.10 code committed under a mislabeled "2.9" commit message
+**What happened:** The ROADMAP 2.10 Hidden State Persistence implementation (mind serialization,
+cognitive-core save/load, `advance_day`/boot wiring, `newgame` discard) was committed in
+`32e0ad4` with the message `feat(terrain): ROADMAP 2.9 — Terrain & ecological change (8.5)` —
+a copy-paste of the prior 2.9 message. The real 2.9 commit is `0a5a42a`. History now has two
+2.9-labeled commits, the second actually containing 2.10.
+**Fix:** Docs (ROADMAP 2.10 row, shipped-features §42, CHANGELOG) describe the 2.10 work under
+its correct roadmap item; the commit message could not be amended post-push.
+**Lesson:** Generate each commit message from the actual staged diff (files changed), not from
+memory of the previous feature. Verify the diff's subject before `git commit`.
