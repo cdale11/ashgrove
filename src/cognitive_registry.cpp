@@ -22,6 +22,13 @@ CognitiveCore& CognitiveRegistry::get_or_create(const std::string& agent_id) {
   return *raw;
 }
 
+CognitiveCore* CognitiveRegistry::get(const std::string& agent_id) {
+  std::unique_lock<std::recursive_mutex> lock(mtx_);
+  auto it = cores_.find(agent_id);
+  if (it != cores_.end()) return it->second.get();
+  return nullptr;
+}
+
 void CognitiveRegistry::remove(const std::string& agent_id) {
   std::unique_lock<std::recursive_mutex> lock(mtx_);
   cores_.erase(agent_id);

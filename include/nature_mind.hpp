@@ -93,6 +93,10 @@ class NatureMind {
   std::string to_json() const;
   bool from_json(const std::string& json_str);
 
+  // Load/save from file (ROADMAP 2.10)
+  void load(const std::string& path);
+  void save(const std::string& path) const;
+
   // Inspection (for /town/inspect)
   struct Snapshot {
     uint32_t day;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 
 namespace ashgrove {
 
@@ -217,6 +218,87 @@ EconomyMind::Snapshot EconomyMind::get_snapshot() const {
   }
 
   return snap;
+}
+
+// Serialization for ROADMAP 2.10 (Hidden State Persistence)
+std::string EconomyMind::to_json() const {
+  json j;
+  j["inflation_rate"] = inflation_rate_;
+  j["trade_route_health"] = trade_route_health_;
+  j["price_elasticity"] = price_elasticity_;
+  j["market_volatility"] = market_volatility_;
+  json ds = json::object();
+  for (const auto& kv : demand_shift_) ds[kv.first] = kv.second;
+  j["demand_shift"] = ds;
+  json cv = json::object();
+  for (const auto& kv : commodity_volatility_) cv[kv.first] = kv.second;
+  j["commodity_volatility"] = cv;
+  json ph = json::object();
+  for (const auto& kv : price_history_) {
+    json arr = json::array();
+    for (float v : kv.second) arr.push_back(v);
+    ph[kv.first] = arr;
+  }
+  j["price_history"] = ph;
+  json re = json::array();
+  for (const auto& ev : recent_events_) {
+    re.push_back({{"type", ev.first}, {"commodity", ev.second}});
+  }
+  j["recent_events"] = re;
+  return j.dump();
+}
+
+bool EconomyMind::from_json(const std::string& json_str) {
+  try {
+    json j = json::parse(json_str);
+    inflation_rate_ = j.value("inflation_rate", 0.0f);
+    trade_route_health_ = j.value("trade_route_health", 1.0f);
+    price_elasticity_ = j.value("price_elasticity", 1.0f);
+    market_volatility_ = j.value("market_volatility", 0.0f);
+    if (j.contains("demand_shift") && j["demand_shift"].is_object()) {
+      for (auto it = j["demand_shift"].begin(); it != j["demand_shift"].end(); ++it) {
+        demand_shift_[it.key()] = it.value();
+      }
+    }
+    if (j.contains("commodity_volatility") && j["commodity_volatility"].is_object()) {
+      for (auto it = j["commodity_volatility"].begin(); it != j["commodity_volatility"].end(); ++it) {
+        commodity_volatility_[it.key()] = it.value();
+      }
+    }
+    if (j.contains("price_history") && j["price_history"].is_object()) {
+      price_history_.clear();
+      for (auto it = j["price_history"].begin(); it != j["price_history"].end(); ++it) {
+        std::deque<float> dq;
+        for (const auto& v : it.value()) dq.push_back(v);
+        price_history_[it.key()] = dq;
+      }
+    }
+    if (j.contains("recent_events") && j["recent_events"].is_array()) {
+      recent_events_.clear();
+      for (const auto& ev : j["recent_events"]) {
+        recent_events_.emplace_back(ev.value("type", ""), ev.value("commodity", ""));
+      }
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+// File-based load (ROADMAP 2.10)
+void EconomyMind::load(const std::string& path) {
+  std::ifstream f(path);
+  if (!f) return;
+  std::stringstream buf;
+  buf << f.rdbuf();
+  from_json(buf.str());
+}
+
+// File-based save (ROADMAP 2.10)
+void EconomyMind::save(const std::string& path) const {
+  std::ofstream f(path);
+  if (!f) return;
+  f << to_json();
 }
 
 }  // namespace ashgrove

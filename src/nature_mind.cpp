@@ -651,4 +651,20 @@ bool NatureMind::from_json(const std::string& json_str) {
   return false;
 }
 
+// File-based load (ROADMAP 2.10)
+void NatureMind::load(const std::string& path) {
+  std::ifstream f(path);
+  if (!f) return;
+  std::stringstream buf;
+  buf << f.rdbuf();
+  from_json(buf.str());
+}
+
+// File-based save (ROADMAP 2.10)
+void NatureMind::save(const std::string& path) const {
+  std::ofstream f(path);
+  if (!f) return;
+  f << to_json();
+}
+
 }  // namespace ashgrove

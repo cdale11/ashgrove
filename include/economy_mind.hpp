@@ -52,6 +52,16 @@ class EconomyMind {
   };
   Snapshot get_snapshot() const;
 
+  // Serialization for ROADMAP 2.10 (Hidden State Persistence)
+  std::string to_json() const;
+  bool from_json(const std::string& json_str);
+
+  // Load from file (ROADMAP 2.10)
+  void load(const std::string& path);
+
+  // Save to file (ROADMAP 2.10)
+  void save(const std::string& path) const;
+
  private:
   World* world_;
 

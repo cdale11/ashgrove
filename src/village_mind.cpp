@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 
 namespace ashgrove {
 
@@ -154,6 +155,74 @@ VillageMind::Snapshot VillageMind::get_snapshot() const {
     snap.recent_memory.push_back(memory_[i]);
   }
   return snap;
+}
+
+// Serialization for ROADMAP 2.10 (Hidden State Persistence)
+std::string VillageMind::to_json() const {
+  json j;
+  j["collective_fear"] = collective_fear_;
+  j["collective_joy"] = collective_joy_;
+  j["collective_trust"] = collective_trust_;
+  j["collective_anxiety"] = collective_anxiety_;
+  j["schedule_bias"] = schedule_bias_;
+  j["market_volatility"] = market_volatility_;
+  j["horror_night_event_weight"] = horror_night_event_weight_;
+  j["horror_intensity"] = horror_intensity_;
+  json mem = json::array();
+  for (const auto& rec : memory_) {
+    mem.push_back({
+        {"day", rec.day},
+        {"event_type", rec.event_type},
+        {"detail", rec.detail},
+        {"emotional_weight", rec.emotional_weight}
+    });
+  }
+  j["memory"] = mem;
+  return j.dump();
+}
+
+bool VillageMind::from_json(const std::string& json_str) {
+  try {
+    json j = json::parse(json_str);
+    collective_fear_ = j.value("collective_fear", 0.0f);
+    collective_joy_ = j.value("collective_joy", 0.0f);
+    collective_trust_ = j.value("collective_trust", 0.5f);
+    collective_anxiety_ = j.value("collective_anxiety", 0.0f);
+    schedule_bias_ = j.value("schedule_bias", 0.0f);
+    market_volatility_ = j.value("market_volatility", 0.0f);
+    horror_night_event_weight_ = j.value("horror_night_event_weight", 1.0f);
+    horror_intensity_ = j.value("horror_intensity", 0.0f);
+    if (j.contains("memory") && j["memory"].is_array()) {
+      memory_.clear();
+      for (const auto& rec_json : j["memory"]) {
+        VillageMemoryRecord rec;
+        rec.day = rec_json.value("day", 0);
+        rec.event_type = rec_json.value("event_type", "");
+        rec.detail = rec_json.value("detail", "");
+        rec.emotional_weight = rec_json.value("emotional_weight", 0.0f);
+        memory_.push_back(rec);
+      }
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+// File-based load (ROADMAP 2.10)
+void VillageMind::load(const std::string& path) {
+  std::ifstream f(path);
+  if (!f) return;
+  std::stringstream buf;
+  buf << f.rdbuf();
+  from_json(buf.str());
+}
+
+// File-based save (ROADMAP 2.10)
+void VillageMind::save(const std::string& path) const {
+  std::ofstream f(path);
+  if (!f) return;
+  f << to_json();
 }
 
 }  // namespace ashgrove

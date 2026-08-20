@@ -63,6 +63,14 @@ class VillageMind {
   };
   Snapshot get_snapshot() const;
 
+  // Serialization for ROADMAP 2.10 (Hidden State Persistence)
+  std::string to_json() const;
+  bool from_json(const std::string& json_str);
+
+  // File-based load/save (ROADMAP 2.10)
+  void load(const std::string& path);
+  void save(const std::string& path) const;
+
  private:
   World* world_;
   CognitiveRegistry* registry_;

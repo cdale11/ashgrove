@@ -1,6 +1,7 @@
 #include "valley_mind.hpp"
 
 #include <algorithm>
+#include <fstream>
 
 namespace ashgrove {
 
@@ -104,6 +105,66 @@ ValleyMind::Snapshot ValleyMind::get_snapshot() const {
         ": " + memory_[i].detail);
   }
   return snap;
+}
+
+// Serialization for ROADMAP 2.10 (Hidden State Persistence)
+std::string ValleyMind::to_json() const {
+  json j;
+  j["horror_intensity_pushed"] = horror_intensity_pushed_;
+  j["sanity_drain_pushed"] = sanity_drain_pushed_;
+  j["fog_pushed"] = fog_pushed_;
+  j["phantom_pushed"] = phantom_pushed_;
+  j["last_tick_day"] = last_tick_day_;
+  json mem = json::array();
+  for (const auto& rec : memory_) {
+    mem.push_back({
+        {"day", rec.day},
+        {"event_type", rec.event_type},
+        {"detail", rec.detail},
+        {"weight", rec.weight}
+    });
+  }
+  j["memory"] = mem;
+  return j.dump();
+}
+
+bool ValleyMind::from_json(const std::string& json_str) {
+  try {
+    json j = json::parse(json_str);
+    horror_intensity_pushed_ = j.value("horror_intensity_pushed", 0.0f);
+    sanity_drain_pushed_ = j.value("sanity_drain_pushed", 1.0f);
+    fog_pushed_ = j.value("fog_pushed", 0.0f);
+    phantom_pushed_ = j.value("phantom_pushed", 0.0f);
+    last_tick_day_ = j.value("last_tick_day", 0u);
+    if (j.contains("memory") && j["memory"].is_array()) {
+      memory_.clear();
+      for (const auto& rec_json : j["memory"]) {
+        ValleyMemoryRecord rec;
+        rec.day = rec_json.value("day", 0);
+        rec.event_type = rec_json.value("event_type", "");
+        rec.detail = rec_json.value("detail", "");
+        rec.weight = rec_json.value("weight", 0.0f);
+        memory_.push_back(rec);
+      }
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+void ValleyMind::load(const std::string& path) {
+  std::ifstream f(path);
+  if (!f) return;
+  std::stringstream buf;
+  buf << f.rdbuf();
+  from_json(buf.str());
+}
+
+void ValleyMind::save(const std::string& path) const {
+  std::ofstream f(path);
+  if (!f) return;
+  f << to_json();
 }
 
 }  // namespace ashgrove

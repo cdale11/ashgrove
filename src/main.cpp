@@ -28,6 +28,13 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+
+// ROADMAP 2.10: Aggregate minds (file scope for access from advance_day)
+static ashgrove::NatureMind* g_nature_mind = nullptr;
+static ashgrove::VillageMind* g_village_mind = nullptr;
+static ashgrove::EconomyMind* g_economy_mind = nullptr;
+static ashgrove::CultureMind* g_culture_mind = nullptr;
+static ashgrove::ValleyMind* g_valley_mind = nullptr;
 #include <algorithm>
 #include <cstdlib>
 #include <sstream>
@@ -1436,6 +1443,34 @@ if (season == 3) { // Winter
 
     // L6: Update wildlife
     w.tick_wildlife();
+
+    // ROADMAP 2.10 (Hidden State Persistence): save cognitive cores and aggregate minds
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        ashgrove::CognitiveRegistry& cog_registry = ashgrove::CognitiveRegistry::instance();
+        // Save cognitive cores for important NPCs
+        const std::vector<std::string> important_npcs = {
+            "Mayor", "Witch", "Traveler", "Doctor", "Teacher", "Carpenter", "Farmer"
+        };
+        for (const auto& name : important_npcs) {
+            auto* core = cog_registry.get("npc:" + name);
+            if (core) core->save("data/npc_cognitive_state");
+        }
+        // Save lightweight cores for villagers
+        const std::vector<std::string> villager_npcs = {
+            "Leah", "Abigail", "Elliot", "Robin", "Evelyn"
+        };
+        for (const auto& name : villager_npcs) {
+            auto* core = cog_registry.get("npc:" + name);
+            if (core) core->save("data/npc_cognitive_state");
+        }
+    }
+    // Save aggregate minds (outside lock)
+    g_nature_mind->save("data/nature_mind.json");
+    g_village_mind->save("data/village_mind.json");
+    g_economy_mind->save("data/economy_mind.json");
+    g_culture_mind->save("data/culture_mind.json");
+    g_valley_mind->save("data/valley_mind.json");
 
     save_world(w, "save.json");
 }
@@ -5316,6 +5351,13 @@ static std::vector<std::string> handle_cmd(World& w, Player& p, const std::strin
             fs::copy_file("save.json", backup, fs::copy_options::overwrite_existing);
             say("Previous save kept as " + backup + ".");
         }
+        // ROADMAP 2.10: Discard all cognitive state on new game
+        fs::remove_all("data/npc_cognitive_state");
+        fs::remove("data/nature_mind.json");
+        fs::remove("data/village_mind.json");
+        fs::remove("data/economy_mind.json");
+        fs::remove("data/culture_mind.json");
+        fs::remove("data/valley_mind.json");
         uint32_t pid = p.id;
         std::string pname = p.name;
         World fresh;
@@ -5710,19 +5752,29 @@ int main(int argc, char** argv) {
 
     // Phase 7.9: Nature Mind — aggregate forest ecology cognition.
     ashgrove::NatureMind nature_mind(&world);
+    g_nature_mind = &nature_mind;
+    nature_mind.load("data/nature_mind.json");
 
     // Phase 7.9: Village Mind — aggregate NPC collective cognition.
     ashgrove::VillageMind village_mind(&world, &cog_registry);
+    g_village_mind = &village_mind;
+    village_mind.load("data/village_mind.json");
 
     // Phase 7.9: Economy Mind — aggregate commodity-cycle cognition.
     ashgrove::EconomyMind economy_mind(&world);
+    g_economy_mind = &economy_mind;
+    economy_mind.load("data/economy_mind.json");
 
     // Phase 7.9: Culture Mind — aggregate collective-culture cognition.
     ashgrove::CultureMind culture_mind(&world, &cog_registry);
+    g_culture_mind = &culture_mind;
+    culture_mind.load("data/culture_mind.json");
 
     // ROADMAP 1.2: Valley Mind — aggregate Valley Entity (genius loci)
     // cognition; drives the collective-guilt -> corruption -> horror loop.
     ashgrove::ValleyMind valley_mind(&world);
+    g_valley_mind = &valley_mind;
+    valley_mind.load("data/valley_mind.json");
 
     // Phase 8: tiered intent engine (rule fast path first, LLM fallback) plus
     // the command log collector that builds the training dataset (data/cmdlog.jsonl).

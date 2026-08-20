@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 
 namespace ashgrove {
 
@@ -119,6 +120,65 @@ CultureMind::Snapshot CultureMind::get_snapshot() const {
   snap.shared_fears = shared_fears_;
   snap.practice_frequency = practice_frequency_;
   return snap;
+}
+
+// Serialization for ROADMAP 2.10 (Hidden State Persistence)
+std::string CultureMind::to_json() const {
+  json j;
+  j["cultural_cohesion"] = cultural_cohesion_;
+  j["collective_fear"] = collective_fear_;
+  j["collective_joy"] = collective_joy_;
+  j["schedule_bias"] = schedule_bias_;
+  j["dialogue_topic_weight"] = dialogue_topic_weight_;
+  j["shared_beliefs"] = shared_beliefs_;
+  j["shared_fears"] = shared_fears_;
+  json pf = json::object();
+  for (const auto& kv : practice_frequency_) pf[kv.first] = kv.second;
+  j["practice_frequency"] = pf;
+  j["shared_beliefs_vec"] = shared_beliefs_;
+  j["shared_fears_vec"] = shared_fears_;
+  return j.dump();
+}
+
+bool CultureMind::from_json(const std::string& json_str) {
+  try {
+    json j = json::parse(json_str);
+    cultural_cohesion_ = j.value("cultural_cohesion", 0.0f);
+    collective_fear_ = j.value("collective_fear", 0.0f);
+    collective_joy_ = j.value("collective_joy", 0.0f);
+    schedule_bias_ = j.value("schedule_bias", 0.0f);
+    dialogue_topic_weight_ = j.value("dialogue_topic_weight", 1.0f);
+    if (j.contains("shared_beliefs") && j["shared_beliefs"].is_array()) {
+      shared_beliefs_ = j["shared_beliefs"].get<std::vector<std::string>>();
+    }
+    if (j.contains("shared_fears") && j["shared_fears"].is_array()) {
+      shared_fears_ = j["shared_fears"].get<std::vector<std::string>>();
+    }
+    if (j.contains("practice_frequency") && j["practice_frequency"].is_object()) {
+      for (auto it = j["practice_frequency"].begin(); it != j["practice_frequency"].end(); ++it) {
+        practice_frequency_[it.key()] = it.value();
+      }
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+// File-based load (ROADMAP 2.10)
+void CultureMind::load(const std::string& path) {
+  std::ifstream f(path);
+  if (!f) return;
+  std::stringstream buf;
+  buf << f.rdbuf();
+  from_json(buf.str());
+}
+
+// File-based save (ROADMAP 2.10)
+void CultureMind::save(const std::string& path) const {
+  std::ofstream f(path);
+  if (!f) return;
+  f << to_json();
 }
 
 }  // namespace ashgrove

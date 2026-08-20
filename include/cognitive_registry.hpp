@@ -27,6 +27,9 @@ class CognitiveRegistry {
   // Get or create a CognitiveCore for the given agent_id.
   CognitiveCore& get_or_create(const std::string& agent_id);
 
+  // Get an existing CognitiveCore (returns nullptr if not found).
+  CognitiveCore* get(const std::string& agent_id);
+
   // Remove an agent (e.g. when NPC permanently leaves the world).
   void remove(const std::string& agent_id);
 
